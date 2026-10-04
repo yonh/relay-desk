@@ -27,13 +27,16 @@ String? normalizeUrlInput(String input) {
   return '$scheme://$withoutSlashes';
 }
 
-final _schemeColon = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:(.*)$', dotAll: true);
+final _schemeColon = RegExp(r'^([a-zA-Z][a-zA-Z0-9+.-]*):(.*)$', dotAll: true);
 final _portAndRest = RegExp(r'^\d+([/?#].*)?$', dotAll: true);
 
-/// `scheme:...` unless the part after the colon is a port (`localhost:3000`).
+/// `scheme:...` unless it is `host:port` (`localhost:3000`, `example.com:8443`).
 bool _hasExplicitScheme(String text) {
   final match = _schemeColon.firstMatch(text);
-  return match != null && !_portAndRest.hasMatch(match.group(1)!);
+  if (match == null) return false;
+  final head = match.group(1)!;
+  if (head.toLowerCase() == 'localhost') return false;
+  return !_looksLikeHost(head) || !_portAndRest.hasMatch(match.group(2)!);
 }
 
 final _ipv4 = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');

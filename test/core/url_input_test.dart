@@ -15,6 +15,7 @@ void main() {
     test('keeps schemes written without slashes', () {
       expect(normalizeUrlInput('file:/tmp/page.html'), 'file:/tmp/page.html');
       expect(normalizeUrlInput('mailto:a@b.com'), 'mailto:a@b.com');
+      expect(normalizeUrlInput('about:123'), 'about:123');
       expect(
         normalizeUrlInput('example.com:8443/x'),
         'https://example.com:8443/x',
@@ -66,6 +67,7 @@ void main() {
       expect(normalizeUrlInput('   '), isNull);
       expect(normalizeUrlInput('hello world'), isNull);
       expect(normalizeUrlInput('justaword'), isNull);
+      expect(normalizeUrlInput('localhost:abc'), isNull);
     });
   });
 }
