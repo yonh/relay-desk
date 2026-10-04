@@ -81,11 +81,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private var identityFingerprints: [String: String] = [:]
     // identityId -> detached window controller (when detached).
     private(set) var detachedWindows: [String: DetachedWindowController] = [:]
-    // identityId -> emulated CSS viewport size from the active device preset
-    // (mobile presets only; nil for desktop). Recorded at register time so
-    // `detach` can size the detached window's content to the emulated
-    // viewport instead of the desktop default.
+    // identityId -> emulated CSS viewport size from the active device preset.
+    // Stored at view creation and read by `detach` to size the window. For
+    // `custom` (viewportFollowsSurface) `setBounds` keeps it tracking the
+    // live view surface so the detached window matches the panel's current
+    // size instead of a stale creation-time value.
     private(set) var identityViewports: [String: CGSize] = [:]
+    // Identities whose detached window should follow the live view surface
+    // (`custom` preset) rather than a fixed emulated viewport.
+    private var identityViewportFollows: Set<String> = []
     // viewId -> pending load watchdog. WKWebView can wedge (dead WebContent
     // process, hung per-store network process, view-out-of-window suspension)
     // without ever calling a terminal navigation delegate method; the watchdog
@@ -708,6 +712,13 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             }
             let container = webView.superview
             let containerBounds = container?.bounds ?? .zero
+            // `custom` preset: keep the remembered viewport tracking the live
+            // view surface so `detach` opens at the panel's current size.
+            if let identityId = identityIdFor(viewId: viewId),
+               identityViewportFollows.contains(identityId),
+               containerBounds.width > 0, containerBounds.height > 0 {
+                identityViewports[identityId] = containerBounds.size
+            }
             // Child fills the container; origin is local (0,0).
             webView.frame = CGRect(origin: .zero, size: containerBounds.size)
             // Ensure the WKWebView's internal scrollview re-lays-out to the
@@ -830,7 +841,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         userAgent: String? = nil,
         touchEmulation: Bool = false,
         viewportWidth: Double? = nil,
-        viewportHeight: Double? = nil
+        viewportHeight: Double? = nil,
+        viewportFollowsSurface: Bool = false
     ) -> NSView {
         let requestedKind = Self.storeKind(for: isolationMode)
         let reusable = identityStoreKinds[identityId] == requestedKind
@@ -947,12 +959,18 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if touchEmulation {
             addTouchEmulationScript(to: config)
         }
-        // Emulated CSS viewport for mobile presets: remembered for detach so
-        // the detached window's content area matches the emulated device.
+        // Emulated CSS viewport (mobile width-clamp and fixed window-size
+        // presets, plus the `custom` seed): remembered for detach so the
+        // detached window's content area matches the emulated surface.
         if let viewportWidth, let viewportHeight, viewportWidth > 0, viewportHeight > 0 {
             identityViewports[identityId] = CGSize(width: viewportWidth, height: viewportHeight)
         } else {
             identityViewports.removeValue(forKey: identityId)
+        }
+        if viewportFollowsSurface {
+            identityViewportFollows.insert(identityId)
+        } else {
+            identityViewportFollows.remove(identityId)
         }
         if #available(macOS 10.13, *) {
             config.suppressesIncrementalRendering = false
@@ -1713,6 +1731,7 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
         let touchEmulation = dict["touchEmulation"] as? Bool ?? false
         let viewportWidth = (dict["viewportWidth"] as? NSNumber)?.doubleValue
         let viewportHeight = (dict["viewportHeight"] as? NSNumber)?.doubleValue
+        let viewportFollowsSurface = dict["viewportFollowsSurface"] as? Bool ?? false
         return plugin.registerWebView(
             viewId: viewId,
             identityId: identityId,
@@ -1722,7 +1741,8 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
             userAgent: userAgent,
             touchEmulation: touchEmulation,
             viewportWidth: viewportWidth,
-            viewportHeight: viewportHeight
+            viewportHeight: viewportHeight,
+            viewportFollowsSurface: viewportFollowsSurface
         )
     }
 

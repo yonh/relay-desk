@@ -270,7 +270,7 @@ class WorkspaceController extends Notifier<WorkspaceState> {
           identity.id,
           state.layoutMode,
           state.panels.length,
-          isMobile: preset?.mobile ?? false,
+          preset: preset,
         );
     panels[identity.id] = PanelRuntime(
       identityId: identity.id,
@@ -333,11 +333,10 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       // to the project).
       final ids = panels.keys.toList();
       for (var i = 0; i < ids.length; i++) {
-        final isMobile =
-            devicePresetFor(panels[ids[i]]!.devicePresetId)?.mobile ?? false;
+        final preset = devicePresetFor(panels[ids[i]]!.devicePresetId);
         final layout = mode == LayoutMode.grid
-            ? _gridPanelLayout(ids[i], i, ids.length, isMobile: isMobile)
-            : _columnPanelLayout(ids[i], i, ids.length, isMobile: isMobile);
+            ? _gridPanelLayout(ids[i], i, ids.length, preset: preset)
+            : _columnPanelLayout(ids[i], i, ids.length, preset: preset);
         panels[ids[i]] = panels[ids[i]]!.copyWith(layout: layout);
       }
     }
@@ -667,23 +666,42 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   NativeBounds _defaultBounds(String identityId) =>
       const NativeBounds(0, 0, 400, 300);
 
-  /// Default layout for a freshly opened panel. Mobile device presets get
-  /// phone-shaped defaults (Tauri baseline `descriptorFromIdentity`: 375x700),
-  /// desktop presets keep the existing cell. The CSS viewport width the page
-  /// sees is additionally clamped in `_PanelBody`, so grid/focus cells also
-  /// render at the emulated width.
+  /// Preferred panel body size for a preset. Mobile presets keep the Tauri
+  /// baseline's phone-shaped 375x700; fixed window-size presets open at the
+  /// preset size plus ~96px of panel chrome (header + nav toolbar) so the
+  /// view starts near the emulated viewport; everything else falls back to
+  /// the caller's default cell size.
+  ({double width, double height}) _preferredPanelSize(
+    DevicePreset? preset, {
+    double fallbackWidth = 480,
+    double fallbackHeight = 360,
+  }) {
+    if (preset?.mobile == true) return (width: 375, height: 700);
+    if (preset?.sizing == ViewportSizing.fixed) {
+      return (
+        width: preset!.viewportWidth.toDouble(),
+        height: preset.viewportHeight + 96,
+      );
+    }
+    return (width: fallbackWidth, height: fallbackHeight);
+  }
+
+  /// Default layout for a freshly opened panel. Mobile/fixed presets get
+  /// preset-shaped defaults, everything else keeps the existing cell. The
+  /// CSS viewport the page sees is additionally clamped in `_PanelBody`, so
+  /// grid/focus cells also render at the emulated size.
   PanelLayout _defaultPanelLayout(
     String identityId,
     LayoutMode mode,
     int index, {
-    bool isMobile = false,
+    DevicePreset? preset,
   }) {
     if (mode == LayoutMode.grid) {
       return _gridPanelLayout(
         identityId,
         index,
         state.panels.length + 1,
-        isMobile: isMobile,
+        preset: preset,
       );
     }
     if (mode == LayoutMode.columns) {
@@ -691,16 +709,17 @@ class WorkspaceController extends Notifier<WorkspaceState> {
         identityId,
         index,
         state.panels.length + 1,
-        isMobile: isMobile,
+        preset: preset,
       );
     }
     // Canvas: stagger.
+    final size = _preferredPanelSize(preset);
     return PanelLayout(
       identityId: identityId,
       x: 40.0 + index * 30,
       y: 40.0 + index * 30,
-      width: isMobile ? 375 : 480,
-      height: isMobile ? 700 : 360,
+      width: size.width,
+      height: size.height,
     );
   }
 
@@ -712,17 +731,18 @@ class WorkspaceController extends Notifier<WorkspaceState> {
     String identityId,
     int index,
     int total, {
-    bool isMobile = false,
+    DevicePreset? preset,
   }) {
     final cols = total <= 1 ? 1 : (total <= 4 ? 2 : 3);
     final row = index ~/ cols;
     final col = index % cols;
+    final size = _preferredPanelSize(preset);
     return PanelLayout(
       identityId: identityId,
       x: col * 480.0,
       y: row * 360.0,
-      width: isMobile ? 375 : 480,
-      height: isMobile ? 700 : 360,
+      width: size.width,
+      height: size.height,
     );
   }
 
@@ -733,15 +753,20 @@ class WorkspaceController extends Notifier<WorkspaceState> {
     String identityId,
     int index,
     int total, {
-    bool isMobile = false,
+    DevicePreset? preset,
   }) {
     final colWidth = total > 0 ? (1440.0 / total) : 480.0;
+    final size = _preferredPanelSize(
+      preset,
+      fallbackWidth: colWidth,
+      fallbackHeight: 900,
+    );
     return PanelLayout(
       identityId: identityId,
       x: index * colWidth,
       y: 0,
-      width: isMobile ? 375 : colWidth,
-      height: 900,
+      width: size.width,
+      height: size.height,
     );
   }
 }

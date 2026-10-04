@@ -10,11 +10,59 @@ import 'package:relay_desk/data/device_presets.dart';
 
 void main() {
   test('catalog contains the three baseline presets verbatim', () {
-    expect(devicePresets.map((p) => p.id), [
-      'iphone-15',
-      'pixel-9',
-      'desktop-1920',
-    ]);
+    expect(
+      devicePresets.map((p) => p.id),
+      containsAllInOrder(['iphone-15', 'pixel-9', 'desktop-1920']),
+    );
+    expect(
+      devicePresets.firstWhere((p) => p.id == 'iphone-15').sizing,
+      ViewportSizing.widthOnly,
+    );
+    expect(
+      devicePresets.firstWhere((p) => p.id == 'pixel-9').sizing,
+      ViewportSizing.widthOnly,
+    );
+    expect(
+      devicePresets.firstWhere((p) => p.id == 'desktop-1920').sizing,
+      ViewportSizing.free,
+    );
+  });
+
+  test('custom preset is free sizing with no overrides', () {
+    final p = devicePresetFor(kCustomDevicePresetId)!;
+    expect(p.sizing, ViewportSizing.free);
+    expect(p.emulatedViewport, isFalse);
+    expect(p.userAgent, isNull);
+    expect(p.mobile, isFalse);
+    expect(p.touch, isFalse);
+  });
+
+  test('fixed window-size presets clamp both dims without UA/touch', () {
+    final fixed = devicePresets.where((p) => p.sizing == ViewportSizing.fixed);
+    expect(fixed.length, 11);
+    for (final p in fixed) {
+      expect(p.emulatedViewport, isTrue, reason: p.id);
+      expect(p.userAgent, isNull, reason: p.id);
+      expect(p.mobile, isFalse, reason: p.id);
+      expect(p.touch, isFalse, reason: p.id);
+      expect(p.viewportWidth, greaterThan(0), reason: p.id);
+      expect(p.viewportHeight, greaterThan(0), reason: p.id);
+      expect(isValidDevicePresetId(p.id), isTrue, reason: p.id);
+    }
+    expect(
+      fixed
+          .firstWhere((p) => p.id == 'size-macbook-air-1280x832')
+          .viewportWidth,
+      1280,
+    );
+  });
+
+  test('all preset ids are unique and well-formed', () {
+    final ids = devicePresets.map((p) => p.id).toList();
+    expect(ids.toSet().length, ids.length);
+    for (final id in ids) {
+      expect(isValidDevicePresetId(id), isTrue, reason: id);
+    }
   });
 
   test('iphone-15 preset carries the mobile Safari surface', () {

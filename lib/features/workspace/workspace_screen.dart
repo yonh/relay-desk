@@ -1774,14 +1774,65 @@ class _DevicePresetMenu extends ConsumerWidget {
     required this.currentPresetId,
   });
 
-  static IconData iconFor(String? presetId) =>
-      (devicePresetFor(presetId)?.mobile ?? false)
-      ? Icons.smartphone
-      : Icons.desktop_windows;
+  static IconData iconFor(String? presetId) {
+    final preset = devicePresetFor(presetId);
+    if (preset == null) return Icons.desktop_windows;
+    if (preset.mobile) return Icons.smartphone;
+    if (preset.id == kCustomDevicePresetId) return Icons.open_in_full;
+    if (preset.sizing == ViewportSizing.fixed) return Icons.aspect_ratio;
+    return Icons.desktop_windows;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
+    // Live size label for `custom` — like responsive design mode's
+    // "Custom (W × H)", it reports the panel's current size.
+    final layout = ref.watch(
+      workspaceControllerProvider.select(
+        (s) => s.panels[identityId]?.layout,
+      ),
+    );
+    PopupMenuItem<String> item(DevicePreset preset, [String? label]) =>
+        PopupMenuItem<String>(
+          key: ValueKey('device-preset-item-${preset.id}'),
+          value: preset.id,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(iconFor(preset.id), size: 16),
+              const SizedBox(width: 8),
+              // No Expanded/Flexible here: PopupMenu sizes its route via
+              // IntrinsicWidth, and a flexible child collapses the menu
+              // to its minimum width. A bounded box + ellipsis keeps the
+              // longest "W × H (name)" label inside the 256px popup cap.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 200),
+                child: Text(
+                  label ?? preset.name,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (preset.id == currentPresetId) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.check, size: 14),
+              ],
+            ],
+          ),
+        );
+    final custom = devicePresets.firstWhere(
+      (p) => p.id == kCustomDevicePresetId,
+    );
+    final customLabel = layout == null
+        ? custom.name
+        : '${custom.name} (${layout.width.round()} × '
+              '${layout.height.round()})';
+    final sizePresets = devicePresets.where(
+      (p) => p.sizing == ViewportSizing.fixed,
+    );
+    final deviceEntries = devicePresets.where(
+      (p) => p.sizing != ViewportSizing.fixed && p.id != custom.id,
+    );
     return PopupMenuButton<String>(
       key: ValueKey('device-preset-menu-$identityId'),
       tooltip: l10n.devicePresetTooltip,
@@ -1795,26 +1846,16 @@ class _DevicePresetMenu extends ConsumerWidget {
           .read(workspaceControllerProvider.notifier)
           .setDevicePreset(identityId, presetId),
       itemBuilder: (context) => [
-        for (final preset in devicePresets)
-          PopupMenuItem<String>(
-            key: ValueKey('device-preset-item-${preset.id}'),
-            value: preset.id,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(iconFor(preset.id), size: 16),
-                const SizedBox(width: 8),
-                // No Expanded/Flexible here: PopupMenu sizes its route via
-                // IntrinsicWidth, and a flexible child collapses the menu
-                // to its minimum width.
-                Text(preset.name),
-                if (preset.id == currentPresetId) ...[
-                  const SizedBox(width: 8),
-                  const Icon(Icons.check, size: 14),
-                ],
-              ],
-            ),
+        item(custom, customLabel),
+        const PopupMenuDivider(),
+        for (final preset in sizePresets)
+          item(
+            preset,
+            '${preset.viewportWidth} × ${preset.viewportHeight} '
+            '(${preset.name})',
           ),
+        const PopupMenuDivider(),
+        for (final preset in deviceEntries) item(preset),
       ],
     );
   }
@@ -1829,11 +1870,14 @@ class _DevicePresetMenu extends ConsumerWidget {
 /// Device emulation fields: `userAgent` maps to `WKWebView.customUserAgent`
 /// (nil = desktop default), `touchEmulation` injects the maxTouchPoints /
 /// ontouchstart detection surface, and `viewportWidth/Height` size the
-/// detached window (the embedded panel's CSS viewport width is clamped by
-/// `_PanelBody` instead — the platform view is narrower than the panel).
+/// detached window (the embedded panel's CSS viewport is clamped by
+/// `_PanelBody` instead — the platform view is smaller than the panel).
+/// For the `custom` preset the panel's own layout size seeds the detached
+/// window and `viewportFollowsSurface` keeps it tracking live bounds.
 @visibleForTesting
 Map<String, Object?> panelCreationParams(PanelRuntime runtime) {
   final preset = devicePresetFor(runtime.devicePresetId);
+  final follows = preset?.id == kCustomDevicePresetId;
   return {
     'identityId': runtime.identityId,
     'url': runtime.url,
@@ -1842,8 +1886,13 @@ Map<String, Object?> panelCreationParams(PanelRuntime runtime) {
     'userAgent': preset?.userAgent,
     'devicePresetId': runtime.devicePresetId,
     'touchEmulation': preset?.touch ?? false,
-    'viewportWidth': preset?.mobile == true ? preset!.viewportWidth : null,
-    'viewportHeight': preset?.mobile == true ? preset!.viewportHeight : null,
+    'viewportWidth': preset?.emulatedViewport == true
+        ? preset!.viewportWidth
+        : (follows ? runtime.layout.width.round() : null),
+    'viewportHeight': preset?.emulatedViewport == true
+        ? preset!.viewportHeight
+        : (follows ? runtime.layout.height.round() : null),
+    'viewportFollowsSurface': follows,
   };
 }
 
@@ -1879,23 +1928,29 @@ class _PanelBody extends ConsumerWidget {
             .registerView(runtime.identityId, viewId);
       },
     );
-    // Mobile device emulation: clamp the platform view to the preset's CSS
-    // viewport width so `window.innerWidth` and width media queries resolve
-    // to the emulated device even when the outer panel is wider (grid/focus
-    // cells typically are). WKWebView on macOS has no CDP-style
+    // Viewport emulation: clamp the platform view to the preset's CSS
+    // viewport size so `window.innerWidth` and media queries resolve to the
+    // emulated surface even when the outer panel is larger (grid/focus cells
+    // typically are). Mobile presets clamp only the width; fixed window-size
+    // presets clamp both dimensions. WKWebView on macOS has no CDP-style
     // Emulation.setDeviceMetricsOverride — sizing the view is the honest
-    // mechanism; innerHeight/devicePixelRatio follow the real surface.
+    // mechanism; devicePixelRatio always follows the real surface.
     // ConstrainedBox, not LayoutBuilder: AppKitView already embeds its own
     // LayoutBuilder, and nesting one here recurses infinitely during layout.
     final preset = devicePresetFor(runtime.devicePresetId);
-    if (preset?.mobile == true) {
+    if (preset != null && preset.sizing != ViewportSizing.free) {
       view = ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: preset!.viewportWidth.toDouble(),
-            ),
+            constraints: preset.sizing == ViewportSizing.fixed
+                ? BoxConstraints(
+                    maxWidth: preset.viewportWidth.toDouble(),
+                    maxHeight: preset.viewportHeight.toDouble(),
+                  )
+                : BoxConstraints(
+                    maxWidth: preset.viewportWidth.toDouble(),
+                  ),
             child: view,
           ),
         ),

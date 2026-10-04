@@ -718,6 +718,48 @@ void main() {
     expect(panel.url, 'https://example.com/new');
   });
 
+  test(
+    'fixed window-size preset carries preset dims to native and sizes the panel',
+    () {
+      final controller = container.read(workspaceControllerProvider.notifier);
+      controller.ensurePanel(
+        makeIdentity(devicePresetId: 'size-iphone-14-390x844'),
+        makeProject(),
+      );
+      final panel = container
+          .read(workspaceControllerProvider)
+          .panels['iid-a']!;
+      final params = panelCreationParams(panel);
+      expect(params['viewportWidth'], 390);
+      expect(params['viewportHeight'], 844);
+      expect(params['userAgent'], isNull);
+      expect(params['touchEmulation'], isFalse);
+      expect(params['viewportFollowsSurface'], isFalse);
+      // Panel opens at the preset size plus panel chrome (header + toolbar).
+      expect(panel.layout.width, 390);
+      expect(panel.layout.height, 844 + 96);
+    },
+  );
+
+  test('custom preset follows the panel surface size', () {
+    final controller = container.read(workspaceControllerProvider.notifier);
+    controller.ensurePanel(
+      makeIdentity(devicePresetId: 'custom'),
+      makeProject(),
+    );
+    final panel = container.read(workspaceControllerProvider).panels['iid-a']!;
+    final params = panelCreationParams(panel);
+    expect(params['viewportFollowsSurface'], isTrue);
+    // The initial detached-window size seeds from the panel layout; the
+    // native side keeps it tracking the live surface via setBounds.
+    expect(params['viewportWidth'], panel.layout.width.round());
+    expect(params['viewportHeight'], panel.layout.height.round());
+    // No emulation: desktop UA and surface — the panel keeps default sizing.
+    expect(params['userAgent'], isNull);
+    expect(params['touchEmulation'], isFalse);
+    expect(panel.layout.width, 480);
+  });
+
   test('mobile presets get phone-shaped default layouts', () {
     final controller = container.read(workspaceControllerProvider.notifier);
     controller.ensurePanel(

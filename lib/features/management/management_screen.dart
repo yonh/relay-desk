@@ -374,7 +374,7 @@ class IdentityListSection extends ConsumerWidget {
                       (p) => DropdownMenuItem(
                         value: p.id,
                         child: Text(
-                          p.mobile
+                          p.sizing != ViewportSizing.free
                               ? '${p.name} — ${p.viewportWidth}×${p.viewportHeight}'
                               : p.name,
                         ),
