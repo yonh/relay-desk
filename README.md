@@ -35,6 +35,32 @@ back to system.
    `LocalePreference.parse` / `storageValue` / `locale`
    (`lib/app/localization.dart`).
 
+## Downloads & automated builds
+
+`.github/workflows/release.yml` builds the app on GitHub Actions for all three
+desktop platforms:
+
+| Platform | Artifact | Runner |
+| --- | --- | --- |
+| Windows x64 | `RelayDesk-<ver>-windows-x64.zip` (portable, MSVC runtime bundled) | `windows-latest` |
+| macOS (Apple Silicon + Intel) | `RelayDesk-<ver>-macos-universal.dmg` / `.zip` | `macos-latest` |
+| Linux x64 | `RelayDesk-<ver>-linux-x64.tar.gz` (needs GTK 3) | `ubuntu-22.04` |
+
+- **Pull requests / pushes to `main`**: analyze + test, then build all three
+  platforms; packages are attached to the workflow run as artifacts.
+- **Release**: push a tag `vX.Y.Z` (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
+  The tag becomes the app version, and the packages are published to a GitHub
+  Release. Tags containing `-` (e.g. `v1.1.0-beta.1`) are marked pre-release.
+
+Notes:
+
+- The macOS build is ad-hoc signed, not notarized. On first launch macOS blocks
+  it: right-click → Open (or System Settings → Privacy & Security → Open
+  Anyway), or run `xattr -dr com.apple.quarantine /Applications/relay_desk.app`.
+- The multi-profile WebView is a macOS-native plugin. On Windows and Linux the
+  app runs with the management UI, but panels show a "WebView not supported"
+  placeholder.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
