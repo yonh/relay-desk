@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/platform/domain.dart';
 import '../../core/platform/webview_adapter.dart';
+import '../../core/url_input.dart';
 import '../../data/device_presets.dart';
 import '../../platform/webview/macos_profiled_webview_adapter.dart';
 import '../../platform/webview/headless_webview_adapter.dart';
@@ -408,9 +409,10 @@ class WorkspaceController extends Notifier<WorkspaceState> {
 
   // ---- navigation ----
 
-  void navigate(String identityId, String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null || (!uri.hasScheme)) return;
+  void navigate(String identityId, String input) {
+    final url = normalizeUrlInput(input);
+    final uri = url == null ? null : Uri.tryParse(url);
+    if (url == null || uri == null) return;
     final panels = Map<String, PanelRuntime>.from(state.panels);
     final existing = panels[identityId];
     if (existing == null) return;
@@ -656,7 +658,7 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   // ---- helpers ----
 
   String _computeUrl(Project project, Identity identity) {
-    final base = project.targetUrl;
+    final base = normalizeUrlInput(project.targetUrl) ?? project.targetUrl;
     final startPath = identity.startPath;
     final uri = Uri.tryParse(base);
     if (uri == null) return base;

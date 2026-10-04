@@ -120,6 +120,56 @@ void main() {
     expect(boundsCalls.last, contains('iid-a,2,'));
   });
 
+  test('navigate adds a scheme to bare domains typed in the address bar', () {
+    final controller = container.read(workspaceControllerProvider.notifier);
+    controller.ensurePanel(makeIdentity(), makeProject());
+    adapter.methodLog.clear();
+
+    controller.navigate('iid-a', 'www.example.org/docs');
+    controller.navigate('iid-a', 'localhost:3000');
+
+    expect(
+      adapter.methodLog,
+      contains('navigate(iid-a,https://www.example.org/docs)'),
+    );
+    expect(
+      adapter.methodLog,
+      contains('navigate(iid-a,http://localhost:3000)'),
+    );
+    expect(
+      container.read(workspaceControllerProvider).panels['iid-a']!.url,
+      'http://localhost:3000',
+    );
+  });
+
+  test('navigate ignores input that is not a URL', () {
+    final controller = container.read(workspaceControllerProvider.notifier);
+    controller.ensurePanel(makeIdentity(), makeProject());
+    adapter.methodLog.clear();
+
+    controller.navigate('iid-a', 'hello world');
+
+    expect(adapter.methodLog.where((m) => m.startsWith('navigate(')), isEmpty);
+  });
+
+  test('ensurePanel opens project target URLs saved without a scheme', () {
+    final controller = container.read(workspaceControllerProvider.notifier);
+    const project = Project(
+      id: 'pid',
+      name: 'P',
+      targetUrl: 'example.com',
+      createdAt: 1,
+      updatedAt: 1,
+    );
+
+    final config = controller.ensurePanel(
+      makeIdentity(startPath: '/login'),
+      project,
+    );
+
+    expect(config.url, 'https://example.com/login');
+  });
+
   test('navigate/reload/back/forward/stop are forwarded to the adapter', () {
     final controller = container.read(workspaceControllerProvider.notifier);
     controller.ensurePanel(makeIdentity(), makeProject());
