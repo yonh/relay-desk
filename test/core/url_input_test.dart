@@ -3,6 +3,30 @@ import 'package:relay_desk/core/url_input.dart';
 
 void main() {
   group('normalizeUrlInput', () {
+    test('keeps spaces after the host for Uri to encode', () {
+      expect(
+        normalizeUrlInput('https://example.com/a b'),
+        'https://example.com/a b',
+      );
+      expect(normalizeUrlInput('example.com/a b'), 'https://example.com/a b');
+      expect(normalizeUrlInput('exa mple.com/a'), isNull);
+    });
+
+    test('keeps schemes written without slashes', () {
+      expect(normalizeUrlInput('file:/tmp/page.html'), 'file:/tmp/page.html');
+      expect(normalizeUrlInput('mailto:a@b.com'), 'mailto:a@b.com');
+      expect(
+        normalizeUrlInput('example.com:8443/x'),
+        'https://example.com:8443/x',
+      );
+    });
+
+    test('treats private IPv6 hosts as local', () {
+      expect(normalizeUrlInput('[fd00::1]:3000'), 'http://[fd00::1]:3000');
+      expect(normalizeUrlInput('[fe80::1]'), 'http://[fe80::1]');
+      expect(normalizeUrlInput('[2001:db8::1]'), 'https://[2001:db8::1]');
+    });
+
     test('adds https to bare public domains', () {
       expect(normalizeUrlInput('example.com'), 'https://example.com');
       expect(normalizeUrlInput('www.baidu.com'), 'https://www.baidu.com');
