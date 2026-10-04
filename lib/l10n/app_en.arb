@@ -1,0 +1,182 @@
+{
+  "@@locale": "en",
+
+  "newProject": "New Project",
+  "@newProject": {
+    "description": "Tooltip for the create-project button and title of the create-project dialog."
+  },
+  "editProject": "Edit Project",
+  "@editProject": {
+    "description": "Title of the edit-project dialog."
+  },
+  "welcomeTitle": "Welcome to Relay Desk",
+  "welcomeDescription": "Create your first project to start managing isolated WebView identities.",
+  "createProject": "Create Project",
+  "editProjectTooltip": "Edit project",
+  "deleteProjectTooltip": "Delete project",
+  "errorMessage": "Error: {error}",
+  "@errorMessage": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "fieldName": "Name",
+  "fieldTargetUrl": "Target URL",
+  "allowPrivateNetwork": "Allow private network",
+  "cancel": "Cancel",
+  "save": "Save",
+  "delete": "Delete",
+  "deleteProjectTitle": "Delete {name}?",
+  "@deleteProjectTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deleteProjectBody": "This deletes the project, all its identities and saved workspaces (cascade). Browser profiles are not removed.",
+  "identitiesTitle": "Identities",
+  "newIdentity": "New Identity",
+  "editIdentity": "Edit Identity",
+  "noIdentitiesTitle": "No Identities",
+  "noIdentitiesDescription": "Create an identity to open an isolated WebView panel for this project.",
+  "createIdentity": "Create Identity",
+  "editIdentityTooltip": "Edit identity",
+  "deleteIdentityTooltip": "Delete identity",
+  "fieldIsolation": "Isolation",
+  "fieldDevicePreset": "Device",
+  "devicePresetTooltip": "Device emulation",
+  "fieldColor": "Color (#RRGGBB)",
+  "fieldStartPath": "Start path",
+  "sharedSessionWarning": "Shared Session is NOT isolated. All identities share one data store.",
+  "deleteIdentityTitle": "Delete identity {name}?",
+  "@deleteIdentityTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deleteIdentityBody": "This removes the identity row. Use \"Clear identity data\" in the panel header to wipe the browser profile/data store.",
+  "isolationNativeProfile": "Native Profile",
+  "isolationOriginProxy": "Origin Proxy",
+  "isolationSharedSession": "Shared Session (not isolated)",
+
+  "languageMenuTooltip": "Language",
+  "languageFollowSystem": "Follow system",
+  "languageEnglish": "English",
+  "languageChinese": "简体中文",
+
+  "noProjectSelectedTitle": "No Project Selected",
+  "noProjectSelectedDescription": "Select a project from the sidebar, or create a new one to start opening isolated WebView panels.",
+  "projectNotFound": "Project not found",
+  "noIdentitiesInProjectTitle": "No Identities in {name}",
+  "@noIdentitiesInProjectTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "noIdentitiesInProjectDescription": "Create an identity in the sidebar to open an isolated WebView panel.",
+  "noPanelsTitle": "No Panels",
+  "noPanelsDescription": "All panels are minimized. Restore one from the toolbar.",
+  "identityCount": "{count, plural, =1{1 identity} other{{count} identities}}",
+  "@identityCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "panelCount": "{count, plural, =1{1 panel} other{{count} panels}}",
+  "@panelCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "nativeProfilesAvailable": "Native profiles available (macOS 14+)",
+  "nativeProfilesUnavailable": "Native profiles NOT available",
+  "layoutCanvas": "Canvas",
+  "layoutGrid": "Grid",
+  "layoutColumns": "Columns",
+  "layoutFocus": "Focus",
+  "workspaceHint": "Workspace",
+  "workspaceNone": "— none —",
+  "workspaceLoadError": "Workspace error",
+  "saveWorkspaceTooltip": "Save workspace",
+  "deleteWorkspaceTooltip": "Delete workspace",
+  "saveWorkspaceTitle": "Save workspace",
+  "notIsolatedBadge": "NOT ISOLATED",
+  "detachToWindowTooltip": "Detach to window",
+  "clearIdentityDataTooltip": "Clear identity data",
+  "navBack": "Back",
+  "navForward": "Forward",
+  "navStop": "Stop",
+  "navReload": "Reload",
+  "devtools": "DevTools",
+  "devtoolsOpened": "Web Inspector enabled",
+  "devtoolsUnavailable": "DevTools are only available in debug builds",
+  "copyLink": "Copy link",
+  "muteMedia": "Mute media",
+  "unmuteMedia": "Unmute media",
+  "fullscreenPanel": "Fullscreen panel",
+  "closePanel": "Close panel",
+  "webviewNotSupported": "WebView not supported on {os} (NOT_TESTED)",
+  "@webviewNotSupported": {
+    "placeholders": {
+      "os": { "type": "String" }
+    }
+  },
+  "stateClosed": "closed",
+  "stateOpening": "opening",
+  "stateEmbedded": "embedded",
+  "stateDetaching": "detaching",
+  "stateDetached": "detached",
+  "stateAttaching": "attaching",
+  "stateClosing": "closing",
+  "stateFailed": "failed",
+  "tagSelectedHint": "Selected · tap to locate",
+  "tagResidentHint": "Resident · tap to restore",
+  "closeTabTooltip": "Close tab",
+  "newWindowError": "Unable to open new window: {error}",
+  "@newWindowError": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "residentQuickSitesLabel": "Resident quick sites",
+  "releaseResidentTooltip": "Release resident {name}",
+  "@releaseResidentTooltip": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+
+  "quickSites": "Quick Sites",
+  "quickSitesSearchHint": "Search sites…",
+  "quickSitesRecent": "Recently used",
+  "quickSitesAll": "All sites",
+  "quickSitesNoMatch": "No matching sites",
+  "quickSitesClose": "Close",
+  "quickSitesKeepAlive": "Resident",
+  "quickSitesOpenOverlay": "Open overlay",
+  "quickSitesDockRight": "Dock to right",
+  "quickSitesOpenNewWindow": "Open in new window",
+
+  "quickSiteHostUnsupported": "Quick site host: {name}\nWebView not supported here (NOT_TESTED).",
+  "@quickSiteHostUnsupported": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "quickSiteLoadFailed": "Failed to load: {error}",
+  "@quickSiteLoadFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "retry": "Retry",
+  "reloadTooltip": "Reload",
+  "closeTooltip": "Close",
+  "diagnosticsLogTooltip": "Copy diagnostics log path",
+  "diagnosticsLogCopied": "Diagnostics log path copied: {path}",
+  "@diagnosticsLogCopied": {
+    "placeholders": {
+      "path": { "type": "String" }
+    }
+  },
+  "diagnosticsLogUnavailable": "No diagnostics log on this platform"
+}

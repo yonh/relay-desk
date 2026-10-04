@@ -1,0 +1,171 @@
+{
+  "@@locale": "zh",
+
+  "newProject": "新建项目",
+  "editProject": "编辑项目",
+  "welcomeTitle": "欢迎使用 Relay Desk",
+  "welcomeDescription": "创建第一个项目，开始管理隔离的 WebView 身份。",
+  "createProject": "创建项目",
+  "editProjectTooltip": "编辑项目",
+  "deleteProjectTooltip": "删除项目",
+  "errorMessage": "错误：{error}",
+  "@errorMessage": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "fieldName": "名称",
+  "fieldTargetUrl": "目标 URL",
+  "allowPrivateNetwork": "允许访问私有网络",
+  "cancel": "取消",
+  "save": "保存",
+  "delete": "删除",
+  "deleteProjectTitle": "删除 {name}？",
+  "@deleteProjectTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deleteProjectBody": "将删除该项目及其所有身份和已保存的工作区（级联）。浏览器配置文件不会被移除。",
+  "identitiesTitle": "身份",
+  "newIdentity": "新建身份",
+  "editIdentity": "编辑身份",
+  "noIdentitiesTitle": "暂无身份",
+  "noIdentitiesDescription": "创建身份即可为此项目打开隔离的 WebView 面板。",
+  "createIdentity": "创建身份",
+  "editIdentityTooltip": "编辑身份",
+  "deleteIdentityTooltip": "删除身份",
+  "fieldIsolation": "隔离方式",
+  "fieldDevicePreset": "设备",
+  "devicePresetTooltip": "设备模拟",
+  "fieldColor": "颜色 (#RRGGBB)",
+  "fieldStartPath": "起始路径",
+  "sharedSessionWarning": "Shared Session 不隔离。所有身份共享同一个数据存储。",
+  "deleteIdentityTitle": "删除身份 {name}？",
+  "@deleteIdentityTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deleteIdentityBody": "仅删除该身份记录。如需清除浏览器配置文件/数据存储，请使用面板标题栏中的“清除身份数据”。",
+  "isolationNativeProfile": "原生配置文件",
+  "isolationOriginProxy": "源站代理",
+  "isolationSharedSession": "共享会话（不隔离）",
+
+  "languageMenuTooltip": "语言",
+  "languageFollowSystem": "跟随系统",
+  "languageEnglish": "English",
+  "languageChinese": "简体中文",
+
+  "noProjectSelectedTitle": "未选择项目",
+  "noProjectSelectedDescription": "从侧栏选择一个项目，或新建项目以打开隔离的 WebView 面板。",
+  "projectNotFound": "未找到项目",
+  "noIdentitiesInProjectTitle": "{name} 暂无身份",
+  "@noIdentitiesInProjectTitle": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "noIdentitiesInProjectDescription": "在侧栏创建身份即可打开隔离的 WebView 面板。",
+  "noPanelsTitle": "暂无面板",
+  "noPanelsDescription": "所有面板已最小化。请从工具栏恢复一个面板。",
+  "identityCount": "{count, plural, other{{count} 个身份}}",
+  "@identityCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "panelCount": "{count, plural, other{{count} 个面板}}",
+  "@panelCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "nativeProfilesAvailable": "原生配置文件可用（macOS 14+）",
+  "nativeProfilesUnavailable": "原生配置文件不可用",
+  "layoutCanvas": "画布",
+  "layoutGrid": "网格",
+  "layoutColumns": "分栏",
+  "layoutFocus": "聚焦",
+  "workspaceHint": "工作区",
+  "workspaceNone": "— 无 —",
+  "workspaceLoadError": "工作区错误",
+  "saveWorkspaceTooltip": "保存工作区",
+  "deleteWorkspaceTooltip": "删除工作区",
+  "saveWorkspaceTitle": "保存工作区",
+  "notIsolatedBadge": "不隔离",
+  "detachToWindowTooltip": "分离到窗口",
+  "clearIdentityDataTooltip": "清除身份数据",
+  "navBack": "后退",
+  "navForward": "前进",
+  "navStop": "停止",
+  "navReload": "刷新",
+  "devtools": "开发者工具",
+  "devtoolsOpened": "Web 检查器已启用",
+  "devtoolsUnavailable": "开发者工具仅在调试构建中可用",
+  "copyLink": "复制链接",
+  "muteMedia": "静音媒体",
+  "unmuteMedia": "取消静音",
+  "fullscreenPanel": "全屏面板",
+  "closePanel": "关闭面板",
+  "webviewNotSupported": "WebView 在 {os} 上不受支持（NOT_TESTED）",
+  "@webviewNotSupported": {
+    "placeholders": {
+      "os": { "type": "String" }
+    }
+  },
+  "stateClosed": "已关闭",
+  "stateOpening": "打开中",
+  "stateEmbedded": "已嵌入",
+  "stateDetaching": "分离中",
+  "stateDetached": "已分离",
+  "stateAttaching": "附加中",
+  "stateClosing": "关闭中",
+  "stateFailed": "失败",
+  "tagSelectedHint": "当前选中 · 点击定位",
+  "tagResidentHint": "常驻中 · 点击恢复",
+  "closeTabTooltip": "关闭标签",
+  "newWindowError": "无法打开新窗口：{error}",
+  "@newWindowError": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "residentQuickSitesLabel": "常驻快捷站点",
+  "releaseResidentTooltip": "关闭常驻 {name}",
+  "@releaseResidentTooltip": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+
+  "quickSites": "快捷站点",
+  "quickSitesSearchHint": "搜索站点…",
+  "quickSitesRecent": "最近使用",
+  "quickSitesAll": "所有站点",
+  "quickSitesNoMatch": "无匹配站点",
+  "quickSitesClose": "关闭",
+  "quickSitesKeepAlive": "常驻",
+  "quickSitesOpenOverlay": "打开浮层",
+  "quickSitesDockRight": "固定到右侧",
+  "quickSitesOpenNewWindow": "在新窗口打开",
+
+  "quickSiteHostUnsupported": "快捷站点宿主：{name}\n此处不支持 WebView（NOT_TESTED）。",
+  "@quickSiteHostUnsupported": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "quickSiteLoadFailed": "加载失败：{error}",
+  "@quickSiteLoadFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "retry": "重试",
+  "reloadTooltip": "重新加载",
+  "closeTooltip": "关闭",
+  "diagnosticsLogTooltip": "复制诊断日志路径",
+  "diagnosticsLogCopied": "诊断日志路径已复制：{path}",
+  "diagnosticsLogUnavailable": "当前平台没有诊断日志"
+}
