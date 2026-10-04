@@ -55,6 +55,9 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# flutter_inappwebview_windows still uses <experimental/coroutine>, which
+# MSVC 14.5x (VS 2026) rejects unless this opt-out is defined.
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 include(flutter/generated_plugins.cmake)
 
 
