@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/localization.dart';
 import '../../app/providers.dart';
 import '../../core/platform/domain.dart';
+import '../../core/url_input.dart';
 import '../../data/device_presets.dart';
 import '../common/empty_state_guide.dart';
 import '../common/language_menu.dart';
@@ -153,19 +154,20 @@ class ManagementScreen extends ConsumerWidget {
             ),
             FilledButton(
               onPressed: () async {
-                if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
+                final targetUrl = normalizeUrlInput(urlCtrl.text);
+                if (nameCtrl.text.isEmpty || targetUrl == null) return;
                 final repo = await ref.read(projectRepositoryProvider.future);
                 if (existing == null) {
                   await repo.create(
                     name: nameCtrl.text,
-                    targetUrl: urlCtrl.text,
+                    targetUrl: targetUrl,
                     allowPrivateNetwork: allowPrivate,
                   );
                 } else {
                   await repo.update(
                     existing.copyWith(
                       name: nameCtrl.text,
-                      targetUrl: urlCtrl.text,
+                      targetUrl: targetUrl,
                       allowPrivateNetwork: allowPrivate,
                     ),
                   );
