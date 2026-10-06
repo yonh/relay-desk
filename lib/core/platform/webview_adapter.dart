@@ -99,6 +99,15 @@ class WebviewNavigationBlocked extends WebviewEvent {
   WebviewNavigationBlocked(super.identityId, this.uri, this.reason);
 }
 
+/// Measure-mode (in-page element ruler/inspect overlay) applied state, as
+/// reported by the platform. Covers both the programmatic toggle and the
+/// overlay's own exit paths (e.g. the Escape key), so UI state always
+/// follows the platform.
+class WebviewMeasureModeChanged extends WebviewEvent {
+  final bool enabled;
+  WebviewMeasureModeChanged(super.identityId, this.enabled);
+}
+
 /// Abstract WebView adapter. Platform implementations provide the actual
 /// WKWebView/WebView2 embedding. Remote pages cannot call any method here.
 abstract interface class WebviewAdapter {
@@ -126,6 +135,18 @@ abstract interface class WebviewAdapter {
 
   /// Toggles media mute state and returns whether media is now muted.
   Future<bool> toggleMute(String identityId);
+
+  /// Enables or disables the in-page measure overlay (element highlight,
+  /// W×H badge). `inPageRulers` additionally asks the overlay to draw the
+  /// viewport rulers inside the page — used when the view lives in a
+  /// detached window where the Flutter-side ruler chrome cannot reach.
+  /// Returns the applied state; the panel state also updates via
+  /// [WebviewMeasureModeChanged].
+  Future<bool> setMeasureMode(
+    String identityId,
+    bool enabled, {
+    bool inPageRulers = false,
+  });
   Future<void> toggleFullscreen(String identityId);
   Stream<WebviewEvent> get events;
 }

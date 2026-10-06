@@ -2,6 +2,19 @@
 
 A new Flutter project.
 
+## App icons
+
+Open **Settings** at the bottom of the sidebar to choose A1, A2, B1, B2,
+C1, or C3. B2 is the default. The app logo and the running macOS Dock icon
+update together, and the choice is restored on the next launch. Use
+**Restore B2 default** to reset it. Finder uses the bundled B2 icon.
+While the app is running, right-click its macOS Dock icon and choose
+**Switch Icon** to select the same six icons without opening Settings.
+
+The transparent 1024×1024 PNGs are in `assets/logos/`. To reproduce their
+extraction from the original design board and regenerate the bundled macOS
+B2 icon sizes, run `swift tool/extract_logos.swift` from the repo root.
+
 ## Localization
 
 The app UI is localized with `flutter gen-l10n` (ARB resources + generated

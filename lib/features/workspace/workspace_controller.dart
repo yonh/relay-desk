@@ -56,6 +56,12 @@ class PanelRuntime {
   /// resume the live page in the latter case.
   final String configUrl;
 
+  /// Whether the in-page measure overlay (element highlight + rulers) is
+  /// armed on this panel's WebView. Driven by platform
+  /// `measureModeChanged` events — including the overlay's own Escape exit
+  /// — so it always reflects the real state.
+  final bool measureMode;
+
   const PanelRuntime({
     required this.identityId,
     required this.layout,
@@ -70,6 +76,7 @@ class PanelRuntime {
     this.viewNonce = 0,
     this.devicePresetId,
     this.configUrl = '',
+    this.measureMode = false,
   });
 
   PanelRuntime copyWith({
@@ -85,6 +92,7 @@ class PanelRuntime {
     int? viewNonce,
     String? devicePresetId,
     String? configUrl,
+    bool? measureMode,
   }) => PanelRuntime(
     identityId: identityId,
     layout: layout ?? this.layout,
@@ -99,6 +107,7 @@ class PanelRuntime {
     viewNonce: viewNonce ?? this.viewNonce,
     devicePresetId: devicePresetId ?? this.devicePresetId,
     configUrl: configUrl ?? this.configUrl,
+    measureMode: measureMode ?? this.measureMode,
   );
 }
 
@@ -170,6 +179,13 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   int _projectRestoreGeneration = 0;
   WebviewAdapter get _adapter => ref.read(webviewAdapterProvider);
 
+  /// User-defined window-size presets — resolved through
+  /// `devicePresetFor(id, customs)` wherever a stored `devicePresetId`
+  /// needs a preset. Read (not watched): panel sizing snapshots the list
+  /// at call time; a stale read only misses a preset added mid-action.
+  List<DevicePreset> get _customPresets =>
+      ref.read(customDevicePresetsProvider).valueOrEmpty;
+
   @override
   WorkspaceState build() {
     _eventSub = _adapter.events.listen(_onEvent);
@@ -226,6 +242,9 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       case WebviewNavigationBlocked():
         panels[event.identityId] = existing.copyWith(loading: false);
         break;
+      case WebviewMeasureModeChanged(:final enabled):
+        panels[event.identityId] = existing.copyWith(measureMode: enabled);
+        break;
     }
     state = state.copyWith(panels: panels);
   }
@@ -236,7 +255,7 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   /// WebView if the immutable runtime config (fingerprint) changed.
   PanelRuntimeConfig ensurePanel(Identity identity, Project project) {
     final url = _computeUrl(project, identity);
-    final preset = devicePresetFor(identity.devicePresetId);
+    final preset = devicePresetFor(identity.devicePresetId, _customPresets);
     final config = PanelRuntimeConfig(
       identityId: identity.id,
       url: url,
@@ -334,7 +353,10 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       // to the project).
       final ids = panels.keys.toList();
       for (var i = 0; i < ids.length; i++) {
-        final preset = devicePresetFor(panels[ids[i]]!.devicePresetId);
+        final preset = devicePresetFor(
+          panels[ids[i]]!.devicePresetId,
+          _customPresets,
+        );
         final layout = mode == LayoutMode.grid
             ? _gridPanelLayout(ids[i], i, ids.length, preset: preset)
             : _columnPanelLayout(ids[i], i, ids.length, preset: preset);
@@ -485,6 +507,22 @@ class WorkspaceController extends Notifier<WorkspaceState> {
 
   Future<bool> toggleMute(String identityId) => _adapter.toggleMute(identityId);
 
+  /// Toggle the in-page measure overlay. The applied state flows back via
+  /// `WebviewMeasureModeChanged` into `PanelRuntime.measureMode` — the UI
+  /// reflects the platform's answer (and the overlay's own Escape exit),
+  /// not the button press. While detached, the view lives in its own window
+  /// the Flutter ruler chrome cannot reach, so the overlay draws its rulers
+  /// inside the page instead.
+  Future<void> toggleMeasureMode(String identityId) async {
+    final panel = state.panels[identityId];
+    if (panel == null) return;
+    await _adapter.setMeasureMode(
+      identityId,
+      !panel.measureMode,
+      inPageRulers: panel.state == WebviewState.detached,
+    );
+  }
+
   void toggleFullscreen(String identityId) =>
       _adapter.toggleFullscreen(identityId);
 
@@ -580,7 +618,7 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       final identity = identityById[panel.identityId];
       if (identity == null) continue;
       final url = _computeUrl(project, identity);
-      final preset = devicePresetFor(identity.devicePresetId);
+      final preset = devicePresetFor(identity.devicePresetId, _customPresets);
       final config = PanelRuntimeConfig(
         identityId: identity.id,
         url: url,
@@ -668,23 +706,26 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   NativeBounds _defaultBounds(String identityId) =>
       const NativeBounds(0, 0, 400, 300);
 
-  /// Preferred panel body size for a preset. Mobile presets keep the Tauri
-  /// baseline's phone-shaped 375x700; fixed window-size presets open at the
-  /// preset size plus ~96px of panel chrome (header + nav toolbar) so the
-  /// view starts near the emulated viewport; everything else falls back to
+  /// Preferred panel body size for a preset. Fixed window-size presets
+  /// open at the preset size plus ~96px of panel chrome (header + nav
+  /// toolbar) so the view starts at the emulated viewport — this must win
+  /// over the mobile branch, since a fixed mobile device (e.g. iPhone 14
+  /// Pro Max, 430x932) letterboxed inside a 375-wide panel would never
+  /// reach its promised resolution. Mobile width-only presets keep the
+  /// Tauri baseline's phone-shaped 375x700; everything else falls back to
   /// the caller's default cell size.
   ({double width, double height}) _preferredPanelSize(
     DevicePreset? preset, {
     double fallbackWidth = 480,
     double fallbackHeight = 360,
   }) {
-    if (preset?.mobile == true) return (width: 375, height: 700);
     if (preset?.sizing == ViewportSizing.fixed) {
       return (
         width: preset!.viewportWidth.toDouble(),
         height: preset.viewportHeight + 96,
       );
     }
+    if (preset?.mobile == true) return (width: 375, height: 700);
     return (width: fallbackWidth, height: fallbackHeight);
   }
 

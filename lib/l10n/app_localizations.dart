@@ -536,6 +536,48 @@ abstract class AppLocalizations {
   /// **'Unmute media'**
   String get unmuteMedia;
 
+  /// No description provided for @measureMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure mode (Esc to exit)'**
+  String get measureMode;
+
+  /// No description provided for @manageCustomSizes.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom sizes…'**
+  String get manageCustomSizes;
+
+  /// No description provided for @addCustomSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Add size'**
+  String get addCustomSize;
+
+  /// No description provided for @customSizeName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name (optional)'**
+  String get customSizeName;
+
+  /// No description provided for @customSizeWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Width (px)'**
+  String get customSizeWidth;
+
+  /// No description provided for @customSizeHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Height (px)'**
+  String get customSizeHeight;
+
+  /// No description provided for @customSizeInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Width/height must be {min}–{max} px'**
+  String customSizeInvalid(int min, int max);
+
   /// No description provided for @fullscreenPanel.
   ///
   /// In en, this message translates to:
@@ -745,6 +787,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No diagnostics log on this platform'**
   String get diagnosticsLogUnavailable;
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsTitle;
+
+  /// No description provided for @appIconTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'App icon'**
+  String get appIconTitle;
+
+  /// No description provided for @appIconDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose your planet. Your selection is saved automatically.'**
+  String get appIconDescription;
+
+  /// No description provided for @iconA1.
+  ///
+  /// In en, this message translates to:
+  /// **'Ember planet'**
+  String get iconA1;
+
+  /// No description provided for @iconA2.
+  ///
+  /// In en, this message translates to:
+  /// **'Mars planet'**
+  String get iconA2;
+
+  /// No description provided for @iconB1.
+  ///
+  /// In en, this message translates to:
+  /// **'Ocean blue'**
+  String get iconB1;
+
+  /// No description provided for @iconB2.
+  ///
+  /// In en, this message translates to:
+  /// **'Mint ice'**
+  String get iconB2;
+
+  /// No description provided for @iconC1.
+  ///
+  /// In en, this message translates to:
+  /// **'Blue pearl'**
+  String get iconC1;
+
+  /// No description provided for @iconC3.
+  ///
+  /// In en, this message translates to:
+  /// **'Ice crystal'**
+  String get iconC3;
+
+  /// No description provided for @defaultIcon.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get defaultIcon;
+
+  /// No description provided for @restoreDefaultIcon.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore B2 default'**
+  String get restoreDefaultIcon;
+
+  /// No description provided for @settingsDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get settingsDone;
+
+  /// No description provided for @iconSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the icon. Please try again.'**
+  String get iconSaveFailed;
+
+  /// No description provided for @appIconPlatformNote.
+  ///
+  /// In en, this message translates to:
+  /// **'The app logo and macOS Dock icon update immediately. Finder uses the bundled B2 icon.'**
+  String get appIconPlatformNote;
+
+  /// No description provided for @dockIconMenu.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch Icon'**
+  String get dockIconMenu;
 }
 
 class _AppLocalizationsDelegate

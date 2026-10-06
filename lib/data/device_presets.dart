@@ -7,10 +7,11 @@
 /// What a preset actually does on desktop WKWebView:
 /// - `userAgent` → `WKWebView.customUserAgent` (HTTP UA + navigator.userAgent).
 ///   `null` means "no override" — the view keeps its default desktop UA.
-/// - `mobile` → the embedded panel's platform view is clamped to
-///   `viewportWidth` CSS px (innerWidth/media queries see the emulated
-///   width; innerHeight/devicePixelRatio follow the real surface) and the
-///   detached window opens at the preset size.
+/// - `mobile` → the preset is a phone/tablet device: smartphone/tablet
+///   icon, phone-shaped default panel (unless `sizing` is `fixed`), and a
+///   320px minimum panel width. The viewport clamp itself is governed by
+///   `sizing` — a mobile preset may still use `fixed` to pin the viewport
+///   to the device's exact CSS resolution.
 /// - `touch` → a document-start JS property override injects
 ///   `navigator.maxTouchPoints` / `ontouchstart` (detection surface only —
 ///   no touch-event synthesis).
@@ -60,6 +61,21 @@ class DevicePreset {
   bool get emulatedViewport => sizing != ViewportSizing.free;
 }
 
+/// Mobile Safari UA shared by every iPhone preset — real devices do not
+/// put the model name in the UA, so all iPhones report the same string.
+const String _iphoneSafariUA =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+    'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+    'Mobile/15E148 Safari/604.1';
+
+/// iPadOS Safari UA for the iPad mini preset — the classic tablet surface.
+/// (Modern iPads default to a desktop-class Macintosh UA, which is not
+/// what picking an "iPad mini" preset is for.)
+const String _ipadSafariUA =
+    'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) '
+    'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+    'Mobile/15E148 Safari/604.1';
+
 /// The baseline catalog (src/data/devices.ts). Ids are persisted in
 /// `identities.device_preset_id` — never rename them.
 const List<DevicePreset> devicePresets = [
@@ -69,10 +85,7 @@ const List<DevicePreset> devicePresets = [
     viewportWidth: 393,
     viewportHeight: 852,
     scaleFactor: 3,
-    userAgent:
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
-        'Mobile/15E148 Safari/604.1',
+    userAgent: _iphoneSafariUA,
     mobile: true,
     touch: true,
     sizing: ViewportSizing.widthOnly,
@@ -116,8 +129,13 @@ const List<DevicePreset> devicePresets = [
     touch: false,
     sizing: ViewportSizing.free,
   ),
-  // Fixed window-size presets (responsive-design-mode style): pure viewport
-  // sizes on the desktop UA — no UA spoofing or touch surface.
+  // Fixed-viewport presets: the emulated viewport is pinned to the exact
+  // size, letterboxed inside a larger panel (DevTools device-mode style).
+  // Phone/tablet entries are full device emulation — real mobile UA, touch
+  // surface, and device DPR — so a site serves its mobile layout, not just
+  // a narrower desktop one. Generic desktop sizes keep the desktop UA: a
+  // MacBook Air reports a desktop UA anyway, so those are pure window
+  // sizes.
   DevicePreset(
     id: 'size-widget-320x400',
     name: 'Widget',
@@ -134,10 +152,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPhone SE',
     viewportWidth: 320,
     viewportHeight: 568,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 2,
+    userAgent: _iphoneSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -145,10 +163,15 @@ const List<DevicePreset> devicePresets = [
     name: 'Google Nexus 5',
     viewportWidth: 360,
     viewportHeight: 640,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 3,
+    // Nexus 5 topped out at Android 6.0.1; Chrome 106 is the last version
+    // that ran on it, so the UA stays period-plausible.
+    userAgent:
+        'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5 Build/M4B30Z) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/106.0.5249.126 Mobile Safari/537.36',
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -156,10 +179,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPhone 8',
     viewportWidth: 375,
     viewportHeight: 667,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 2,
+    userAgent: _iphoneSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -167,10 +190,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPhone 14',
     viewportWidth: 390,
     viewportHeight: 844,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 3,
+    userAgent: _iphoneSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -178,10 +201,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPhone 11',
     viewportWidth: 414,
     viewportHeight: 896,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 2,
+    userAgent: _iphoneSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -189,10 +212,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPhone 14 Pro Max',
     viewportWidth: 430,
     viewportHeight: 932,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 3,
+    userAgent: _iphoneSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -211,10 +234,10 @@ const List<DevicePreset> devicePresets = [
     name: 'iPad mini',
     viewportWidth: 768,
     viewportHeight: 1024,
-    scaleFactor: 1,
-    userAgent: null,
-    mobile: false,
-    touch: false,
+    scaleFactor: 2,
+    userAgent: _ipadSafariUA,
+    mobile: true,
+    touch: true,
     sizing: ViewportSizing.fixed,
   ),
   DevicePreset(
@@ -267,12 +290,38 @@ bool isValidDevicePresetId(String value) {
   return true;
 }
 
-/// Resolve a stored preset id to a catalog entry. Returns null for null,
-/// empty, malformed, or unknown-but-well-formed ids — callers treat null as
-/// "desktop / no overrides" (fail toward the default, never toward a
-/// guessed mobile UA).
-DevicePreset? devicePresetFor(String? id) {
+/// A user-defined window-size preset: pure viewport dimensions on the
+/// desktop UA (no UA spoofing, no touch surface), fixed sizing — the same
+/// semantics as the built-in generic `size-*` entries (Widget/Desktop/
+/// MacBook Air), not the device-emulating ones.
+DevicePreset customSizePreset({
+  required String id,
+  required String name,
+  required int width,
+  required int height,
+}) => DevicePreset(
+  id: id,
+  name: name,
+  viewportWidth: width,
+  viewportHeight: height,
+  scaleFactor: 1,
+  userAgent: null,
+  mobile: false,
+  touch: false,
+  sizing: ViewportSizing.fixed,
+);
+
+/// Resolve a stored preset id to a preset. `custom` carries the
+/// user-defined list (from `customDevicePresetsProvider`); it is checked
+/// before the built-in catalog so user ids can never be shadowed. Returns
+/// null for null, empty, malformed, or unknown-but-well-formed ids —
+/// callers treat null as "desktop / no overrides" (fail toward the
+/// default, never toward a guessed mobile UA).
+DevicePreset? devicePresetFor(String? id, [List<DevicePreset>? custom]) {
   if (id == null || !isValidDevicePresetId(id)) return null;
+  for (final preset in custom ?? const <DevicePreset>[]) {
+    if (preset.id == id) return preset;
+  }
   for (final preset in devicePresets) {
     if (preset.id == id) return preset;
   }
@@ -281,6 +330,6 @@ DevicePreset? devicePresetFor(String? id) {
 
 /// The preset the UI should display: unknown/missing ids fall back to the
 /// desktop preset so a badge/icon always renders.
-DevicePreset effectiveDevicePreset(String? id) =>
-    devicePresetFor(id) ??
+DevicePreset effectiveDevicePreset(String? id, [List<DevicePreset>? custom]) =>
+    devicePresetFor(id, custom) ??
     devicePresets.firstWhere((p) => p.id == kDefaultDevicePresetId);

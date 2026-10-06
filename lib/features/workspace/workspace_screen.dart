@@ -1370,7 +1370,11 @@ class _PanelView extends ConsumerWidget {
                 // Mobile presets keep the Tauri baseline's 320px panel
                 // minimum so the emulated viewport stays usable.
                 final minWidth =
-                    (devicePresetFor(identity?.devicePresetId)?.mobile ?? false)
+                    (devicePresetFor(
+                          identity?.devicePresetId,
+                          ref.read(customDevicePresetsProvider).valueOrEmpty,
+                        )?.mobile ??
+                        false)
                     ? 320.0
                     : 240.0;
                 final newLayout = runtime.layout.copyWith(
@@ -1485,14 +1489,20 @@ class _PanelHeader extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                   Icon(
-                    _DevicePresetMenu.iconFor(identity?.devicePresetId),
+                    _DevicePresetMenu.iconFor(
+                      identity?.devicePresetId,
+                      ref.watch(customDevicePresetsProvider).valueOrEmpty,
+                    ),
                     size: 10,
                     color: Colors.white70,
                   ),
                   const SizedBox(width: 2),
                   Flexible(
                     child: Text(
-                      effectiveDevicePreset(identity?.devicePresetId).name,
+                      effectiveDevicePreset(
+                        identity?.devicePresetId,
+                        ref.watch(customDevicePresetsProvider).valueOrEmpty,
+                      ).name,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 10,
@@ -1742,6 +1752,20 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
             },
           ),
           IconButton(
+            key: ValueKey('measure-mode-${widget.runtime.identityId}'),
+            tooltip: l10n.measureMode,
+            iconSize: 16,
+            style: _navButtonStyle,
+            icon: Icon(
+              Icons.straighten,
+              color: widget.runtime.measureMode
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            onPressed: () =>
+                controller.toggleMeasureMode(widget.runtime.identityId),
+          ),
+          IconButton(
             tooltip: l10n.fullscreenPanel,
             iconSize: 16,
             style: _navButtonStyle,
@@ -1774,10 +1798,13 @@ class _DevicePresetMenu extends ConsumerWidget {
     required this.currentPresetId,
   });
 
-  static IconData iconFor(String? presetId) {
-    final preset = devicePresetFor(presetId);
+  static IconData iconFor(String? presetId, [List<DevicePreset>? custom]) {
+    final preset = devicePresetFor(presetId, custom);
     if (preset == null) return Icons.desktop_windows;
-    if (preset.mobile) return Icons.smartphone;
+    if (preset.mobile) {
+      // Tablet-class mobile presets (iPad mini, 768px) get the tablet icon.
+      return preset.viewportWidth >= 600 ? Icons.tablet_mac : Icons.smartphone;
+    }
     if (preset.id == kCustomDevicePresetId) return Icons.open_in_full;
     if (preset.sizing == ViewportSizing.fixed) return Icons.aspect_ratio;
     return Icons.desktop_windows;
@@ -1789,10 +1816,10 @@ class _DevicePresetMenu extends ConsumerWidget {
     // Live size label for `custom` — like responsive design mode's
     // "Custom (W × H)", it reports the panel's current size.
     final layout = ref.watch(
-      workspaceControllerProvider.select(
-        (s) => s.panels[identityId]?.layout,
-      ),
+      workspaceControllerProvider.select((s) => s.panels[identityId]?.layout),
     );
+    // User-defined window sizes (persisted in `custom_device_presets`).
+    final customs = ref.watch(customDevicePresetsProvider).valueOrEmpty;
     PopupMenuItem<String> item(DevicePreset preset, [String? label]) =>
         PopupMenuItem<String>(
           key: ValueKey('device-preset-item-${preset.id}'),
@@ -1800,7 +1827,7 @@ class _DevicePresetMenu extends ConsumerWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(iconFor(preset.id), size: 16),
+              Icon(iconFor(preset.id, customs), size: 16),
               const SizedBox(width: 8),
               // No Expanded/Flexible here: PopupMenu sizes its route via
               // IntrinsicWidth, and a flexible child collapses the menu
@@ -1841,10 +1868,16 @@ class _DevicePresetMenu extends ConsumerWidget {
       // route's items too, collapsing the menu width and making entries
       // unhittable. iconSize + zero padding keep the trigger compact.
       padding: EdgeInsets.zero,
-      icon: Icon(iconFor(currentPresetId)),
-      onSelected: (presetId) => ref
-          .read(workspaceControllerProvider.notifier)
-          .setDevicePreset(identityId, presetId),
+      icon: Icon(iconFor(currentPresetId, customs)),
+      onSelected: (presetId) {
+        if (presetId == _kManageCustomSizes) {
+          _showCustomSizesDialog(context, ref);
+          return;
+        }
+        ref
+            .read(workspaceControllerProvider.notifier)
+            .setDevicePreset(identityId, presetId);
+      },
       itemBuilder: (context) => [
         item(custom, customLabel),
         const PopupMenuDivider(),
@@ -1854,8 +1887,209 @@ class _DevicePresetMenu extends ConsumerWidget {
             '${preset.viewportWidth} × ${preset.viewportHeight} '
             '(${preset.name})',
           ),
+        if (customs.isNotEmpty) ...[
+          const PopupMenuDivider(),
+          for (final preset in customs)
+            item(
+              preset,
+              '${preset.viewportWidth} × ${preset.viewportHeight} '
+              '(${preset.name})',
+            ),
+        ],
         const PopupMenuDivider(),
         for (final preset in deviceEntries) item(preset),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          key: const ValueKey('device-preset-manage-custom'),
+          value: _kManageCustomSizes,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.tune, size: 16),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 200),
+                child: Text(
+                  l10n.manageCustomSizes,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Sentinel menu value that opens the custom-size management dialog instead
+/// of selecting a preset.
+const String _kManageCustomSizes = '__manage_custom_sizes__';
+
+/// "Custom sizes" manager: lists user-defined presets with delete buttons
+/// and a W×H (+ optional name) form to add one.
+Future<void> _showCustomSizesDialog(BuildContext context, WidgetRef ref) {
+  return showDialog(
+    context: context,
+    builder: (ctx) => const _CustomSizesDialog(),
+  );
+}
+
+class _CustomSizesDialog extends ConsumerStatefulWidget {
+  const _CustomSizesDialog();
+
+  @override
+  ConsumerState<_CustomSizesDialog> createState() => _CustomSizesDialogState();
+}
+
+class _CustomSizesDialogState extends ConsumerState<_CustomSizesDialog> {
+  final _nameCtrl = TextEditingController();
+  final _widthCtrl = TextEditingController();
+  final _heightCtrl = TextEditingController();
+  bool _invalid = false;
+
+  static const int _minSide = 120;
+  static const int _maxSide = 3840;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _widthCtrl.dispose();
+    _heightCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final w = int.tryParse(_widthCtrl.text.trim());
+    final h = int.tryParse(_heightCtrl.text.trim());
+    final ok =
+        w != null &&
+        h != null &&
+        w >= _minSide &&
+        w <= _maxSide &&
+        h >= _minSide &&
+        h <= _maxSide;
+    setState(() => _invalid = !ok);
+    if (!ok) return;
+    final name = _nameCtrl.text.trim();
+    final repo = await ref.read(devicePresetRepositoryProvider.future);
+    await repo.addCustom(
+      id: 'user-${DateTime.now().millisecondsSinceEpoch}',
+      name: name.isEmpty ? '$w × $h' : name,
+      width: w,
+      height: h,
+    );
+    ref.invalidate(customDevicePresetsProvider);
+    _nameCtrl.clear();
+    _widthCtrl.clear();
+    _heightCtrl.clear();
+    if (mounted) setState(() => _invalid = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final customs = ref.watch(customDevicePresetsProvider);
+    return AlertDialog(
+      title: Text(l10n.manageCustomSizes),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            customs.when(
+              data: (list) => list.isEmpty
+                  ? const SizedBox.shrink()
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final p in list)
+                            ListTile(
+                              key: ValueKey('custom-size-${p.id}'),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                '${p.viewportWidth} × '
+                                '${p.viewportHeight} (${p.name})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: IconButton(
+                                iconSize: 16,
+                                icon: const Icon(Icons.delete_outline),
+                                tooltip: l10n.delete,
+                                onPressed: () async {
+                                  final repo = await ref.read(
+                                    devicePresetRepositoryProvider.future,
+                                  );
+                                  await repo.removeCustom(p.id);
+                                  ref.invalidate(customDevicePresetsProvider);
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _nameCtrl,
+              decoration: InputDecoration(
+                labelText: l10n.customSizeName,
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _widthCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: l10n.customSizeWidth,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _heightCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: l10n.customSizeHeight,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_invalid)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  l10n.customSizeInvalid(_minSide, _maxSide),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
+        FilledButton(onPressed: _add, child: Text(l10n.addCustomSize)),
       ],
     );
   }
@@ -1875,8 +2109,11 @@ class _DevicePresetMenu extends ConsumerWidget {
 /// For the `custom` preset the panel's own layout size seeds the detached
 /// window and `viewportFollowsSurface` keeps it tracking live bounds.
 @visibleForTesting
-Map<String, Object?> panelCreationParams(PanelRuntime runtime) {
-  final preset = devicePresetFor(runtime.devicePresetId);
+Map<String, Object?> panelCreationParams(
+  PanelRuntime runtime, [
+  List<DevicePreset>? customPresets,
+]) {
+  final preset = devicePresetFor(runtime.devicePresetId, customPresets);
   final follows = preset?.id == kCustomDevicePresetId;
   return {
     'identityId': runtime.identityId,
@@ -1894,6 +2131,163 @@ Map<String, Object?> panelCreationParams(PanelRuntime runtime) {
         : (follows ? runtime.layout.height.round() : null),
     'viewportFollowsSurface': follows,
   };
+}
+
+/// Ruler chrome drawn around the platform view while measure mode is on —
+/// kept on the Flutter side so the page's own UI stays unobstructed
+/// (the in-page overlay only carries the element highlight + size badge).
+/// The child gets the remaining space, subject to the same preset clamp
+/// `_PanelBody` applies normally; the letterbox color fills around the
+/// unit for viewport-clamped presets. The view shrinks by `rulerExtent`
+/// on both axes — DevTools-dock semantics — so the rulers never cover
+/// page content and never inject anything into the page DOM.
+class _MeasureFramedView extends StatelessWidget {
+  final Widget child;
+  final DevicePreset? preset;
+  const _MeasureFramedView({required this.child, required this.preset});
+
+  static const double rulerExtent = 20;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, cons) {
+        final availW = math.max(0.0, cons.maxWidth - rulerExtent);
+        final availH = math.max(0.0, cons.maxHeight - rulerExtent);
+        final w = preset != null && preset!.sizing != ViewportSizing.free
+            ? math.min(preset!.viewportWidth.toDouble(), availW)
+            : availW;
+        final h = preset?.sizing == ViewportSizing.fixed
+            ? math.min(preset!.viewportHeight.toDouble(), availH)
+            : availH;
+        return ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          child: Center(
+            child: SizedBox(
+              width: w + rulerExtent,
+              height: h + rulerExtent,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: rulerExtent,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: rulerExtent,
+                          height: rulerExtent,
+                          color: const Color(0xFF1B1B1F),
+                        ),
+                        SizedBox(
+                          width: w,
+                          height: rulerExtent,
+                          child: CustomPaint(
+                            painter: _RulerPainter(
+                              horizontal: true,
+                              label: '${w.round()} × ${h.round()}',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: rulerExtent,
+                        height: h,
+                        child: const CustomPaint(
+                          painter: _RulerPainter(horizontal: false),
+                        ),
+                      ),
+                      SizedBox(width: w, height: h, child: child),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Paints one ruler strip: dark background, 10px minor / 50px mid / 100px
+/// major ticks with numeric labels, in CSS pixels (1:1 with the panel's
+/// logical pixels). The horizontal ruler additionally hosts the live
+/// viewport "W × H" label at its left end.
+class _RulerPainter extends CustomPainter {
+  final bool horizontal;
+  final String? label;
+  const _RulerPainter({required this.horizontal, this.label});
+
+  static const _bg = Color(0xFF1B1B1F);
+  static const _tick = Color(0xFF55555C);
+  static const _text = TextStyle(
+    color: Color(0xFF9A9AA0),
+    fontSize: 9,
+    fontFamily: 'Menlo',
+    height: 1,
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
+    final tickPaint = Paint()
+      ..color = _tick
+      ..strokeWidth = 1;
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+
+    double labelEnd = 0;
+    if (horizontal && label != null) {
+      tp.text = TextSpan(text: label, style: _text);
+      tp.layout();
+      canvas.drawRect(
+        Rect.fromLTWH(0, 2, tp.width + 12, size.height - 4),
+        Paint()..color = const Color(0xFF26262B),
+      );
+      tp.paint(canvas, const Offset(6, 5));
+      labelEnd = tp.width + 12;
+    }
+
+    final len = horizontal ? size.width : size.height;
+    for (var x = 0.0; x <= len; x += 10) {
+      final major = x % 100 == 0;
+      final mid = x % 50 == 0;
+      final t = major ? 11.0 : (mid ? 7.0 : 4.0);
+      if (horizontal) {
+        canvas.drawLine(
+          Offset(x, size.height),
+          Offset(x, size.height - t),
+          tickPaint,
+        );
+        if (major && x >= labelEnd && x + 26 <= len) {
+          tp.text = TextSpan(text: '${x.round()}', style: _text);
+          tp.layout();
+          tp.paint(canvas, Offset(x + 3, 3));
+        }
+      } else {
+        canvas.drawLine(
+          Offset(size.width, x),
+          Offset(size.width - t, x),
+          tickPaint,
+        );
+        if (major && x + 26 <= len) {
+          tp.text = TextSpan(text: '${x.round()}', style: _text);
+          tp.layout();
+          canvas.save();
+          canvas.translate(6, x + 3 + tp.width);
+          canvas.rotate(-math.pi / 2);
+          tp.paint(canvas, Offset.zero);
+          canvas.restore();
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RulerPainter old) =>
+      old.horizontal != horizontal || old.label != label;
 }
 
 /// The embedded WebView body. On macOS uses the native platform view keyed by
@@ -1915,12 +2309,13 @@ class _PanelBody extends ConsumerWidget {
         ),
       );
     }
+    final customs = ref.watch(customDevicePresetsProvider).valueOrEmpty;
     Widget view = AppKitView(
       key: ValueKey(
         'pwv-${runtime.identityId}-${runtime.fingerprint}-n${runtime.viewNonce}',
       ),
       viewType: 'profiled_webview',
-      creationParams: panelCreationParams(runtime),
+      creationParams: panelCreationParams(runtime, customs),
       creationParamsCodec: const StandardMessageCodec(),
       onPlatformViewCreated: (viewId) {
         ref
@@ -1935,10 +2330,17 @@ class _PanelBody extends ConsumerWidget {
     // presets clamp both dimensions. WKWebView on macOS has no CDP-style
     // Emulation.setDeviceMetricsOverride — sizing the view is the honest
     // mechanism; devicePixelRatio always follows the real surface.
-    // ConstrainedBox, not LayoutBuilder: AppKitView already embeds its own
-    // LayoutBuilder, and nesting one here recurses infinitely during layout.
-    final preset = devicePresetFor(runtime.devicePresetId);
-    if (preset != null && preset.sizing != ViewportSizing.free) {
+    // ConstrainedBox, not LayoutBuilder around an unconstrained view:
+    // AppKitView already embeds its own LayoutBuilder, and nesting one here
+    // recurses infinitely during layout. `_MeasureFramedView` is safe only
+    // because it hands the view a tight, fully-computed size.
+    final preset = devicePresetFor(runtime.devicePresetId, customs);
+    if (runtime.measureMode) {
+      // Measure mode: rulers are Flutter chrome around the view — the view
+      // shrinks by the 20px strips (DevTools-dock semantics), so page UI is
+      // never covered and the page DOM stays untouched.
+      view = _MeasureFramedView(preset: preset, child: view);
+    } else if (preset != null && preset.sizing != ViewportSizing.free) {
       view = ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
         child: Center(
@@ -1948,9 +2350,7 @@ class _PanelBody extends ConsumerWidget {
                     maxWidth: preset.viewportWidth.toDouble(),
                     maxHeight: preset.viewportHeight.toDouble(),
                   )
-                : BoxConstraints(
-                    maxWidth: preset.viewportWidth.toDouble(),
-                  ),
+                : BoxConstraints(maxWidth: preset.viewportWidth.toDouble()),
             child: view,
           ),
         ),

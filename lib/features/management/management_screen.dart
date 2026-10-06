@@ -12,6 +12,7 @@ import '../../core/url_input.dart';
 import '../../data/device_presets.dart';
 import '../common/empty_state_guide.dart';
 import '../common/language_menu.dart';
+import '../common/settings_dialog.dart';
 
 class ManagementScreen extends ConsumerWidget {
   const ManagementScreen({super.key});
@@ -31,13 +32,20 @@ class ManagementScreen extends ConsumerWidget {
             color: Theme.of(context).colorScheme.primaryContainer,
             child: Row(
               children: [
-                Text(
-                  'Relay Desk',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                const AppLogo(size: 28),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Relay Desk',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
                   ),
                 ),
-                const Spacer(),
                 LanguageMenuButton(
                   iconColor: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
@@ -109,6 +117,17 @@ class ManagementScreen extends ConsumerWidget {
             ),
           ),
           if (selectedId != null) const IdentityListSection(),
+          const Divider(height: 1),
+          ListTile(
+            key: const ValueKey('open-settings'),
+            dense: true,
+            leading: const Icon(Icons.settings_outlined, size: 20),
+            title: Text(l10n.settingsTitle),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => const SettingsDialog(),
+            ),
+          ),
         ],
       ),
     );
@@ -225,6 +244,7 @@ class IdentityListSection extends ConsumerWidget {
     final l10n = context.l10n;
     final projectId = ref.watch(selectedProjectIdProvider)!;
     final identities = ref.watch(identitiesProvider(projectId));
+    final customs = ref.watch(customDevicePresetsProvider).valueOrEmpty;
 
     return Expanded(
       child: Container(
@@ -278,7 +298,7 @@ class IdentityListSection extends ConsumerWidget {
                         title: Text(id.name),
                         subtitle: Text(
                           '${id.isolationMode.label(l10n)} · '
-                          '${effectiveDevicePreset(id.devicePresetId).name}',
+                          '${effectiveDevicePreset(id.devicePresetId, customs).name}',
                           style: const TextStyle(fontSize: 11),
                         ),
                         dense: true,
@@ -334,8 +354,11 @@ class IdentityListSection extends ConsumerWidget {
       text: existing?.startPath ?? '/',
     );
     var mode = existing?.isolationMode ?? IsolationMode.nativeProfile;
-    // Unknown/absent preset ids normalize to the desktop default.
-    var presetId = effectiveDevicePreset(existing?.devicePresetId).id;
+    // Unknown/absent preset ids normalize to the desktop default. Custom
+    // (user-defined) sizes resolve alongside the built-in catalog — a
+    // snapshot is enough: the dialog opens fresh each time.
+    final customs = ref.read(customDevicePresetsProvider).valueOrEmpty;
+    var presetId = effectiveDevicePreset(existing?.devicePresetId, customs).id;
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -371,7 +394,7 @@ class IdentityListSection extends ConsumerWidget {
                 decoration: InputDecoration(
                   labelText: ctx.l10n.fieldDevicePreset,
                 ),
-                items: devicePresets
+                items: [...customs, ...devicePresets]
                     .map(
                       (p) => DropdownMenuItem(
                         value: p.id,

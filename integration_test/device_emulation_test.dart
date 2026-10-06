@@ -7,6 +7,9 @@
 ///
 ///   - an identity with the `iphone-15` preset sends the iPhone UA in the
 ///     HTTP request (server-echoed) AND reports it via `navigator.userAgent`;
+///   - a `size-iphone-14-390x844` fixed preset does the same — a
+///     device-named window-size preset is full emulation, not a narrow
+///     desktop viewport;
 ///   - `navigator.maxTouchPoints` / `'ontouchstart' in window` reflect the
 ///     emulated touch surface;
 ///   - `window.innerWidth` and width media queries resolve to the emulated
@@ -167,6 +170,13 @@ void main() {
         isolationMode: IsolationMode.nativeProfile,
         devicePresetId: 'iphone-15',
       );
+      final fixedPhone = await identityRepo.create(
+        projectId: project.id,
+        name: 'FixedPhone',
+        color: '#778899',
+        isolationMode: IsolationMode.nativeProfile,
+        devicePresetId: 'size-iphone-14-390x844',
+      );
       final desktop = await identityRepo.create(
         projectId: project.id,
         name: 'Desk',
@@ -178,8 +188,9 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       await waitForView(tester, adapter, mobile.id);
+      await waitForView(tester, adapter, fixedPhone.id);
       await waitForView(tester, adapter, desktop.id);
-      for (final id in [mobile.id, desktop.id]) {
+      for (final id in [mobile.id, fixedPhone.id, desktop.id]) {
         await waitForJs(
           tester,
           adapter,
@@ -204,6 +215,17 @@ void main() {
         reason: 'the HTTP User-Agent header must carry the preset UA',
       );
 
+      // A device-named fixed-size preset is full emulation too: the
+      // server-echoed HTTP UA and navigator.userAgent both report iPhone.
+      final fixedPhoneUa = await adapter.evaluateJs(fixedPhone.id, uaRead);
+      expect(
+        fixedPhoneUa,
+        contains('iPhone'),
+        reason:
+            'a device-named window-size preset must serve the mobile UA, '
+            'not a narrow desktop one',
+      );
+
       // Desktop identity keeps the WKWebView default UA (no mobile markers).
       final desktopUa = await adapter.evaluateJs(desktop.id, uaRead);
       expect(desktopUa, isNot(contains('iPhone')));
@@ -220,6 +242,13 @@ void main() {
       expect(
         await adapter.evaluateJs(
           mobile.id,
+          "('ontouchstart' in window)?'true':'false'",
+        ),
+        'true',
+      );
+      expect(
+        await adapter.evaluateJs(
+          fixedPhone.id,
           "('ontouchstart' in window)?'true':'false'",
         ),
         'true',
@@ -252,8 +281,28 @@ void main() {
         reason: 'mobile media queries must resolve against the clamp',
       );
 
+      // Fixed sizing pins BOTH dims to the device resolution: the iPhone 14
+      // viewport is exactly 390x844 CSS px (panel is sized to fit it).
+      final fixedInnerWidth = int.tryParse(
+        await adapter.evaluateJs(fixedPhone.id, 'window.innerWidth.toString()'),
+      );
+      expect(
+        fixedInnerWidth,
+        lessThanOrEqualTo(390),
+        reason: 'iPhone 14 fixed preset viewport width is 390 CSS px',
+      );
+      expect(
+        await adapter.evaluateJs(
+          fixedPhone.id,
+          "matchMedia('(max-width: 390px)').matches?'true':'false'",
+        ),
+        'true',
+        reason: 'fixed preset media queries resolve against the device size',
+      );
+
       // --- Isolation is unaffected by emulation ---
       expect(await adapter.storeKindFor(mobile.id), 'perIdentity');
+      expect(await adapter.storeKindFor(fixedPhone.id), 'perIdentity');
       expect(await adapter.storeKindFor(desktop.id), 'perIdentity');
 
       // --- Switching the preset back to desktop rebuilds the view: the

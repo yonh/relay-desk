@@ -21,6 +21,12 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    let iconChannel = FlutterMethodChannel(
+      name: "relay_desk/app_icon",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    (NSApplication.shared.delegate as? AppDelegate)?.configureIconChannel(iconChannel)
+
     // Thin native adapter (ADR-0002): per-identity WKWebsiteDataStore(forIdentifier:)
     ProfiledWebViewPlugin.register(with: flutterViewController.registrar(forPlugin: "ProfiledWebView"))
 

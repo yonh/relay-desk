@@ -235,6 +235,14 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
           ),
         );
         break;
+      case 'measureModeChanged':
+        _events.add(
+          WebviewMeasureModeChanged(
+            identityId,
+            payload['enabled'] as bool? ?? false,
+          ),
+        );
+        break;
     }
   }
 
@@ -481,6 +489,27 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     try {
       return await _channel.invokeMethod<bool>('toggleMute', {
             'viewId': viewId,
+          }) ??
+          false;
+    } on PlatformException {
+      // The native view may be closing concurrently.
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> setMeasureMode(
+    String identityId,
+    bool enabled, {
+    bool inPageRulers = false,
+  }) async {
+    final viewId = _viewIdByIdentity[identityId];
+    if (viewId == null) return false;
+    try {
+      return await _channel.invokeMethod<bool>('setMeasureMode', {
+            'viewId': viewId,
+            'enabled': enabled,
+            'inPageRulers': inPageRulers,
           }) ??
           false;
     } on PlatformException {

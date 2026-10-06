@@ -1,6 +1,5 @@
 {
   "@@locale": "en",
-
   "newProject": "New Project",
   "@newProject": {
     "description": "Tooltip for the create-project button and title of the create-project dialog."
@@ -17,7 +16,9 @@
   "errorMessage": "Error: {error}",
   "@errorMessage": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "fieldName": "Name",
@@ -29,7 +30,9 @@
   "deleteProjectTitle": "Delete {name}?",
   "@deleteProjectTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "deleteProjectBody": "This deletes the project, all its identities and saved workspaces (cascade). Browser profiles are not removed.",
@@ -50,26 +53,28 @@
   "deleteIdentityTitle": "Delete identity {name}?",
   "@deleteIdentityTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "deleteIdentityBody": "This removes the identity row. Use \"Clear identity data\" in the panel header to wipe the browser profile/data store.",
   "isolationNativeProfile": "Native Profile",
   "isolationOriginProxy": "Origin Proxy",
   "isolationSharedSession": "Shared Session (not isolated)",
-
   "languageMenuTooltip": "Language",
   "languageFollowSystem": "Follow system",
   "languageEnglish": "English",
   "languageChinese": "简体中文",
-
   "noProjectSelectedTitle": "No Project Selected",
   "noProjectSelectedDescription": "Select a project from the sidebar, or create a new one to start opening isolated WebView panels.",
   "projectNotFound": "Project not found",
   "noIdentitiesInProjectTitle": "No Identities in {name}",
   "@noIdentitiesInProjectTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "noIdentitiesInProjectDescription": "Create an identity in the sidebar to open an isolated WebView panel.",
@@ -78,13 +83,17 @@
   "identityCount": "{count, plural, =1{1 identity} other{{count} identities}}",
   "@identityCount": {
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "panelCount": "{count, plural, =1{1 panel} other{{count} panels}}",
   "@panelCount": {
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "nativeProfilesAvailable": "Native profiles available (macOS 14+)",
@@ -112,12 +121,31 @@
   "copyLink": "Copy link",
   "muteMedia": "Mute media",
   "unmuteMedia": "Unmute media",
+  "measureMode": "Measure mode (Esc to exit)",
+  "manageCustomSizes": "Custom sizes…",
+  "addCustomSize": "Add size",
+  "customSizeName": "Name (optional)",
+  "customSizeWidth": "Width (px)",
+  "customSizeHeight": "Height (px)",
+  "customSizeInvalid": "Width/height must be {min}–{max} px",
+  "@customSizeInvalid": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "fullscreenPanel": "Fullscreen panel",
   "closePanel": "Close panel",
   "webviewNotSupported": "WebView not supported on {os} (NOT_TESTED)",
   "@webviewNotSupported": {
     "placeholders": {
-      "os": { "type": "String" }
+      "os": {
+        "type": "String"
+      }
     }
   },
   "stateClosed": "closed",
@@ -134,17 +162,20 @@
   "newWindowError": "Unable to open new window: {error}",
   "@newWindowError": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "residentQuickSitesLabel": "Resident quick sites",
   "releaseResidentTooltip": "Release resident {name}",
   "@releaseResidentTooltip": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
-
   "quickSites": "Quick Sites",
   "quickSitesSearchHint": "Search sites…",
   "quickSitesRecent": "Recently used",
@@ -155,17 +186,20 @@
   "quickSitesOpenOverlay": "Open overlay",
   "quickSitesDockRight": "Dock to right",
   "quickSitesOpenNewWindow": "Open in new window",
-
   "quickSiteHostUnsupported": "Quick site host: {name}\nWebView not supported here (NOT_TESTED).",
   "@quickSiteHostUnsupported": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "quickSiteLoadFailed": "Failed to load: {error}",
   "@quickSiteLoadFailed": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "retry": "Retry",
@@ -175,8 +209,25 @@
   "diagnosticsLogCopied": "Diagnostics log path copied: {path}",
   "@diagnosticsLogCopied": {
     "placeholders": {
-      "path": { "type": "String" }
+      "path": {
+        "type": "String"
+      }
     }
   },
-  "diagnosticsLogUnavailable": "No diagnostics log on this platform"
+  "diagnosticsLogUnavailable": "No diagnostics log on this platform",
+  "settingsTitle": "Settings",
+  "appIconTitle": "App icon",
+  "appIconDescription": "Choose your planet. Your selection is saved automatically.",
+  "iconA1": "Ember planet",
+  "iconA2": "Mars planet",
+  "iconB1": "Ocean blue",
+  "iconB2": "Mint ice",
+  "iconC1": "Blue pearl",
+  "iconC3": "Ice crystal",
+  "defaultIcon": "Default",
+  "restoreDefaultIcon": "Restore B2 default",
+  "settingsDone": "Done",
+  "iconSaveFailed": "Could not update the icon. Please try again.",
+  "appIconPlatformNote": "The app logo and macOS Dock icon update immediately. Finder uses the bundled B2 icon.",
+  "dockIconMenu": "Switch Icon"
 }

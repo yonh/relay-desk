@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/localization.dart';
+import 'app/icon_settings.dart';
 import 'features/management/management_screen.dart';
+import 'features/common/dock_icon_bridge.dart';
 import 'features/workspace/workspace_screen.dart';
 import 'l10n/app_localizations.dart';
 
@@ -13,14 +15,23 @@ Future<void> main() async {
   // frame (no startup language flicker). If prefs are unavailable the
   // in-memory default keeps the app running on the system locale.
   LocaleStorage localeStorage = InMemoryLocaleStorage();
+  IconStorage iconStorage = MemoryIconStorage();
   try {
-    localeStorage = SharedPreferencesLocaleStorage(
-      await SharedPreferences.getInstance(),
-    );
+    final preferences = await SharedPreferences.getInstance();
+    localeStorage = SharedPreferencesLocaleStorage(preferences);
+    iconStorage = SharedPreferencesIconStorage(preferences);
   } catch (_) {}
+  try {
+    await PlatformAppIcon().apply(iconStorage.read());
+  } catch (_) {
+    // The bundled B2 icon remains available if the native bridge fails.
+  }
   runApp(
     ProviderScope(
-      overrides: [localeStorageProvider.overrideWithValue(localeStorage)],
+      overrides: [
+        localeStorageProvider.overrideWithValue(localeStorage),
+        iconStorageProvider.overrideWithValue(iconStorage),
+      ],
       child: const RelayDeskApp(),
     ),
   );
@@ -41,7 +52,7 @@ class RelayDeskApp extends ConsumerWidget {
       locale: preference.locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      home: const RelayDeskHome(),
+      home: const DockIconBridge(child: RelayDeskHome()),
     );
   }
 }

@@ -252,6 +252,29 @@ class AppLocalizationsZh extends AppLocalizations {
   String get unmuteMedia => '取消静音';
 
   @override
+  String get measureMode => '测量模式（Esc 退出）';
+
+  @override
+  String get manageCustomSizes => '自定义尺寸…';
+
+  @override
+  String get addCustomSize => '添加尺寸';
+
+  @override
+  String get customSizeName => '名称（可选）';
+
+  @override
+  String get customSizeWidth => '宽度（px）';
+
+  @override
+  String get customSizeHeight => '高度（px）';
+
+  @override
+  String customSizeInvalid(int min, int max) {
+    return '宽高需在 $min–$max 像素之间';
+  }
+
+  @override
   String get fullscreenPanel => '全屏面板';
 
   @override
@@ -367,4 +390,50 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get diagnosticsLogUnavailable => '当前平台没有诊断日志';
+
+  @override
+  String get settingsTitle => '设置';
+
+  @override
+  String get appIconTitle => '应用图标';
+
+  @override
+  String get appIconDescription => '选择你喜欢的星球图标，选择后自动保存。';
+
+  @override
+  String get iconA1 => '赤焰星球';
+
+  @override
+  String get iconA2 => '火星';
+
+  @override
+  String get iconB1 => '海蓝卫星';
+
+  @override
+  String get iconB2 => '薄荷冰星';
+
+  @override
+  String get iconC1 => '灰蓝珍珠';
+
+  @override
+  String get iconC3 => '冰晶星球';
+
+  @override
+  String get defaultIcon => '默认';
+
+  @override
+  String get restoreDefaultIcon => '恢复默认 B2';
+
+  @override
+  String get settingsDone => '完成';
+
+  @override
+  String get iconSaveFailed => '图标更新失败，请重试。';
+
+  @override
+  String get appIconPlatformNote =>
+      '应用内 Logo 和 macOS Dock 图标即时更新；访达使用安装包默认的 B2 图标。';
+
+  @override
+  String get dockIconMenu => '切换图标';
 }

@@ -1,6 +1,5 @@
 {
   "@@locale": "zh",
-
   "newProject": "新建项目",
   "editProject": "编辑项目",
   "welcomeTitle": "欢迎使用 Relay Desk",
@@ -11,7 +10,9 @@
   "errorMessage": "错误：{error}",
   "@errorMessage": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "fieldName": "名称",
@@ -23,7 +24,9 @@
   "deleteProjectTitle": "删除 {name}？",
   "@deleteProjectTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "deleteProjectBody": "将删除该项目及其所有身份和已保存的工作区（级联）。浏览器配置文件不会被移除。",
@@ -44,26 +47,28 @@
   "deleteIdentityTitle": "删除身份 {name}？",
   "@deleteIdentityTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "deleteIdentityBody": "仅删除该身份记录。如需清除浏览器配置文件/数据存储，请使用面板标题栏中的“清除身份数据”。",
   "isolationNativeProfile": "原生配置文件",
   "isolationOriginProxy": "源站代理",
   "isolationSharedSession": "共享会话（不隔离）",
-
   "languageMenuTooltip": "语言",
   "languageFollowSystem": "跟随系统",
   "languageEnglish": "English",
   "languageChinese": "简体中文",
-
   "noProjectSelectedTitle": "未选择项目",
   "noProjectSelectedDescription": "从侧栏选择一个项目，或新建项目以打开隔离的 WebView 面板。",
   "projectNotFound": "未找到项目",
   "noIdentitiesInProjectTitle": "{name} 暂无身份",
   "@noIdentitiesInProjectTitle": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "noIdentitiesInProjectDescription": "在侧栏创建身份即可打开隔离的 WebView 面板。",
@@ -72,13 +77,17 @@
   "identityCount": "{count, plural, other{{count} 个身份}}",
   "@identityCount": {
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "panelCount": "{count, plural, other{{count} 个面板}}",
   "@panelCount": {
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "nativeProfilesAvailable": "原生配置文件可用（macOS 14+）",
@@ -106,12 +115,31 @@
   "copyLink": "复制链接",
   "muteMedia": "静音媒体",
   "unmuteMedia": "取消静音",
+  "measureMode": "测量模式（Esc 退出）",
+  "manageCustomSizes": "自定义尺寸…",
+  "addCustomSize": "添加尺寸",
+  "customSizeName": "名称（可选）",
+  "customSizeWidth": "宽度（px）",
+  "customSizeHeight": "高度（px）",
+  "customSizeInvalid": "宽高需在 {min}–{max} 像素之间",
+  "@customSizeInvalid": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "fullscreenPanel": "全屏面板",
   "closePanel": "关闭面板",
   "webviewNotSupported": "WebView 在 {os} 上不受支持（NOT_TESTED）",
   "@webviewNotSupported": {
     "placeholders": {
-      "os": { "type": "String" }
+      "os": {
+        "type": "String"
+      }
     }
   },
   "stateClosed": "已关闭",
@@ -128,17 +156,20 @@
   "newWindowError": "无法打开新窗口：{error}",
   "@newWindowError": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "residentQuickSitesLabel": "常驻快捷站点",
   "releaseResidentTooltip": "关闭常驻 {name}",
   "@releaseResidentTooltip": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
-
   "quickSites": "快捷站点",
   "quickSitesSearchHint": "搜索站点…",
   "quickSitesRecent": "最近使用",
@@ -149,17 +180,20 @@
   "quickSitesOpenOverlay": "打开浮层",
   "quickSitesDockRight": "固定到右侧",
   "quickSitesOpenNewWindow": "在新窗口打开",
-
   "quickSiteHostUnsupported": "快捷站点宿主：{name}\n此处不支持 WebView（NOT_TESTED）。",
   "@quickSiteHostUnsupported": {
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "quickSiteLoadFailed": "加载失败：{error}",
   "@quickSiteLoadFailed": {
     "placeholders": {
-      "error": { "type": "String" }
+      "error": {
+        "type": "String"
+      }
     }
   },
   "retry": "重试",
@@ -167,5 +201,20 @@
   "closeTooltip": "关闭",
   "diagnosticsLogTooltip": "复制诊断日志路径",
   "diagnosticsLogCopied": "诊断日志路径已复制：{path}",
-  "diagnosticsLogUnavailable": "当前平台没有诊断日志"
+  "diagnosticsLogUnavailable": "当前平台没有诊断日志",
+  "settingsTitle": "设置",
+  "appIconTitle": "应用图标",
+  "appIconDescription": "选择你喜欢的星球图标，选择后自动保存。",
+  "iconA1": "赤焰星球",
+  "iconA2": "火星",
+  "iconB1": "海蓝卫星",
+  "iconB2": "薄荷冰星",
+  "iconC1": "灰蓝珍珠",
+  "iconC3": "冰晶星球",
+  "defaultIcon": "默认",
+  "restoreDefaultIcon": "恢复默认 B2",
+  "settingsDone": "完成",
+  "iconSaveFailed": "图标更新失败，请重试。",
+  "appIconPlatformNote": "应用内 Logo 和 macOS Dock 图标即时更新；访达使用安装包默认的 B2 图标。",
+  "dockIconMenu": "切换图标"
 }
