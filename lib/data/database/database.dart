@@ -89,14 +89,36 @@ class SavedPanelLayouts extends Table {
   Set<Column> get primaryKey => {workspaceId, identityId};
 }
 
+/// User-defined window-size presets ("Custom sizes" in the device menu).
+/// Unlike the built-in catalog these are runtime data, not schema fixtures:
+/// identities store the preset id in `device_preset_id`, so the same row
+/// shape is what the workspace resolves when sizing a panel.
+@DataClassName('CustomDevicePresetRow')
+class CustomDevicePresets extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  IntColumn get width => integer().check(width.isBiggerOrEqualValue(120))();
+  IntColumn get height => integer().check(height.isBiggerOrEqualValue(120))();
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
-  tables: [Projects, Identities, SavedWorkspaces, SavedPanelLayouts],
+  tables: [
+    Projects,
+    Identities,
+    SavedWorkspaces,
+    SavedPanelLayouts,
+    CustomDevicePresets,
+  ],
 )
 class RelayDatabase extends _$RelayDatabase {
   RelayDatabase(super.e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -113,6 +135,9 @@ class RelayDatabase extends _$RelayDatabase {
         // Add the per-project default layout mode column. Existing rows
         // backfill to the global default `grid` via the column default.
         await m.addColumn(projects, projects.defaultLayoutMode);
+      }
+      if (from < 4) {
+        await m.createTable(customDevicePresets);
       }
     },
     beforeOpen: (details) async {

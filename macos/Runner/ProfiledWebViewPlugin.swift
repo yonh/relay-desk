@@ -90,6 +90,17 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     // Identities whose detached window should follow the live view surface
     // (`custom` preset) rather than a fixed emulated viewport.
     private var identityViewportFollows: Set<String> = []
+    // viewIds with the in-page measure-mode overlay armed. Membership
+    // outlives navigation: didFinish re-installs the overlay while the view
+    // stays in this set, so reloads don't silently drop measure mode.
+    private var measureModeViewIds: Set<Int64> = []
+    // viewId -> whether the overlay draws its rulers in-page (detached
+    // views) or the Flutter side provides the ruler chrome (embedded).
+    private var measureModeRulers: [Int64: Bool] = [:]
+    // handlerName -> identityId for the measure-mode exit channel (the
+    // overlay's own Escape/destroy path posts here so Dart state stays in
+    // sync without a round-trip).
+    private var measureHandlerIdentities: [String: String] = [:]
     // viewId -> pending load watchdog. WKWebView can wedge (dead WebContent
     // process, hung per-store network process, view-out-of-window suspension)
     // without ever calling a terminal navigation delegate method; the watchdog
@@ -433,6 +444,232 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         webView.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
     }
 
+    /// Registers the `relayDeskMeasure_<viewId>` message channel the
+    /// measure-mode overlay uses to report its own teardown (Escape key).
+    /// The overlay itself is installed lazily via `setMeasureMode` — this
+    /// only wires the exit channel so `window.webkit.messageHandlers` has a
+    /// valid entry whenever the script runs.
+    private func addMeasureModeBridge(
+        to configuration: WKWebViewConfiguration,
+        viewId: Int64,
+        identityId: String
+    ) {
+        let handlerName = "relayDeskMeasure_\(viewId)"
+        measureHandlerIdentities[handlerName] = identityId
+        configuration.userContentController.add(self, name: handlerName)
+    }
+
+    private func removeMeasureModeBridge(for viewId: Int64, webView: WKWebView) {
+        let handlerName = "relayDeskMeasure_\(viewId)"
+        measureHandlerIdentities.removeValue(forKey: handlerName)
+        measureModeViewIds.remove(viewId)
+        measureModeRulers.removeValue(forKey: viewId)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
+    }
+
+    /// The in-page measure overlay (element highlight + W×H badge + viewport
+    /// rulers), installed/removed via evaluateJavaScript. Configuration is
+    /// read from `window.__relayMeasureCfg` (enabled, handler) set by the
+    /// caller — keeping the body free of interpolation so it can be shared
+    /// between the toggle and the didFinish re-arm paths.
+    ///
+    /// Every overlay style carries `!important` because pages apply global
+    /// CSS (e.g. `canvas { width: ... !important }`) that otherwise resizes
+    /// our ruler canvases; inline `!important` wins over author `!important`.
+    private static let measureOverlayScript = """
+    (() => {
+      const K = '__relayDeskMeasure';
+      const cfg = window.__relayMeasureCfg || {};
+      if (window[K]) { try { window[K].destroy(); } catch (e) {} window[K] = null; }
+      if (!cfg.enabled) return { active: false };
+      const doc = document;
+      const R = 20, accent = '#2f80ed';
+      const I = ' !important';
+      const mk = (t, c) => { const el = doc.createElement(t); el.style.cssText = c; return el; };
+      const root = mk('div', 'position:fixed' + I + ';inset:0' + I + ';z-index:2147483646' + I + ';pointer-events:none' + I + ';');
+      root.id = '__relay_measure';
+      const hl = mk('div', 'position:fixed' + I + ';display:none' + I + ';border:1.5px solid ' + accent + I + ';background:rgba(47,128,237,.13)' + I + ';box-sizing:border-box' + I + ';');
+      const badge = mk('div', 'position:fixed' + I + ';display:none' + I + ';background:' + accent + I + ';color:#fff' + I + ';font:11px/1.45 -apple-system,Menlo,monospace' + I + ';padding:3px 7px' + I + ';border-radius:3px' + I + ';white-space:nowrap' + I + ';');
+      root.append(hl, badge);
+      // In-page rulers only when the view is detached — the embedded panel
+      // draws its rulers on the Flutter side instead, keeping page UI clear.
+      const showChrome = cfg.rulers === true;
+      let rulers = null, vp = null, corner = null;
+      if (showChrome) {
+        rulers = doc.createElement('canvas');
+        rulers.style.cssText = 'position:fixed' + I + ';left:0' + I + ';top:0' + I + ';pointer-events:none' + I + ';';
+        vp = mk('div', 'position:fixed' + I + ';left:' + (R + 6) + 'px' + I + ';top:' + (R + 6) + 'px' + I + ';background:rgba(0,0,0,.72)' + I + ';color:#fff' + I + ';font:11px/1.4 -apple-system,Menlo,monospace' + I + ';padding:3px 7px' + I + ';border-radius:3px' + I + ';');
+        corner = mk('div', 'position:fixed' + I + ';left:0' + I + ';top:0' + I + ';width:' + R + 'px' + I + ';height:' + R + 'px' + I + ';background:#1b1b1f' + I + ';');
+        root.append(rulers, corner, vp);
+      }
+      (doc.documentElement || doc.body).appendChild(root);
+      const draw = () => {
+        if (!rulers) return;
+        // One full-viewport canvas draws both rulers — explicit pixel sizes
+        // with `!important`, so page-level `canvas` rules cannot squeeze it.
+        const dpr = window.devicePixelRatio || 1;
+        const w = innerWidth, h = innerHeight;
+        rulers.style.setProperty('width', w + 'px', 'important');
+        rulers.style.setProperty('height', h + 'px', 'important');
+        rulers.width = Math.round(w * dpr);
+        rulers.height = Math.round(h * dpr);
+        const g = rulers.getContext('2d');
+        g.scale(dpr, dpr);
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = '#1b1b1f';
+        g.fillRect(0, 0, w, R);
+        g.fillRect(0, 0, R, h);
+        g.fillStyle = '#9a9aa0';
+        g.strokeStyle = '#55555c';
+        g.font = '9px Menlo, monospace';
+        g.lineWidth = 1;
+        for (let x = 0; x <= w; x += 10) {
+          const major = x % 100 === 0, mid = x % 50 === 0;
+          const tick = major ? 11 : (mid ? 7 : 4);
+          g.beginPath();
+          g.moveTo(x + .5, R); g.lineTo(x + .5, R - tick);
+          if (major) g.fillText(String(x), x + 3, 9);
+          g.stroke();
+        }
+        for (let y = 0; y <= h; y += 10) {
+          const major = y % 100 === 0, mid = y % 50 === 0;
+          const tick = major ? 11 : (mid ? 7 : 4);
+          g.beginPath();
+          g.moveTo(R, y + .5); g.lineTo(R - tick, y + .5);
+          if (major) { g.save(); g.translate(9, y + 2); g.rotate(-Math.PI / 2); g.fillText(String(y), 0, 0); g.restore(); }
+          g.stroke();
+        }
+        vp.textContent = w + 'px \\u00d7 ' + h + 'px';
+      };
+      let current = null;
+      const sel = (el) => {
+        let s = String(el.tagName || '').toLowerCase();
+        if (el.id) s += '#' + el.id;
+        const cn = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
+        const cls = cn.split(' ').filter(Boolean).slice(0, 3);
+        if (cls.length) s += '.' + cls.join('.');
+        return s.length > 48 ? s.slice(0, 48) : s;
+      };
+      const set = (el, k, v) => el.style.setProperty(k, v, 'important');
+      // Badge clearance always respects the 20px ruler strip — embedded
+      // mode has the Flutter-side rulers covering that same edge band.
+      const edge = R;
+      const place = (r, el) => {
+        set(hl, 'display', 'block');
+        set(hl, 'left', r.left + 'px'); set(hl, 'top', r.top + 'px');
+        set(hl, 'width', r.width + 'px'); set(hl, 'height', r.height + 'px');
+        set(badge, 'display', 'block');
+        badge.textContent = sel(el) + '  ' + Math.round(r.width) + ' \\u00d7 ' + Math.round(r.height);
+        const bw = badge.offsetWidth, bh = badge.offsetHeight;
+        let bx = r.left, by = r.top - bh - 2;
+        if (by < edge + 4) by = r.bottom + 2;
+        if (bx + bw > innerWidth - 4) bx = innerWidth - bw - 4;
+        if (bx < edge + 4) bx = edge + 4;
+        set(badge, 'left', bx + 'px'); set(badge, 'top', by + 'px');
+      };
+      const hide = () => {
+        set(hl, 'display', 'none'); set(badge, 'display', 'none');
+      };
+      const onMove = (e) => {
+        const el = doc.elementFromPoint(e.clientX, e.clientY);
+        if (!el || root.contains(el)) { hide(); current = null; return; }
+        current = el;
+        place(el.getBoundingClientRect(), el);
+      };
+      const onRefresh = () => {
+        draw();
+        if (current && doc.contains(current)) place(current.getBoundingClientRect(), current);
+      };
+      const api = {
+        active: true,
+        destroy() {
+          if (!api.active) return;
+          api.active = false;
+          doc.removeEventListener('mousemove', onMove, true);
+          doc.removeEventListener('keydown', onKey, true);
+          doc.removeEventListener('click', onClick, true);
+          window.removeEventListener('resize', onRefresh);
+          doc.removeEventListener('scroll', onRefresh, true);
+          root.remove();
+          window[K] = null;
+          try { window.webkit.messageHandlers[cfg.handler].postMessage('exit'); } catch (e) {}
+        },
+      };
+      const onKey = (e) => { if (e.key === 'Escape') api.destroy(); };
+      const onClick = (e) => {
+        // While measuring, a click selects — it must not navigate.
+        if (e.button === 0) { e.preventDefault(); e.stopPropagation(); }
+      };
+      doc.addEventListener('mousemove', onMove, true);
+      doc.addEventListener('keydown', onKey, true);
+      doc.addEventListener('click', onClick, true);
+      window.addEventListener('resize', onRefresh);
+      doc.addEventListener('scroll', onRefresh, true);
+      draw();
+      window[K] = api;
+      return { active: true };
+    })()
+    """
+
+    private func measureModeConfigScript(enabled: Bool, viewId: Int64, inPageRulers: Bool = false) -> String {
+        "window.__relayMeasureCfg={enabled:\(enabled ? "true" : "false"),handler:'relayDeskMeasure_\(viewId)',rulers:\(inPageRulers ? "true" : "false")};"
+    }
+
+    /// Installs or removes the measure overlay and keeps bookkeeping in
+    /// sync: armed views are tracked in `measureModeViewIds` (didFinish
+    /// re-arms after navigations) and the applied state is reported to Dart
+    /// via `measureModeChanged` so UI state follows the platform, not the
+    /// button press.
+    private func setMeasureMode(
+        viewId: Int64,
+        webView: WKWebView,
+        enabled: Bool,
+        inPageRulers: Bool,
+        result: @escaping FlutterResult
+    ) {
+        webView.evaluateJavaScript(
+            measureModeConfigScript(enabled: enabled, viewId: viewId, inPageRulers: inPageRulers) + Self.measureOverlayScript
+        ) { [weak self] value, error in
+            if let error {
+                result(FlutterError(code: "js_error", message: error.localizedDescription, details: nil))
+                return
+            }
+            let active = (value as? [String: Any])?["active"] as? Bool ?? false
+            if let self {
+                if active {
+                    self.measureModeViewIds.insert(viewId)
+                    self.measureModeRulers[viewId] = inPageRulers
+                } else {
+                    self.measureModeViewIds.remove(viewId)
+                    self.measureModeRulers.removeValue(forKey: viewId)
+                }
+                if let identityId = self.identityIdFor(viewId: viewId) {
+                    self.emit([
+                        "event": "measureModeChanged",
+                        "identityId": identityId,
+                        "enabled": active,
+                    ])
+                }
+            }
+            result(active)
+        }
+    }
+
+    /// Re-installs the overlay after a navigation for views whose measure
+    /// mode is still armed (the page context — and our injected DOM — is
+    /// reset by every full load).
+    func rearmMeasureMode(viewId: Int64, webView: WKWebView) {
+        guard measureModeViewIds.contains(viewId) else { return }
+        webView.evaluateJavaScript(
+            measureModeConfigScript(
+                enabled: true,
+                viewId: viewId,
+                inPageRulers: measureModeRulers[viewId] ?? false
+            ) + Self.measureOverlayScript,
+            completionHandler: nil
+        )
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if let identityId = fullscreenHandlerIdentities[message.name],
            let action = message.body as? String {
@@ -443,6 +680,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 "event": "fullscreenChanged",
                 "identityId": identityId,
                 "isFullscreen": action == "enter",
+            ])
+            return
+        }
+        if let identityId = measureHandlerIdentities[message.name] {
+            // The page overlay tore itself down (Escape) — sync Dart's
+            // button state and stop re-arming on later navigations.
+            if let viewId = viewIdByIdentity[identityId] {
+                measureModeViewIds.remove(viewId)
+            }
+            emit([
+                "event": "measureModeChanged",
+                "identityId": identityId,
+                "enabled": false,
             ])
             return
         }
@@ -628,6 +878,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                     result(value)
                 }
             }
+        case "setMeasureMode":
+            let viewId = (args["viewId"] as? NSNumber)?.int64Value ?? 0
+            guard let webView = webViews[viewId] else {
+                result(FlutterError(code: "no_webview", message: "viewId \(viewId)", details: nil))
+                return
+            }
+            setMeasureMode(
+                viewId: viewId,
+                webView: webView,
+                enabled: args["enabled"] as? Bool ?? false,
+                inPageRulers: args["inPageRulers"] as? Bool ?? false,
+                result: result
+            )
         case "toggleInAppFullscreen":
             let identityId = args["identityId"] as? String ?? ""
             toggleInAppFullscreen(identityId: identityId, result: result)
@@ -956,6 +1219,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
         addRouteReporter(to: config, viewId: viewId, identityId: identityId)
         addInAppFullscreenBridge(to: config, viewId: viewId, identityId: identityId)
+        addMeasureModeBridge(to: config, viewId: viewId, identityId: identityId)
         if touchEmulation {
             addTouchEmulationScript(to: config)
         }
@@ -1063,6 +1327,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         urlObservers.removeValue(forKey: viewId)
         removeRouteReporter(for: viewId, webView: webView)
         removeInAppFullscreenBridge(for: viewId, webView: webView)
+        removeMeasureModeBridge(for: viewId, webView: webView)
         webView.removeFromSuperview()
         webViews.removeValue(forKey: viewId)
         containers.removeValue(forKey: viewId)
@@ -1547,6 +1812,11 @@ final class NavigationDelegate: NSObject, WKNavigationDelegate {
             "canGoBack": webView.canGoBack,
             "canGoForward": webView.canGoForward,
         ])
+        // A full navigation reset the page context (and with it our overlay
+        // DOM). If measure mode is still armed for this view, reinstall it.
+        if let viewId = plugin?.viewId(of: webView) {
+            plugin?.rearmMeasureMode(viewId: viewId, webView: webView)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

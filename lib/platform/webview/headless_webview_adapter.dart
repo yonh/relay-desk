@@ -28,6 +28,7 @@ class HeadlessWebviewAdapter implements WebviewAdapter {
   final Map<String, _HeadlessNav> _navByIdentity = {};
   final Map<String, Uri> _urlByIdentity = {};
   final Map<String, bool> _mutedByIdentity = {};
+  final Map<String, bool> _measureModeByIdentity = {};
   final List<String> methodLog = [];
   int _nextViewId = 1;
 
@@ -122,6 +123,25 @@ class HeadlessWebviewAdapter implements WebviewAdapter {
     final muted = !(_mutedByIdentity[identityId] ?? false);
     _mutedByIdentity[identityId] = muted;
     return muted;
+  }
+
+  @override
+  Future<bool> setMeasureMode(
+    String identityId,
+    bool enabled, {
+    bool inPageRulers = false,
+  }) async {
+    _log('setMeasureMode($identityId,$enabled,rulers:$inPageRulers)');
+    _measureModeByIdentity[identityId] = enabled;
+    _events.add(WebviewMeasureModeChanged(identityId, enabled));
+    return enabled;
+  }
+
+  /// Test/sim helper: the overlay's own exit path (Escape key) reports
+  /// `enabled: false` through the same event as a programmatic disable.
+  void simulateMeasureModeExit(String identityId) {
+    _measureModeByIdentity[identityId] = false;
+    _events.add(WebviewMeasureModeChanged(identityId, false));
   }
 
   @override

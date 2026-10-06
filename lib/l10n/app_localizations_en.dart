@@ -261,6 +261,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get unmuteMedia => 'Unmute media';
 
   @override
+  String get measureMode => 'Measure mode (Esc to exit)';
+
+  @override
+  String get manageCustomSizes => 'Custom sizes…';
+
+  @override
+  String get addCustomSize => 'Add size';
+
+  @override
+  String get customSizeName => 'Name (optional)';
+
+  @override
+  String get customSizeWidth => 'Width (px)';
+
+  @override
+  String get customSizeHeight => 'Height (px)';
+
+  @override
+  String customSizeInvalid(int min, int max) {
+    return 'Width/height must be $min–$max px';
+  }
+
+  @override
   String get fullscreenPanel => 'Fullscreen panel';
 
   @override
@@ -376,4 +399,51 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get diagnosticsLogUnavailable => 'No diagnostics log on this platform';
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get appIconTitle => 'App icon';
+
+  @override
+  String get appIconDescription =>
+      'Choose your planet. Your selection is saved automatically.';
+
+  @override
+  String get iconA1 => 'Ember planet';
+
+  @override
+  String get iconA2 => 'Mars planet';
+
+  @override
+  String get iconB1 => 'Ocean blue';
+
+  @override
+  String get iconB2 => 'Mint ice';
+
+  @override
+  String get iconC1 => 'Blue pearl';
+
+  @override
+  String get iconC3 => 'Ice crystal';
+
+  @override
+  String get defaultIcon => 'Default';
+
+  @override
+  String get restoreDefaultIcon => 'Restore B2 default';
+
+  @override
+  String get settingsDone => 'Done';
+
+  @override
+  String get iconSaveFailed => 'Could not update the icon. Please try again.';
+
+  @override
+  String get appIconPlatformNote =>
+      'The app logo and macOS Dock icon update immediately. Finder uses the bundled B2 icon.';
+
+  @override
+  String get dockIconMenu => 'Switch Icon';
 }

@@ -773,6 +773,33 @@ void main() {
     () {
       final controller = container.read(workspaceControllerProvider.notifier);
       controller.ensurePanel(
+        makeIdentity(devicePresetId: 'size-macbook-air-1280x832'),
+        makeProject(),
+      );
+      final panel = container
+          .read(workspaceControllerProvider)
+          .panels['iid-a']!;
+      final params = panelCreationParams(panel);
+      expect(params['viewportWidth'], 1280);
+      expect(params['viewportHeight'], 832);
+      expect(params['userAgent'], isNull);
+      expect(params['touchEmulation'], isFalse);
+      expect(params['viewportFollowsSurface'], isFalse);
+      // Panel opens at the preset size plus panel chrome (header + toolbar).
+      expect(panel.layout.width, 1280);
+      expect(panel.layout.height, 832 + 96);
+    },
+  );
+
+  test(
+    'fixed device preset adds UA + touch while keeping the exact viewport',
+    () {
+      // A phone-named preset must emulate the device (mobile UA + touch
+      // surface) AND pin the viewport to the device resolution — picking
+      // "iPhone 14 Pro Max" serves the mobile site, not a narrow desktop
+      // one.
+      final controller = container.read(workspaceControllerProvider.notifier);
+      controller.ensurePanel(
         makeIdentity(devicePresetId: 'size-iphone-14-390x844'),
         makeProject(),
       );
@@ -782,14 +809,47 @@ void main() {
       final params = panelCreationParams(panel);
       expect(params['viewportWidth'], 390);
       expect(params['viewportHeight'], 844);
-      expect(params['userAgent'], isNull);
-      expect(params['touchEmulation'], isFalse);
+      expect(params['userAgent'], contains('iPhone'));
+      expect(params['touchEmulation'], isTrue);
       expect(params['viewportFollowsSurface'], isFalse);
-      // Panel opens at the preset size plus panel chrome (header + toolbar).
+      // Fixed sizing wins over the mobile 375x700 default so the panel can
+      // actually host the promised 390x844 viewport.
       expect(panel.layout.width, 390);
       expect(panel.layout.height, 844 + 96);
     },
   );
+
+  test('measure mode toggles via platform events and syncs on exit', () async {
+    final controller = container.read(workspaceControllerProvider.notifier);
+    controller.ensurePanel(makeIdentity(), makeProject());
+    await pumpEventQueue();
+
+    expect(
+      container.read(workspaceControllerProvider).panels['iid-a']!.measureMode,
+      isFalse,
+    );
+
+    await controller.toggleMeasureMode('iid-a');
+    await pumpEventQueue();
+    expect(
+      container.read(workspaceControllerProvider).panels['iid-a']!.measureMode,
+      isTrue,
+    );
+    expect(
+      adapter.methodLog,
+      contains('setMeasureMode(iid-a,true,rulers:false)'),
+    );
+
+    // The overlay's own Escape exit reports enabled:false — the panel
+    // state must follow it so the button never stays lit on a dead
+    // overlay.
+    adapter.simulateMeasureModeExit('iid-a');
+    await pumpEventQueue();
+    expect(
+      container.read(workspaceControllerProvider).panels['iid-a']!.measureMode,
+      isFalse,
+    );
+  });
 
   test('custom preset follows the panel surface size', () {
     final controller = container.read(workspaceControllerProvider.notifier);

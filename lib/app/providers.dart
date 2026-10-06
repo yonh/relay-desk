@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/database/database.dart';
+import '../data/device_presets.dart';
+import '../data/repositories/device_preset_repository.dart';
 import '../data/repositories/project_repository.dart';
 import '../data/repositories/workspace_repository.dart';
 import '../core/platform/domain.dart';
@@ -42,6 +44,29 @@ final workspaceRepositoryProvider = FutureProvider<WorkspaceRepository>((
   final db = await ref.watch(databaseProvider.future);
   return WorkspaceRepository(db);
 });
+
+final devicePresetRepositoryProvider = FutureProvider<DevicePresetRepository>((
+  ref,
+) async {
+  final db = await ref.watch(databaseProvider.future);
+  return DevicePresetRepository(db);
+});
+
+/// User-defined window-size presets (the "Custom sizes" menu group).
+/// Invalidated after every add/delete so the menus re-read the table.
+final customDevicePresetsProvider = FutureProvider<List<DevicePreset>>((
+  ref,
+) async {
+  final repo = await ref.watch(devicePresetRepositoryProvider.future);
+  return repo.listCustom();
+});
+
+/// Unwraps a list provider to its data or an empty list — loading/error
+/// simply means "no entries yet" for list consumers like the custom
+/// device-preset resolution paths.
+extension AsyncValueListOrEmpty<T> on AsyncValue<List<T>> {
+  List<T> get valueOrEmpty => maybeWhen(data: (l) => l, orElse: () => <T>[]);
+}
 
 /// All projects list.
 final projectsProvider = FutureProvider<List<Project>>((ref) async {

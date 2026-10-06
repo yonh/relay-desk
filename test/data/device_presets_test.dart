@@ -37,14 +37,11 @@ void main() {
     expect(p.touch, isFalse);
   });
 
-  test('fixed window-size presets clamp both dims without UA/touch', () {
+  test('fixed presets clamp both dims and stay well-formed', () {
     final fixed = devicePresets.where((p) => p.sizing == ViewportSizing.fixed);
     expect(fixed.length, 11);
     for (final p in fixed) {
       expect(p.emulatedViewport, isTrue, reason: p.id);
-      expect(p.userAgent, isNull, reason: p.id);
-      expect(p.mobile, isFalse, reason: p.id);
-      expect(p.touch, isFalse, reason: p.id);
       expect(p.viewportWidth, greaterThan(0), reason: p.id);
       expect(p.viewportHeight, greaterThan(0), reason: p.id);
       expect(isValidDevicePresetId(p.id), isTrue, reason: p.id);
@@ -55,6 +52,51 @@ void main() {
           .viewportWidth,
       1280,
     );
+  });
+
+  test('device-named fixed presets are full mobile/tablet emulation', () {
+    // A preset named after a phone or tablet must serve the mobile site:
+    // real device UA + touch surface + device DPR, with the viewport pinned
+    // to the device's exact CSS resolution (fixed sizing).
+    const deviceIds = {
+      'size-iphone-se-320x568': ('iPhone', 2.0),
+      'size-nexus-5-360x640': ('Nexus 5', 3.0),
+      'size-iphone-8-375x667': ('iPhone', 2.0),
+      'size-iphone-14-390x844': ('iPhone', 3.0),
+      'size-iphone-11-414x896': ('iPhone', 2.0),
+      'size-iphone-14-pro-max-430x932': ('iPhone', 3.0),
+      'size-ipad-mini-768x1024': ('iPad', 2.0),
+    };
+    for (final entry in deviceIds.entries) {
+      final p = devicePresetFor(entry.key)!;
+      expect(p.mobile, isTrue, reason: p.id);
+      expect(p.touch, isTrue, reason: p.id);
+      expect(p.userAgent, contains(entry.value.$1), reason: p.id);
+      expect(p.scaleFactor, entry.value.$2, reason: p.id);
+    }
+    final iphone14 = devicePresetFor('size-iphone-14-390x844')!;
+    expect(iphone14.userAgent, contains('Mobile/15E148'));
+    final nexus5 = devicePresetFor('size-nexus-5-360x640')!;
+    expect(nexus5.userAgent, contains('Android'));
+    expect(nexus5.userAgent, contains('Mobile Safari'));
+  });
+
+  test('generic fixed presets stay pure window sizes (desktop UA)', () {
+    // Widget/Desktop/MacBook form factors ARE desktop surfaces — no UA
+    // spoofing or touch injection.
+    const pureSizeIds = [
+      'size-widget-320x400',
+      'size-desktop-mini-640x500',
+      'size-desktop-1024x768',
+      'size-macbook-air-1280x832',
+    ];
+    for (final id in pureSizeIds) {
+      final p = devicePresetFor(id)!;
+      expect(p.sizing, ViewportSizing.fixed, reason: id);
+      expect(p.userAgent, isNull, reason: id);
+      expect(p.mobile, isFalse, reason: id);
+      expect(p.touch, isFalse, reason: id);
+    }
   });
 
   test('all preset ids are unique and well-formed', () {
@@ -118,5 +160,27 @@ void main() {
     expect(isValidDevicePresetId(''), isFalse);
     expect(isValidDevicePresetId('a' * 64), isTrue);
     expect(isValidDevicePresetId('a' * 65), isFalse);
+  });
+
+  test('devicePresetFor resolves user-defined sizes before the catalog', () {
+    final custom = customSizePreset(
+      id: 'user-1',
+      name: 'My Kiosk',
+      width: 480,
+      height: 800,
+    );
+    expect(devicePresetFor('user-1'), isNull);
+    expect(devicePresetFor('user-1', [custom]), same(custom));
+    // Catalog ids still resolve with a custom list present.
+    expect(devicePresetFor('iphone-15', [custom])?.id, 'iphone-15');
+    // Custom presets are fixed-sizing window sizes, never UA overrides.
+    expect(custom.sizing, ViewportSizing.fixed);
+    expect(custom.userAgent, isNull);
+    expect(custom.touch, isFalse);
+    expect(effectiveDevicePreset('user-1', [custom]).name, 'My Kiosk');
+    expect(
+      effectiveDevicePreset('user-gone', [custom]).id,
+      kDefaultDevicePresetId,
+    );
   });
 }
