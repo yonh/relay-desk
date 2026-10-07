@@ -113,6 +113,7 @@
   "devtoolsOpened": "Web 检查器已启用",
   "devtoolsUnavailable": "开发者工具仅在调试构建中可用",
   "copyLink": "复制链接",
+  "qrCodeLink": "链接二维码",
   "muteMedia": "静音媒体",
   "unmuteMedia": "取消静音",
   "measureMode": "测量模式（Esc 退出）",

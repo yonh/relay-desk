@@ -119,6 +119,7 @@
   "devtoolsOpened": "Web Inspector enabled",
   "devtoolsUnavailable": "DevTools are only available in debug builds",
   "copyLink": "Copy link",
+  "qrCodeLink": "Link QR code",
   "muteMedia": "Mute media",
   "unmuteMedia": "Unmute media",
   "measureMode": "Measure mode (Esc to exit)",

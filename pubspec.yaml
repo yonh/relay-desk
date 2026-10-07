@@ -45,6 +45,10 @@ dependencies:
     sdk: flutter
   intl: ^0.20.3
   shared_preferences: ^2.5.5
+  qr_flutter: ^4.1.0
+  package_info_plus: ^10.2.2
+  crypto: ^3.0.7
+  pub_semver: ^2.2.1
 
 dev_dependencies:
   flutter_test:

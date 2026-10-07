@@ -246,6 +246,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get copyLink => '复制链接';
 
   @override
+  String get qrCodeLink => '链接二维码';
+
+  @override
   String get muteMedia => '静音媒体';
 
   @override

@@ -524,6 +524,12 @@ abstract class AppLocalizations {
   /// **'Copy link'**
   String get copyLink;
 
+  /// No description provided for @qrCodeLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Link QR code'**
+  String get qrCodeLink;
+
   /// No description provided for @muteMedia.
   ///
   /// In en, this message translates to:

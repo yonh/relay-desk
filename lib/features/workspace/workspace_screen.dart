@@ -17,6 +17,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/localization.dart';
 import '../../app/providers.dart';
@@ -1665,6 +1666,34 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
     super.dispose();
   }
 
+  void _showQrDialog() {
+    final url = _urlCtrl.text;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.l10n.qrCodeLink),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            QrImageView(
+              data: url,
+              size: 200,
+              backgroundColor: Colors.white,
+            ),
+            const SizedBox(height: 12),
+            SelectableText(url, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(ctx.l10n.closeTooltip),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -1758,6 +1787,13 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
             icon: const Icon(Icons.content_copy),
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: _urlCtrl.text)),
+          ),
+          IconButton(
+            tooltip: l10n.qrCodeLink,
+            iconSize: 16,
+            style: _navButtonStyle,
+            icon: const Icon(Icons.qr_code_2),
+            onPressed: _showQrDialog,
           ),
           IconButton(
             tooltip: _mediaMuted ? l10n.unmuteMedia : l10n.muteMedia,

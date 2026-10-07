@@ -255,6 +255,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get copyLink => 'Copy link';
 
   @override
+  String get qrCodeLink => 'Link QR code';
+
+  @override
   String get muteMedia => 'Mute media';
 
   @override
