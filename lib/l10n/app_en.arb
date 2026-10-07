@@ -203,7 +203,7 @@
     }
   },
   "retry": "Retry",
-  "reloadTooltip": "Reload",
+  "reloadTooltip": "Reload (⌘R)",
   "closeTooltip": "Close",
   "diagnosticsLogTooltip": "Copy diagnostics log path",
   "diagnosticsLogCopied": "Diagnostics log path copied: {path}",

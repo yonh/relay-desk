@@ -459,6 +459,31 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   bool backActive() => _browserActionActive(BrowserAction.back);
   bool forwardActive() => _browserActionActive(BrowserAction.forward);
 
+  /// Cmd+R pressed while Flutter chrome holds keyboard focus: reload the
+  /// active panel ([selectedPanelId]). When a page's WKWebView holds the
+  /// window's first responder instead, ProfiledWebView handles Cmd+R
+  /// natively and this is never reached.
+  bool reloadActive() {
+    final activeId = state.selectedPanelId;
+    if (activeId == null) return false;
+    final panel = state.panels[activeId];
+    if (panel == null) return false;
+    switch (panel.state) {
+      case WebviewState.closed:
+      case WebviewState.closing:
+      case WebviewState.failed:
+        return false;
+      case WebviewState.openingEmbedded:
+      case WebviewState.embedded:
+      case WebviewState.detaching:
+      case WebviewState.detached:
+      case WebviewState.attaching:
+        break;
+    }
+    reload(activeId);
+    return true;
+  }
+
   bool _browserActionActive(BrowserAction action) {
     final activeId = state.selectedPanelId;
     if (activeId == null) return false;

@@ -25,6 +25,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../core/platform/domain.dart';
 import '../../core/platform/webview_adapter.dart';
@@ -40,6 +41,7 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     : _channel = const MethodChannel(_methodChannelName),
       _eventChannel = const EventChannel(_eventChannelName) {
     _startEventListener();
+    _channel.setMethodCallHandler(_handleNativeMethodCall);
   }
 
   final MethodChannel _channel;
@@ -111,6 +113,19 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
   /// Latest navigation info (canGoBack/Forward/currentUrl) for an identity.
   WebviewNavInfo navInfoFor(String identityId) =>
       _navInfoByIdentity[identityId] ?? const WebviewNavInfo();
+
+  /// Methods invoked FROM the native side. `webviewPointerDown` fires when a
+  /// click lands on an embedded WKWebView while a foreign responder owns the
+  /// window's keyboard focus — typically Flutter's hidden text-input plugin
+  /// while a Dart TextField is focused, which would otherwise receive the
+  /// Cmd+C/V/X/A menu actions meant for the page. Dropping widget focus here
+  /// lets the native side claim first responder for the webview.
+  Future<Object?> _handleNativeMethodCall(MethodCall call) async {
+    if (call.method == 'webviewPointerDown') {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+    return null;
+  }
 
   void _startEventListener() {
     _eventSub = _eventChannel.receiveBroadcastStream().listen(

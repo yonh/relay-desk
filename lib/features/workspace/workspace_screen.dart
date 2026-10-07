@@ -637,12 +637,36 @@ class _WorkspaceBodyState extends ConsumerState<_WorkspaceBody> {
         // routed to the active panel (selectedPanelId) in every layout mode.
         // Deliberately placed here instead of inside _TagDock (currently
         // unmounted, and its hover area would be too small to be useful).
+        //
+        // Browser key equivalents for focus living in Flutter chrome (panels'
+        // toolbars, the URL field, empty canvas): Cmd+R reloads the active
+        // panel, Cmd+[/Cmd+] navigate back/forward. When a page's WKWebView
+        // holds the window's first responder, ProfiledWebView consumes these
+        // natively and the key event never reaches the framework.
         Expanded(
-          child: Listener(
-            key: const ValueKey('workspace-side-button-listener'),
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (event) => _handleMouseSideButton(ref, event),
-            child: Stack(children: [_layoutFor(ws)]),
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () =>
+                  ref
+                      .read(workspaceControllerProvider.notifier)
+                      .reloadActive(),
+              const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
+                  () => ref
+                      .read(workspaceControllerProvider.notifier)
+                      .backActive(),
+              const SingleActivator(
+                LogicalKeyboardKey.bracketRight,
+                meta: true,
+              ): () => ref
+                  .read(workspaceControllerProvider.notifier)
+                  .forwardActive(),
+            },
+            child: Listener(
+              key: const ValueKey('workspace-side-button-listener'),
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (event) => _handleMouseSideButton(ref, event),
+              child: Stack(children: [_layoutFor(ws)]),
+            ),
           ),
         ),
       ],

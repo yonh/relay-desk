@@ -197,7 +197,7 @@
     }
   },
   "retry": "重试",
-  "reloadTooltip": "重新加载",
+  "reloadTooltip": "重新加载 (⌘R)",
   "closeTooltip": "关闭",
   "diagnosticsLogTooltip": "复制诊断日志路径",
   "diagnosticsLogCopied": "诊断日志路径已复制：{path}",

@@ -384,7 +384,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get retry => 'Retry';
 
   @override
-  String get reloadTooltip => 'Reload';
+  String get reloadTooltip => 'Reload (⌘R)';
 
   @override
   String get closeTooltip => 'Close';

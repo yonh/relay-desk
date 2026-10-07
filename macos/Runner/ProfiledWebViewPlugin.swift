@@ -1248,6 +1248,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         #endif
 
         let webView = ProfiledWebView(frame: .zero, configuration: config)
+        webView.onClaimKeyboardFocus = { [weak self] completion in
+            // Dart unfocus must settle before the webview claims first
+            // responder: dropping widget focus tears down the text-input
+            // plugin, which re-asserts FlutterView and would steal the
+            // responder back from a webview that claimed it earlier.
+            guard let channel = self?.channel else {
+                completion()
+                return
+            }
+            channel.invokeMethod("webviewPointerDown", arguments: nil) { _ in
+                completion()
+            }
+        }
         // Mobile device emulation: override before the initial load so both
         // the HTTP User-Agent header and navigator.userAgent report the
         // preset's UA. nil keeps WKWebView's default desktop UA.
@@ -1680,7 +1693,87 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 /// consume side-button events themselves; over those areas back/forward is
 /// then a silent no-op.
 final class ProfiledWebView: WKWebView {
+    /// Set at creation (registerWebView). Invoked on a click while a foreign
+    /// responder owns the keyboard; must call its completion once the
+    /// Dart-side widget focus has been dropped so this view can safely claim
+    /// first responder afterwards.
+    var onClaimKeyboardFocus: (((@escaping () -> Void) -> Void))?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    /// Whether the window's first responder is inside this webview — or is
+    /// the in-app fullscreen chrome hosting it (that host owns the responder
+    /// while this view's page is fullscreened).
+    private var ownsKeyboardFocus: Bool {
+        guard let window = window ?? superview?.window,
+              let responder = window.firstResponder as? NSView else {
+            return false
+        }
+        if responder === self || responder.isDescendant(of: self) {
+            return true
+        }
+        if let host = responder as? InAppFullscreenHostView, host.webView === self {
+            return true
+        }
+        return false
+    }
+
+    /// macOS dispatches Cmd+key equivalents to the window's first responder —
+    /// but clicking a platform view does not always move first responder off
+    /// Flutter's hidden text-input plugin (a Dart TextField holds it), so
+    /// Cmd+C/V/X/A would dispatch to the plugin instead of the page (same
+    /// embedder quirk as flutter_inappwebview #2380). On each click: ask Dart
+    /// to drop widget focus FIRST — its text-input teardown re-asserts
+    /// FlutterView as first responder and would steal the responder back from
+    /// a webview that claimed it earlier — then claim first responder and let
+    /// the click proceed.
+    private func prepareKeyboardFocus(then proceed: @escaping () -> Void) {
+        if ownsKeyboardFocus {
+            proceed()
+            return
+        }
+        guard let window = window ?? superview?.window else {
+            proceed()
+            return
+        }
+        guard let claim = onClaimKeyboardFocus else {
+            window.makeFirstResponder(self)
+            proceed()
+            return
+        }
+        claim { [weak self] in
+            guard let self else {
+                proceed()
+                return
+            }
+            (self.window ?? self.superview?.window)?.makeFirstResponder(self)
+            proceed()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        prepareKeyboardFocus { [weak self] in self?.handleMouseDown(event) }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        prepareKeyboardFocus { [weak self] in self?.handleRightMouseDown(event) }
+    }
+
     override func otherMouseDown(with event: NSEvent) {
+        prepareKeyboardFocus { [weak self] in self?.handleOtherMouseDown(event) }
+    }
+
+    // `super` cannot be referenced inside an escaping closure, so the
+    // post-claim dispatch lives in plain methods.
+    private func handleMouseDown(_ event: NSEvent) {
+        super.mouseDown(with: event)
+    }
+
+    private func handleRightMouseDown(_ event: NSEvent) {
+        super.rightMouseDown(with: event)
+    }
+
+    private func handleOtherMouseDown(_ event: NSEvent) {
         switch event.buttonNumber {
         case 3:
             if canGoBack { goBack() }
@@ -1689,6 +1782,52 @@ final class ProfiledWebView: WKWebView {
         default:
             super.otherMouseDown(with: event)
         }
+    }
+
+    /// Browser-style key equivalents for the focused page. Views are offered
+    /// key equivalents before the main menu, and every panel's webview is
+    /// asked — so only consume keys when this view owns the keyboard focus.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, ownsKeyboardFocus else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command || flags == [.command, .shift],
+              let key = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let shift = flags.contains(.shift)
+        switch key {
+        case "c": return dispatchEditingAction("copy:")
+        case "x": return dispatchEditingAction("cut:")
+        case "v": return dispatchEditingAction("paste:")
+        case "a": return dispatchEditingAction("selectAll:")
+        case "z": return dispatchEditingAction(shift ? "redo:" : "undo:")
+        case "r":
+            if shift { reloadFromOrigin() } else { reload() }
+            return true
+        case "[" where !shift:
+            if canGoBack { goBack() }
+            return true
+        case "]" where !shift:
+            if canGoForward { goForward() }
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    /// Dispatches a standard editing action (copy:/paste:/…) to the responder
+    /// chain starting at the first responder — the page's content view.
+    private func dispatchEditingAction(_ selectorName: String) -> Bool {
+        // In in-app fullscreen the chrome view owns the responder; hand it to
+        // the webview first so the command reaches WebKit's content view.
+        if let host = (window ?? superview?.window)?.firstResponder
+            as? InAppFullscreenHostView,
+           host.webView === self {
+            (window ?? superview?.window)?.makeFirstResponder(self)
+        }
+        return NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: self)
     }
 }
 

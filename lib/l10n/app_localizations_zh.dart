@@ -375,7 +375,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get retry => '重试';
 
   @override
-  String get reloadTooltip => '重新加载';
+  String get reloadTooltip => '重新加载 (⌘R)';
 
   @override
   String get closeTooltip => '关闭';

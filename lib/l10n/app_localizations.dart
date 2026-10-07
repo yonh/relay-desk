@@ -761,7 +761,7 @@ abstract class AppLocalizations {
   /// No description provided for @reloadTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Reload'**
+  /// **'Reload (⌘R)'**
   String get reloadTooltip;
 
   /// No description provided for @closeTooltip.
