@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,10 @@ import 'package:relay_desk/platform/update/release_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_app.dart';
+
+/// Undoes flutter_test's global HttpClient mock for the duration of a test —
+/// `HttpOverrides.global` is restored afterwards.
+class _RealHttpOverrides extends HttpOverrides {}
 
 class FakeReleaseClient implements ReleaseClient {
   GithubRelease? release;
@@ -87,10 +92,7 @@ class FakeVersionReader implements AppVersionReader {
   Future<String> read() async => version;
 }
 
-GithubRelease release({
-  String tag = 'v1.1.0',
-  bool withAsset = true,
-}) {
+GithubRelease release({String tag = 'v1.1.0', bool withAsset = true}) {
   return GithubRelease(
     tag: tag,
     version: versionFromTag(tag)!,
@@ -149,9 +151,27 @@ void main() {
       expect(versionFromTag('1.2.3')!.toString(), '1.2.3');
       expect(versionFromTag('release-candidate'), isNull);
       expect(versionFromPackage('1.0.2+3')!.toString(), '1.0.2');
-      expect(isRemoteNewer(versionFromTag('v1.0.3')!, versionFromPackage('1.0.2+9')!), isTrue);
-      expect(isRemoteNewer(versionFromTag('v1.0.2')!, versionFromPackage('1.0.2+9')!), isFalse);
-      expect(isRemoteNewer(versionFromTag('v1.0.1')!, versionFromPackage('1.0.2+1')!), isFalse);
+      expect(
+        isRemoteNewer(
+          versionFromTag('v1.0.3')!,
+          versionFromPackage('1.0.2+9')!,
+        ),
+        isTrue,
+      );
+      expect(
+        isRemoteNewer(
+          versionFromTag('v1.0.2')!,
+          versionFromPackage('1.0.2+9')!,
+        ),
+        isFalse,
+      );
+      expect(
+        isRemoteNewer(
+          versionFromTag('v1.0.1')!,
+          versionFromPackage('1.0.2+1')!,
+        ),
+        isFalse,
+      );
     });
 
     test('skip covers the skipped version and older only', () {
@@ -232,6 +252,200 @@ void main() {
     });
   });
 
+  group('GithubReleaseClient web fallback', () {
+    HttpServer? server;
+    HttpOverrides? priorOverrides;
+    final seenPaths = <String>[];
+
+    setUp(() {
+      // flutter_test installs a global HttpOverrides that 400s every request;
+      // swap in a passthrough so this group talks to a real local server.
+      priorOverrides = HttpOverrides.current;
+      HttpOverrides.global = _RealHttpOverrides();
+    });
+
+    Future<HttpServer> serve(
+      FutureOr<void> Function(HttpRequest req) handler,
+    ) async {
+      final s = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      s.forEach((req) async {
+        seenPaths.add(req.uri.path);
+        await handler(req);
+        await req.response.close();
+      });
+      return s;
+    }
+
+    GithubReleaseClient clientFor(int port) => GithubReleaseClient(
+      apiBase: Uri.http('127.0.0.1:$port', ''),
+      webBase: Uri.http('127.0.0.1:$port', ''),
+      timeout: const Duration(seconds: 5),
+    );
+
+    tearDown(() async {
+      await server?.close(force: true);
+      server = null;
+      seenPaths.clear();
+      HttpOverrides.global = priorOverrides;
+      priorOverrides = null;
+    });
+
+    const assetsHtml = '''
+      <div>
+        <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-macos-universal.zip">zip</a>
+        <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-windows-x64.zip">zip</a>
+        <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-macos-universal.dmg">dmg</a>
+        <a href="/other/repo/releases/download/v9.9.9/nope.zip">other</a>
+      </div>
+    ''';
+
+    test(
+      'falls back to github.com pages when the API is rate-limited',
+      () async {
+        server = await serve((req) {
+          final path = req.uri.path;
+          if (path.startsWith('/repos/')) {
+            req.response.statusCode = 403;
+            req.response.write('{"message":"API rate limit exceeded"}');
+          } else if (path == '/yonh/relay-desk/releases/latest') {
+            req.response.statusCode = 302;
+            req.response.headers.set(
+              'location',
+              'http://127.0.0.1:${server!.port}'
+                  '/yonh/relay-desk/releases/tag/v9.9.9',
+            );
+          } else if (path == '/yonh/relay-desk/releases/tag/v9.9.9') {
+            req.response.statusCode = 200;
+            req.response.write('<html>release page</html>');
+          } else if (path ==
+              '/yonh/relay-desk/releases/expanded_assets/v9.9.9') {
+            req.response.statusCode = 200;
+            req.response.write(assetsHtml);
+          } else {
+            req.response.statusCode = 404;
+          }
+        });
+
+        final release = await clientFor(server!.port).latestRelease();
+        expect(release, isNotNull);
+        expect(release!.tag, 'v9.9.9');
+        expect(release.version.toString(), '9.9.9');
+        expect(
+          release.assets.map((a) => a.name),
+          containsAll([
+            'RelayDesk-v9.9.9-macos-universal.zip',
+            'RelayDesk-v9.9.9-windows-x64.zip',
+            'RelayDesk-v9.9.9-macos-universal.dmg',
+          ]),
+        );
+        expect(
+          release.assets.first.downloadUrl,
+          contains('/yonh/relay-desk/releases/download/v9.9.9/'),
+        );
+        // API hit first, web pages only after it failed.
+        expect(seenPaths.first, '/repos/yonh/relay-desk/releases/latest');
+        expect(seenPaths, contains('/yonh/relay-desk/releases/latest'));
+        expect(
+          seenPaths,
+          contains('/yonh/relay-desk/releases/expanded_assets/v9.9.9'),
+        );
+      },
+    );
+
+    test('does not touch web pages when the API succeeds', () async {
+      server = await serve((req) {
+        req.response.statusCode = 200;
+        req.response.write(
+          jsonEncode({
+            'tag_name': 'v1.1.0',
+            'draft': false,
+            'prerelease': false,
+            'assets': [],
+          }),
+        );
+      });
+      final release = await clientFor(server!.port).latestRelease();
+      expect(release!.version.toString(), '1.1.0');
+      expect(seenPaths, everyElement(startsWith('/repos/')));
+    });
+
+    test('semver-prerelease tags still yield null via the web path', () async {
+      server = await serve((req) {
+        final path = req.uri.path;
+        if (path.startsWith('/repos/')) {
+          req.response.statusCode = 403;
+        } else if (path == '/yonh/relay-desk/releases/latest') {
+          req.response.statusCode = 302;
+          req.response.headers.set(
+            'location',
+            'http://127.0.0.1:${server!.port}'
+                '/yonh/relay-desk/releases/tag/v9.9.9-rc.1',
+          );
+        } else if (path.startsWith('/yonh/relay-desk/releases/tag/')) {
+          req.response.statusCode = 200;
+        } else {
+          req.response.statusCode = 404;
+        }
+      });
+      expect(await clientFor(server!.port).latestRelease(), isNull);
+    });
+
+    test('web path returns null when latest yields no tag redirect', () async {
+      server = await serve((req) {
+        if (req.uri.path.startsWith('/repos/')) {
+          req.response.statusCode = 403;
+        } else {
+          req.response.statusCode = 200; // page, but no /tag/ redirect
+        }
+      });
+      expect(await clientFor(server!.port).latestRelease(), isNull);
+    });
+
+    test('rethrows the API error when the web path also fails', () async {
+      server = await serve((req) {
+        req.response.statusCode = 500;
+      });
+      await expectLater(
+        clientFor(server!.port).latestRelease(),
+        throwsA(
+          isA<HttpException>().having(
+            (e) => e.uri?.path ?? '',
+            'uri',
+            contains('/repos/'),
+          ),
+        ),
+      );
+    });
+
+    test('parses tag and assets from the web fragments', () {
+      expect(
+        GithubReleaseClient.tagFromReleaseLocation(
+          'https://github.com/yonh/relay-desk/releases/tag/v2.0.0',
+        ),
+        'v2.0.0',
+      );
+      expect(
+        GithubReleaseClient.tagFromReleaseLocation('/yonh/relay-desk/releases'),
+        isNull,
+      );
+      final assets = GithubReleaseClient.parseAssetsFromExpandedHtml(
+        html:
+            '<a href="/o/r/releases/download/v1.0.0/A%20B.zip">x</a>'
+            '<a href="/o/r/releases/download/v1.0.0/A%20B.zip">dup</a>'
+            '<a href="/o/r/releases/download/v9.9.9/wrong-tag.zip">y</a>',
+        owner: 'o',
+        repo: 'r',
+        tag: 'v1.0.0',
+      );
+      expect(assets, hasLength(1));
+      expect(assets.single.name, 'A B.zip');
+      expect(
+        assets.single.downloadUrl,
+        'https://github.com/o/r/releases/download/v1.0.0/A%20B.zip',
+      );
+    });
+  });
+
   group('UpdateStorage', () {
     test('round-trips settings and tolerates missing keys', () async {
       SharedPreferences.setMockInitialValues({});
@@ -273,19 +487,24 @@ void main() {
       expect(status.asset, isNotNull);
     });
 
-    test('current build up to date, local ahead, and throttled auto-check',
-        () async {
-      final client = FakeReleaseClient()..release = release(tag: 'v1.0.2');
-      final container = makeContainer(client: client);
-      addTearDown(container.dispose);
-      final notifier = container.read(updateStatusProvider.notifier);
-      await notifier.check(manual: true);
-      expect(container.read(updateStatusProvider).phase, UpdatePhase.upToDate);
-      expect(client.calls, 1);
-      // Auto-check is throttled by lastCheckMs — a second one is a no-op.
-      await notifier.check();
-      expect(client.calls, 1);
-    });
+    test(
+      'current build up to date, local ahead, and throttled auto-check',
+      () async {
+        final client = FakeReleaseClient()..release = release(tag: 'v1.0.2');
+        final container = makeContainer(client: client);
+        addTearDown(container.dispose);
+        final notifier = container.read(updateStatusProvider.notifier);
+        await notifier.check(manual: true);
+        expect(
+          container.read(updateStatusProvider).phase,
+          UpdatePhase.upToDate,
+        );
+        expect(client.calls, 1);
+        // Auto-check is throttled by lastCheckMs — a second one is a no-op.
+        await notifier.check();
+        expect(client.calls, 1);
+      },
+    );
 
     test('skipped version silences auto but not manual check', () async {
       final storage = MemoryUpdateStorage(
@@ -298,10 +517,7 @@ void main() {
       await notifier.check();
       expect(container.read(updateStatusProvider).phase, UpdatePhase.upToDate);
       await notifier.check(manual: true);
-      expect(
-        container.read(updateStatusProvider).phase,
-        UpdatePhase.available,
-      );
+      expect(container.read(updateStatusProvider).phase, UpdatePhase.available);
     });
 
     test('autoDownload goes straight from check to ready', () async {
@@ -319,10 +535,7 @@ void main() {
       await container.read(updateStatusProvider.notifier).check(manual: true);
       expect(downloader.calls, 1);
       expect(container.read(updateStatusProvider).phase, UpdatePhase.ready);
-      expect(
-        container.read(updateSettingsProvider).readyTag,
-        'v1.1.0',
-      );
+      expect(container.read(updateSettingsProvider).readyTag, 'v1.1.0');
     });
 
     test('download stages files, then install quits the app', () async {
@@ -368,10 +581,7 @@ void main() {
       final notifier = container.read(updateStatusProvider.notifier);
       await notifier.check(manual: true);
       await notifier.download();
-      expect(
-        container.read(updateStatusProvider).phase,
-        UpdatePhase.available,
-      );
+      expect(container.read(updateStatusProvider).phase, UpdatePhase.available);
     });
 
     test('skipVersion persists and clears the staged tag', () async {
@@ -412,22 +622,25 @@ void main() {
       await notifier.download();
       final installFuture = notifier.installAndRelaunch();
       await Future<void>.delayed(Duration.zero);
-      expect(container.read(updateStatusProvider).phase, UpdatePhase.installing);
+      expect(
+        container.read(updateStatusProvider).phase,
+        UpdatePhase.installing,
+      );
       await notifier.skipVersion();
       expect(container.read(updateSettingsProvider).skippedVersion, isNull);
       installer.gate!.complete(true);
       await installFuture;
     });
 
-    test('staged download for the pending release resumes at ready',
-        () async {
+    test('staged download for the pending release resumes at ready', () async {
       final storage = MemoryUpdateStorage(
         const UpdateSettings(readyTag: 'v1.1.0'),
       );
       final paths = FakePaths(Directory.systemTemp.createTempSync('upd'));
       // Recreate what a finished download leaves behind.
-      await Directory('${paths.root.path}/v1.1.0/payload/Relay Desk.app')
-          .create(recursive: true);
+      await Directory(
+        '${paths.root.path}/v1.1.0/payload/Relay Desk.app',
+      ).create(recursive: true);
       final client = FakeReleaseClient()..release = release();
       final downloader = FakeDownloader();
       final container = makeContainer(
@@ -449,7 +662,7 @@ void main() {
     // contract, so assert on index ordering, not exact text. The file
     // under test is the actual artifact shipped in the app bundle.
     final script = File(
-      'macos/Runner/RelayDeskUpdater.app/Contents/MacOS/updater',
+      'macos/Runner/RelayDeskUpdater.app/Contents/MacOS/updater.sh',
     ).readAsStringSync();
 
     int lineOf(String needle, [int from = 0]) {
@@ -458,10 +671,19 @@ void main() {
       return i;
     }
 
-    test('runtime values arrive via argv, not embedded literals', () {
-      expect(script, contains('PARENT="\${1:?pid}"'));
-      expect(script, contains('ROOT="\${2:?root}"'));
-      expect(script, contains('TARGET="\${4:?target}"'));
+    test('runtime values arrive via handoff file, argv kept as fallback', () {
+      // LaunchServices strips --args argv for sandboxed launchers, so the
+      // app writes <updatesRoot>/handoff.params and the script parses it
+      // field-by-field; argv remains a manual-debug fallback.
+      expect(script, contains('handoff.params'));
+      expect(script, contains('PARENT="\${1:-}"'));
+      expect(script, contains('ROOT="\${2:-}"'));
+      expect(script, contains('TARGET="\${4:-}"'));
+      expect(script, contains('PARENT=*)  PARENT='));
+      expect(script, contains('TARGET=*)  TARGET='));
+      // All five params are still mandatory before the swap section runs.
+      expect(script, contains('\${PARENT:?pid}'));
+      expect(script, contains('\${TARGET:?target}'));
       expect(
         lineOf('kill -0 \$PARENT'),
         lessThan(lineOf('mv "\$TARGET" "\$BACKUP"')),
@@ -518,8 +740,9 @@ void main() {
   });
 
   group('UpdateSettingsSection', () {
-    testWidgets('toggles persist and check button drives the controller',
-        (tester) async {
+    testWidgets('toggles persist and check button drives the controller', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({});
       final storage = SharedPreferencesUpdateStorage(
         await SharedPreferences.getInstance(),

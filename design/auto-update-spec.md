@@ -144,18 +144,29 @@ settings_dialog.dart       设置弹窗追加 UpdateSettingsSection
 > 被 LaunchServices 拒启（`_LSOpenURLsWithCompletionHandler -10810`）。
 > **helper 改为预置在主 bundle 内**：`macos/Runner/RelayDeskUpdater.app`
 > 经 Xcode Resources 阶段 `CodeSignOnCopy` 拷入 `Contents/Resources/`，随主包
-> 签名/公证 → 无 quarantine → LS 放行。运行时参数全部走 `open --args`
-> （pid/root/staged/target/archive），脚本读 `$1..$5`，无任何运行时生成。
+> 签名/公证 → 无 quarantine → LS 放行。
+>
+> **v1.6 传参变更（真机实测驱动）**：`open --args` 在非沙盒进程调用时
+> 正常送达，但**沙盒进程发出的 launch 请求会被 LaunchServices 剥离全部
+> argv**（探针桩实测：只收到 argv[0]，脚本因 `${1:?}` 秒退）。参数改走
+> **handoff 文件**：主程序在 `<updatesRoot>/handoff.params`（staging 根上
+> 级，helper 从 HOME 解析两个候选路径：沙盒容器内 / 无沙盒 Application
+> Support）写 `KEY=value` 行，脚本逐字段解析（非 eval）；argv 保留为
+> 手动调试回退。解析用 `read -r line || [ -n "$line" ]` 容忍末行无换行。
 
 1. 主程序定位 `<bundle>/Contents/Resources/RelayDeskUpdater.app`（不存在则
    判 hand-off 失败，走 reveal 兜底）
-2. `/usr/bin/open -n <helper> --args $pid $root $stagedApp $target $archive`
-   —— LaunchServices 在沙盒外 spawn helper（argv 传参已实测可用）
+2. 主程序写 `<updatesRoot>/handoff.params`（PARENT/ROOT/STAGED/TARGET/
+   ARCHIVE 五行，带末尾换行）→ `/usr/bin/open -n <helper>`
+   —— LaunchServices 在沙盒外 spawn helper
 3. 主程序轮询 `<root>/helper.started`（**8s** 超时，超时后**再复检一次**
    marker 防边界竞态）→ 出现则 `exit(0)`；未出现 → 写入 `helper.abort` +
    `open -R` 兜底 + failed(install)（主程序保持运行）
-4. helper 脚本（参数全来自 argv，脚本本体为仓库内静态文件
-   `macos/Runner/RelayDeskUpdater.app/Contents/MacOS/updater`）：
+4. helper 脚本（参数来自 handoff 文件，argv 为调试回退；脚本本体为仓库内
+   静态文件 `macos/Runner/RelayDeskUpdater.app/Contents/MacOS/updater.sh`，
+   `Contents/MacOS/updater` 为 Mach-O 桩 —— LaunchServices 拒绝启动
+   脚本可执行的 .app（LS -10669），桩由
+   `RelayDeskUpdater.Stub/updater_stub.c` 编译）：
    - `touch marker` → 循环 ≤120s 等 `kill -0 $PARENT` 失败（期间见 `helper.abort`
      提前退出）→ **循环结束复检：父进程仍存活 或 出现 abort 文件 →
      `touch helper.aborted` + exit 1，绝不替换运行中的 app**

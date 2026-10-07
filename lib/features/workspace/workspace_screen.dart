@@ -1635,8 +1635,8 @@ class _PanelNavToolbar extends ConsumerStatefulWidget {
 /// minimum, which overflows narrow grid/focus panels (8 buttons + URL field).
 /// shrinkWrap removes the tap-target floor so the toolbar fits ~300px cells.
 const ButtonStyle _navButtonStyle = ButtonStyle(
-  minimumSize: WidgetStatePropertyAll(Size(24, 24)),
-  fixedSize: WidgetStatePropertyAll(Size(24, 24)),
+  minimumSize: WidgetStatePropertyAll(Size(22, 22)),
+  fixedSize: WidgetStatePropertyAll(Size(22, 22)),
   padding: WidgetStatePropertyAll(EdgeInsets.zero),
   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
@@ -1682,7 +1682,7 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
     final devtoolsEnabled =
         ref.watch(capabilitiesProvider).asData?.value.devtools ?? false;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: Row(
         children: [
@@ -1716,7 +1716,7 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 2),
               child: TextField(
                 controller: _urlCtrl,
                 style: const TextStyle(fontSize: 11),

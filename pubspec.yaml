@@ -49,6 +49,7 @@ dependencies:
   package_info_plus: ^10.2.2
   crypto: ^3.0.7
   pub_semver: ^2.2.1
+  meta: ^1.16.0
 
 dev_dependencies:
   flutter_test:
