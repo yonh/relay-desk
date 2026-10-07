@@ -20,9 +20,9 @@ abstract class ReleaseClient {
 /// When the API fails — most commonly the 60-requests/hour unauthenticated
 /// rate limit, which shared egress IPs (CI VMs, corporate NATs) exhaust —
 /// the client falls back to the public `github.com` release pages, which are
-/// not rate-limited per IP. The fallback recovers tag and asset list but not
-/// release notes or SHA-256 digests, so verification degrades to the ZIP
-/// signature/structure checks already enforced downstream.
+/// not rate-limited per IP. The fallback recovers tag, asset list and the
+/// per-asset `sha256:` digests the page renders; release notes and asset
+/// sizes are unavailable (shown as the tag name and `~0.0 MB`).
 class GithubReleaseClient implements ReleaseClient {
   GithubReleaseClient({
     this.owner = 'yonh',
@@ -59,11 +59,12 @@ class GithubReleaseClient implements ReleaseClient {
 
   Future<GithubRelease?> _latestReleaseViaApi() async {
     final request = await _client
-        .getUrl(
-          _apiBase.replace(path: '/repos/$owner/$repo/releases/latest'),
-        )
+        .getUrl(_apiBase.replace(path: '/repos/$owner/$repo/releases/latest'))
         .timeout(timeout);
-    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    request.headers.set(
+      HttpHeaders.acceptHeader,
+      'application/vnd.github+json',
+    );
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
     if (response.statusCode != 200) {
@@ -73,10 +74,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final body = await response
-        .transform(utf8.decoder)
-        .join()
-        .timeout(timeout);
+    final body = await response.transform(utf8.decoder).join().timeout(timeout);
     final decoded = jsonDecode(body);
     if (decoded is! Map<String, dynamic>) return null;
     return GithubRelease.fromJson(decoded);
@@ -120,9 +118,7 @@ class GithubReleaseClient implements ReleaseClient {
   Future<List<ReleaseAsset>> _assetsViaWeb(String tag) async {
     final request = await _client
         .getUrl(
-          _webBase.replace(
-            path: '/$owner/$repo/releases/expanded_assets/$tag',
-          ),
+          _webBase.replace(path: '/$owner/$repo/releases/expanded_assets/$tag'),
         )
         .timeout(timeout);
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
@@ -134,10 +130,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final html = await response
-        .transform(utf8.decoder)
-        .join()
-        .timeout(timeout);
+    final html = await response.transform(utf8.decoder).join().timeout(timeout);
     return parseAssetsFromExpandedHtml(
       html: html,
       owner: owner,
@@ -157,8 +150,11 @@ class GithubReleaseClient implements ReleaseClient {
   /// Parses asset links from the `releases/expanded_assets/<tag>` fragment:
   /// anchors like `href="/o/r/releases/download/<tag>/<file>"`. Names arrive
   /// percent-encoded in the href and are decoded for display; the download
-  /// URL keeps the encoded form. [downloadBase] is the `scheme://host`
-  /// prefix for asset URLs (tests substitute a local server).
+  /// URL keeps the encoded form. Each asset row also renders a
+  /// `sha256:<hex>` digest — scraped from the segment between this href and
+  /// the next so verification keeps working without the API. [downloadBase]
+  /// is the `scheme://host` prefix for asset URLs (tests substitute a local
+  /// server).
   static List<ReleaseAsset> parseAssetsFromExpandedHtml({
     required String html,
     required String owner,
@@ -170,11 +166,21 @@ class GithubReleaseClient implements ReleaseClient {
       'href="/${RegExp.escape(owner)}/${RegExp.escape(repo)}'
       '/releases/download/${RegExp.escape(tag)}/([^"?#]+)',
     );
+    final digest = RegExp('sha256:([0-9a-f]{64})');
+    final matches = pattern.allMatches(html).toList();
     final assets = <ReleaseAsset>[];
-    for (final match in pattern.allMatches(html)) {
+    for (var i = 0; i < matches.length; i++) {
+      final match = matches[i];
       final encoded = match.group(1)!;
       final name = Uri.decodeComponent(encoded);
       if (name.isEmpty || assets.any((a) => a.name == name)) continue;
+      // This asset's digest row sits between its href and the next asset's.
+      final segmentEnd = i + 1 < matches.length
+          ? matches[i + 1].start
+          : html.length;
+      final digestMatch = digest.firstMatch(
+        html.substring(match.end, segmentEnd),
+      );
       assets.add(
         ReleaseAsset(
           name: name,
@@ -182,6 +188,7 @@ class GithubReleaseClient implements ReleaseClient {
               '$downloadBase/$owner/$repo/releases/download/'
               '$tag/$encoded',
           size: 0,
+          sha256: digestMatch?.group(1),
         ),
       );
     }

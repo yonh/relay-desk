@@ -57,7 +57,32 @@ abstract class UpdateDownloader {
 
 /// dart:io implementation — dedicated [HttpClient] per download so cancel
 /// can force-close the socket without touching anything else.
+///
+/// The asset URL travels in release metadata, so it is validated before
+/// use: HTTPS only, on GitHub's own hosts. Anything else throws before a
+/// single byte is fetched — a hostile/MITM'd metadata payload cannot steer
+/// the updater at an arbitrary origin.
 class HttpUpdateDownloader implements UpdateDownloader {
+  /// Hosts a release asset may legitimately resolve to. The API emits
+  /// `api.github.com` `browser_download_url`s on `github.com`; the web
+  /// fallback builds them on `github.com` too. Redirects hop to
+  /// `objects.githubusercontent.com` (GitHub's asset CDN).
+  static const assetHosts = {
+    'github.com',
+    'api.github.com',
+    'objects.githubusercontent.com',
+    'githubusercontent.com',
+  };
+
+  static void _checkAssetUri(Uri uri) {
+    final hostOk = assetHosts.any(
+      (h) => uri.host == h || uri.host.endsWith('.$h'),
+    );
+    if (!uri.isScheme('https') || !hostOk) {
+      throw StateError('untrusted asset origin: ${uri.host}');
+    }
+  }
+
   HttpUpdateDownloader({HttpClient Function()? clientFactory})
     : _clientFactory = clientFactory ?? HttpClient.new;
 
@@ -88,7 +113,9 @@ class HttpUpdateDownloader implements UpdateDownloader {
     _active = client;
     _cancelRequested = false;
     try {
-      final request = await client.getUrl(Uri.parse(asset.downloadUrl));
+      final uri = Uri.parse(asset.downloadUrl);
+      _checkAssetUri(uri);
+      final request = await client.getUrl(uri);
       request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
       final response = await request.close().timeout(
         const Duration(seconds: 30),
@@ -116,6 +143,9 @@ class HttpUpdateDownloader implements UpdateDownloader {
       } finally {
         await sink.close();
       }
+      // The stream is done but the dialog still shows "cancel" — a cancel
+      // racing the verify/extract stage must still win.
+      if (_cancelRequested) throw const DownloadCancelled();
       if (!await part.exists() || await part.length() == 0) {
         throw const HttpException('empty download');
       }
@@ -130,6 +160,9 @@ class HttpUpdateDownloader implements UpdateDownloader {
       if (Platform.isMacOS && ext == '.zip') {
         appBundle = await _extractApp(archive, payload);
       }
+      // Same check at the boundary: a cancel during ditto still aborts
+      // instead of reporting a staged update the user asked to drop.
+      if (_cancelRequested) throw const DownloadCancelled();
       return StagedUpdate(root: dir, archive: archive, app: appBundle);
     } catch (e) {
       if (_cancelRequested) {

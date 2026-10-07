@@ -37,6 +37,7 @@ class FakeDownloader implements UpdateDownloader {
   Object? error;
   int calls = 0;
   bool cancelled = false;
+  Completer<void>? gate;
 
   @override
   void cancel() => cancelled = true;
@@ -48,6 +49,7 @@ class FakeDownloader implements UpdateDownloader {
     void Function(double progress)? onProgress,
   }) async {
     calls++;
+    await gate?.future;
     if (error != null) throw error!;
     onProgress?.call(0.5);
     await dir.create(recursive: true);
@@ -290,10 +292,17 @@ void main() {
       priorOverrides = null;
     });
 
-    const assetsHtml = '''
+    const macosDigest =
+        '0abfa89ea8e1e77c6730136bfba317a1797f9ddd1910973f3fa520f884876aa8';
+    const windowsDigest =
+        'b52a921a2d4f4799c1cab3d073df0e94affea48db72e0495decfb09bb79f8f44';
+    const assetsHtml =
+        '''
       <div>
         <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-macos-universal.zip">zip</a>
+        <span class="Truncate-text">sha256:$macosDigest</span>
         <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-windows-x64.zip">zip</a>
+        <span class="Truncate-text">sha256:$windowsDigest</span>
         <a href="/yonh/relay-desk/releases/download/v9.9.9/RelayDesk-v9.9.9-macos-universal.dmg">dmg</a>
         <a href="/other/repo/releases/download/v9.9.9/nope.zip">other</a>
       </div>
@@ -337,6 +346,22 @@ void main() {
             'RelayDesk-v9.9.9-windows-x64.zip',
             'RelayDesk-v9.9.9-macos-universal.dmg',
           ]),
+        );
+        // Digests rendered on the page are scraped per asset — the dmg row
+        // publishes none.
+        expect(
+          release.assets
+              .firstWhere((a) => a.name.endsWith('-universal.zip'))
+              .sha256,
+          macosDigest,
+        );
+        expect(
+          release.assets.firstWhere((a) => a.name.endsWith('-x64.zip')).sha256,
+          windowsDigest,
+        );
+        expect(
+          release.assets.firstWhere((a) => a.name.endsWith('.dmg')).sha256,
+          isNull,
         );
         expect(
           release.assets.first.downloadUrl,
@@ -443,7 +468,44 @@ void main() {
         assets.single.downloadUrl,
         'https://github.com/o/r/releases/download/v1.0.0/A%20B.zip',
       );
+      // A digest between this href and the next belongs to THIS asset; one
+      // after the last href belongs to it too.
+      final withDigest = GithubReleaseClient.parseAssetsFromExpandedHtml(
+        html:
+            '<a href="/o/r/releases/download/v1.0.0/A.zip">a</a>'
+            '<span>sha256:${'a' * 64}</span>'
+            '<a href="/o/r/releases/download/v1.0.0/B.zip">b</a>',
+        owner: 'o',
+        repo: 'r',
+        tag: 'v1.0.0',
+      );
+      expect(withDigest, hasLength(2));
+      expect(withDigest[0].sha256, 'a' * 64);
+      expect(withDigest[1].sha256, isNull);
     });
+  });
+
+  group('HttpUpdateDownloader', () {
+    test(
+      'rejects non-https and non-GitHub asset origins before fetching',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('dl-origin');
+        addTearDown(() => dir.delete(recursive: true));
+        final downloader = HttpUpdateDownloader(clientFactory: HttpClient.new);
+        for (final url in [
+          'http://github.com/x.zip',
+          'https://evil.example.com/x.zip',
+        ]) {
+          await expectLater(
+            downloader.fetchAndStage(
+              ReleaseAsset(name: 'x.zip', downloadUrl: url, size: 0),
+              dir,
+            ),
+            throwsA(isA<StateError>()),
+          );
+        }
+      },
+    );
   });
 
   group('UpdateStorage', () {
@@ -511,6 +573,36 @@ void main() {
         expect(client.calls, 1);
       },
     );
+
+    test('retry while a download is in flight is a no-op', () async {
+      final downloader = FakeDownloader()..gate = Completer<void>();
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(client: client, downloader: downloader);
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      // Kick off the download without awaiting — the gate keeps it busy.
+      unawaited(notifier.download());
+      // Poll briefly for the downloading phase rather than sleeping.
+      for (var i = 0; i < 50; i++) {
+        if (container.read(updateStatusProvider).phase ==
+            UpdatePhase.downloading) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 4));
+      }
+      expect(
+        container.read(updateStatusProvider).phase,
+        UpdatePhase.downloading,
+      );
+      // The failed-download retry path would reset to `available` and call
+      // download() again; the busy guard must stop the second fetch.
+      await notifier.retry();
+      expect(downloader.calls, 1);
+      downloader.gate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(downloader.calls, 1);
+    });
 
     test('skipped version silences auto but not manual check', () async {
       final storage = MemoryUpdateStorage(
@@ -742,6 +834,30 @@ void main() {
     test('exit trap restores the backup when the target is missing', () {
       expect(lineOf('trap cleanup EXIT'), lessThan(lineOf('mkdir "\$LOCK"')));
       expect(script, contains('[ -d "\$BACKUP" ] && [ ! -d "\$TARGET" ]'));
+    });
+
+    test('a leftover backup is restored before it can be deleted', () {
+      // A killed helper can leave TARGET missing and BACKUP holding the only
+      // working app — the restore must precede `rm -rf "$BACKUP"`.
+      final restore = lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]');
+      expect(restore, lessThan(lineOf('rm -rf "\$BACKUP"')));
+      expect(
+        lineOf('mv "\$BACKUP" "\$TARGET" 2>/dev/null ||', restore),
+        lessThan(lineOf('if ditto')),
+      );
+    });
+
+    test('file-sourced params pass containment and freshness checks', () {
+      expect(script, contains('now - mtime)) -gt 600'));
+      expect(script, contains('*[!0-9]*|"") exit 0'));
+      expect(script, contains('"\$ROOT"/*) ;; *) exit 0'));
+      expect(script, contains('*.app) ;; *) exit 0'));
+      // The checks gate the marker write too — a planted handoff must not
+      // even fake a started helper.
+      expect(
+        lineOf('*.app) ;; *) exit 0'),
+        lessThan(lineOf('touch "\$MARKER"')),
+      );
     });
   });
 

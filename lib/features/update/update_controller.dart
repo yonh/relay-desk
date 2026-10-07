@@ -50,7 +50,10 @@ final appVersionReaderProvider = Provider<AppVersionReader>(
 
 /// Called instead of `exit(0)` after a successful install hand-off.
 /// Tests override to observe without terminating the harness.
-final quitAppProvider = Provider<void Function()>((ref) => () => exit(0));
+final quitAppProvider = Provider<void Function()>(
+  (ref) =>
+      () => exit(0),
+);
 
 class _AppUpdatePaths implements UpdatePaths {
   @override
@@ -62,7 +65,10 @@ class _AppUpdatePaths implements UpdatePaths {
   @override
   Future<Directory> stageDir(String tag) async {
     final root = await updatesRoot();
-    return Directory(p.join(root.path, tag));
+    // The tag comes from release metadata — keep it a plain directory name
+    // even if a tag ever slips past semver parsing with separators in it.
+    final safe = tag.replaceAll(RegExp('[^A-Za-z0-9._+-]'), '_');
+    return Directory(p.join(root.path, safe));
   }
 }
 
@@ -108,8 +114,7 @@ class UpdateSettingsController extends Notifier<UpdateSettings> {
   Future<void> skipVersion(String normalizedVersion) =>
       _write(state.copyWith(skippedVersion: normalizedVersion));
 
-  Future<void> clearSkipped() =>
-      _write(state.copyWith(clearSkipped: true));
+  Future<void> clearSkipped() => _write(state.copyWith(clearSkipped: true));
 
   Future<void> setReadyTag(String? tag) => _write(
     tag == null
@@ -118,8 +123,9 @@ class UpdateSettingsController extends Notifier<UpdateSettings> {
   );
 }
 
-final updateStatusProvider =
-    NotifierProvider<UpdateController, UpdateStatus>(UpdateController.new);
+final updateStatusProvider = NotifierProvider<UpdateController, UpdateStatus>(
+  UpdateController.new,
+);
 
 /// Drives the check → download → verify → install pipeline. All entry
 /// points funnel through [state.busy] so concurrent triggers (launch
@@ -157,7 +163,9 @@ class UpdateController extends Notifier<UpdateStatus> {
       // must not lock out retrying for 6 hours.
       await _settingsCtl.markChecked();
       final current = await _currentVersion();
-      if (release == null || current == null || !isRemoteNewer(release.version, current)) {
+      if (release == null ||
+          current == null ||
+          !isRemoteNewer(release.version, current)) {
         state = UpdateStatus(
           phase: UpdatePhase.upToDate,
           latestVersion: release?.version,
@@ -189,9 +197,11 @@ class UpdateController extends Notifier<UpdateStatus> {
         return;
       }
       // A stale staged dir for a different tag is dead weight — drop it.
+      // Awaited, not fire-and-forget: a background delete could still be
+      // running when a later manual download restages that same tag.
       final ready = _settings.readyTag;
       if (ready != null && ready != release.tag) {
-        unawaited(_dropStage(ready));
+        await _dropStage(ready);
         await _settingsCtl.setReadyTag(null);
       }
       state = UpdateStatus(
@@ -320,6 +330,10 @@ class UpdateController extends Notifier<UpdateStatus> {
 
   /// Lets the settings UI retry the failing stage.
   Future<void> retry() async {
+    // A download-stage retry flips phase back to `available`, which clears
+    // `busy` — without this guard a rapid second tap would start a second
+    // fetchAndStage writing the same `.part` file concurrently.
+    if (state.busy) return;
     if (state.stage == UpdateStage.check) {
       await check(manual: true);
     } else if (state.stage == UpdateStage.download) {
@@ -346,7 +360,9 @@ class UpdateController extends Notifier<UpdateStatus> {
     if (release == null || state.busy) return;
     await _settingsCtl.skipVersion(release.version.toString());
     if (_settings.readyTag == release.tag) {
-      unawaited(_dropStage(release.tag));
+      // Awaited for the same reason — a re-download of this exact tag must
+      // never race the removal of its old staging dir.
+      await _dropStage(release.tag);
       await _settingsCtl.setReadyTag(null);
     }
     state = const UpdateStatus(phase: UpdatePhase.upToDate);
@@ -397,6 +413,9 @@ class UpdateController extends Notifier<UpdateStatus> {
       final current = await _currentVersion();
       await for (final entity in root.list()) {
         if (entity is! Directory) continue;
+        // An in-flight download stages under its tag dir with no readyTag
+        // yet — bailing here beats deleting live state mid-write.
+        if (state.busy) return;
         final tag = p.basename(entity.path);
         final consumed =
             tag == ready &&

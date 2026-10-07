@@ -31,6 +31,13 @@ if [ -z "$PARENT" ]; then
     [ -f "$c" ] && HANDOFF_FILE="$c" && break
   done
   if [ -n "$HANDOFF_FILE" ]; then
+    # Stale handoff: only trust a file written in the last 10 minutes — a
+    # replayed/planted params file must not drive destructive swaps later.
+    now=$(date +%s)
+    mtime=$(stat -f %m "$HANDOFF_FILE" 2>/dev/null || echo 0)
+    if [ $((now - mtime)) -gt 600 ]; then
+      exit 0
+    fi
     # `|| [ -n "$line" ]` keeps a final line that has no trailing newline —
     # plain `read` would drop it and the last param would come out empty.
     while IFS= read -r line || [ -n "$line" ]; do
@@ -46,6 +53,11 @@ if [ -z "$PARENT" ]; then
   fi
 fi
 : "${PARENT:?pid}" "${ROOT:?root}" "${STAGED:?staged}" "${TARGET:?target}" "${ARCHIVE:?archive}"
+# Containment checks on file-sourced params: PID numeric, payload must sit
+# inside the staging root, and only *.app bundles may be replaced.
+case "$PARENT" in *[!0-9]*|"") exit 0;; esac
+case "$STAGED" in "$ROOT"/*) ;; *) exit 0;; esac
+case "$TARGET" in *.app) ;; *) exit 0;; esac
 MARKER="$ROOT/helper.started"
 ABORT="$ROOT/helper.abort"
 ABORTED="$ROOT/helper.aborted"
@@ -88,6 +100,12 @@ fi
 # (both saw a dead parent; only one may mutate the target).
 mkdir "$LOCK" 2>/dev/null || exit 0
 OWN_LOCK=1
+# Crash recovery FIRST: a previous helper killed after parking the old
+# bundle left TARGET missing and BACKUP as the only runnable copy —
+# resurrect it before `rm -rf` below can destroy the sole working app.
+if [ ! -d "$TARGET" ] && [ -d "$BACKUP" ]; then
+  mv "$BACKUP" "$TARGET" 2>/dev/null || { touch "$ABORTED"; exit 1; }
+fi
 rm -rf "$BACKUP"
 # If the old bundle exists, moving it aside MUST succeed — continuing with
 # the old bundle in place would merge old+new into a corrupted app.
