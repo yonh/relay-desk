@@ -249,6 +249,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get qrCodeLink => '链接二维码';
 
   @override
+  String get qrLinkField => '链接';
+
+  @override
   String get muteMedia => '静音媒体';
 
   @override
@@ -439,4 +442,89 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get dockIconMenu => '切换图标';
+
+  @override
+  String get updateSectionTitle => '更新';
+
+  @override
+  String get updateAutoCheck => '自动检查更新';
+
+  @override
+  String get updateAutoDownload => '自动下载更新包';
+
+  @override
+  String get updateCheckNow => '检查更新';
+
+  @override
+  String get updateChecking => '正在检查…';
+
+  @override
+  String get updateUpToDate => '已是最新版本';
+
+  @override
+  String updateAvailableTitle(String version) {
+    return '发现新版本 v$version';
+  }
+
+  @override
+  String updateDownloadedTitle(String version) {
+    return '更新已就绪 v$version';
+  }
+
+  @override
+  String get updateWhatsNew => '更新内容';
+
+  @override
+  String get updateDownload => '下载更新';
+
+  @override
+  String updateDownloading(String percent) {
+    return '正在下载… $percent%';
+  }
+
+  @override
+  String get updateVerifying => '正在校验更新包…';
+
+  @override
+  String get updateInstalling => '正在安装…';
+
+  @override
+  String get updateReadyHint => '更新包已下载完成。Relay Desk 将退出并重启以完成安装。';
+
+  @override
+  String get updateInstallRestart => '安装并重启';
+
+  @override
+  String get updateLater => '稍后';
+
+  @override
+  String get updateSkipVersion => '跳过此版本';
+
+  @override
+  String updateSkippedVersion(String version) {
+    return '已跳过版本 $version';
+  }
+
+  @override
+  String get updateClearSkip => '清除';
+
+  @override
+  String get updateCancel => '取消下载';
+
+  @override
+  String updateFailed(String error) {
+    return '更新失败：$error';
+  }
+
+  @override
+  String get updateRetry => '重试';
+
+  @override
+  String get updateOpenReleasePage => '打开下载页面';
+
+  @override
+  String get updateNoAsset => '没有适配当前平台的安装包。';
+
+  @override
+  String get updateViewPrompt => '查看';
 }

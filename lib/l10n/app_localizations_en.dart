@@ -258,6 +258,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get qrCodeLink => 'Link QR code';
 
   @override
+  String get qrLinkField => 'Link';
+
+  @override
   String get muteMedia => 'Mute media';
 
   @override
@@ -449,4 +452,90 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dockIconMenu => 'Switch Icon';
+
+  @override
+  String get updateSectionTitle => 'Updates';
+
+  @override
+  String get updateAutoCheck => 'Check for updates automatically';
+
+  @override
+  String get updateAutoDownload => 'Download updates automatically';
+
+  @override
+  String get updateCheckNow => 'Check now';
+
+  @override
+  String get updateChecking => 'Checking…';
+
+  @override
+  String get updateUpToDate => 'Relay Desk is up to date';
+
+  @override
+  String updateAvailableTitle(String version) {
+    return 'Update available: v$version';
+  }
+
+  @override
+  String updateDownloadedTitle(String version) {
+    return 'Update ready: v$version';
+  }
+
+  @override
+  String get updateWhatsNew => 'What\'s new';
+
+  @override
+  String get updateDownload => 'Download update';
+
+  @override
+  String updateDownloading(String percent) {
+    return 'Downloading… $percent%';
+  }
+
+  @override
+  String get updateVerifying => 'Verifying download…';
+
+  @override
+  String get updateInstalling => 'Installing…';
+
+  @override
+  String get updateReadyHint =>
+      'The update has been downloaded. Relay Desk quits and relaunches to finish installing.';
+
+  @override
+  String get updateInstallRestart => 'Install & relaunch';
+
+  @override
+  String get updateLater => 'Later';
+
+  @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String updateSkippedVersion(String version) {
+    return 'Skipped version $version';
+  }
+
+  @override
+  String get updateClearSkip => 'Clear';
+
+  @override
+  String get updateCancel => 'Cancel download';
+
+  @override
+  String updateFailed(String error) {
+    return 'Update failed: $error';
+  }
+
+  @override
+  String get updateRetry => 'Retry';
+
+  @override
+  String get updateOpenReleasePage => 'Open download page';
+
+  @override
+  String get updateNoAsset => 'No installable package for this platform.';
+
+  @override
+  String get updateViewPrompt => 'View';
 }

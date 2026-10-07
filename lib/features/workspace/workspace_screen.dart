@@ -1667,30 +1667,9 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
   }
 
   void _showQrDialog() {
-    final url = _urlCtrl.text;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(ctx.l10n.qrCodeLink),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            QrImageView(
-              data: url,
-              size: 200,
-              backgroundColor: Colors.white,
-            ),
-            const SizedBox(height: 12),
-            SelectableText(url, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(ctx.l10n.closeTooltip),
-          ),
-        ],
-      ),
+      builder: (ctx) => _QrLinkDialog(initialUrl: _urlCtrl.text),
     );
   }
 
@@ -2429,6 +2408,77 @@ class _PanelBody extends ConsumerWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           ),
+      ],
+    );
+  }
+}
+/// QR-code dialog for a panel link. The link is editable and the QR image
+/// regenerates on every change, so the encoded URL can be tweaked or
+/// parameterized before hand-off.
+class _QrLinkDialog extends StatefulWidget {
+  const _QrLinkDialog({required this.initialUrl});
+
+  final String initialUrl;
+
+  @override
+  State<_QrLinkDialog> createState() => _QrLinkDialogState();
+}
+
+class _QrLinkDialogState extends State<_QrLinkDialog> {
+  late final TextEditingController _linkCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _linkCtrl = TextEditingController(text: widget.initialUrl);
+    _linkCtrl.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    _linkCtrl.dispose();
+    super.dispose();
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final url = _linkCtrl.text.trim();
+    return AlertDialog(
+      title: Text(l10n.qrCodeLink),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: QrImageView(
+                data: url.isEmpty ? ' ' : url,
+                size: 200,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _linkCtrl,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                isDense: true,
+                labelText: l10n.qrLinkField,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.closeTooltip),
+        ),
       ],
     );
   }
