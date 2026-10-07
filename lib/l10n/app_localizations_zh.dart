@@ -472,6 +472,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String updateVersionTransition(String current, String latest) {
+    return '当前 $current → v$latest';
+  }
+
+  @override
   String get updateWhatsNew => '更新内容';
 
   @override

@@ -938,6 +938,12 @@ abstract class AppLocalizations {
   /// **'Update ready: v{version}'**
   String updateDownloadedTitle(String version);
 
+  /// No description provided for @updateVersionTransition.
+  ///
+  /// In en, this message translates to:
+  /// **'{current} → v{latest}'**
+  String updateVersionTransition(String current, String latest);
+
   /// No description provided for @updateWhatsNew.
   ///
   /// In en, this message translates to:

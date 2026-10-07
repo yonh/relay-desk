@@ -1,0 +1,27 @@
+slug: auto-update-review
+title: "自动更新 Spec 终审（第二轮修复后）"
+kind: implementation            # requirements | implementation | free
+mode: orchestrated           # orchestrated（本会话当主持人调度）| peer（各席位独立终端）
+participants: "P1 P2 P3 P4"
+max_rounds: 1   # r0 开局盲答之后的交锋轮数
+synthesizer: host  # host = 主持人自己写总结；Pk = 派给某席
+created: 2026-10-07
+# 席位卡：via_Pk=claude|codex|opencode|devin|manual；model_Pk=模型（opencode 必填 provider/model）
+# thinking_Pk=low|medium|high（codex→-c model_reasoning_effort，opencode→--variant，claude→MAX_THINKING_TOKENS，其余走提示词）
+# persona_Pk=可选视角帽子，如 架构务实派/风险质疑者/数据一致性/落地执行
+via_P1: opencode
+model_P1: opencode/fledge-alpha-free
+thinking_P1: high
+persona_P1: 
+via_P2: opencode
+model_P2: opencode/ling-3.1-flash-free
+thinking_P2: high
+persona_P2: 
+via_P3: opencode
+model_P3: opencode/longcat-2.5-preview-free
+thinking_P3: high
+persona_P3: 
+via_P4: opencode
+model_P4: opencode/mimo-v2.6-flash-free
+thinking_P4: high
+persona_P4: 

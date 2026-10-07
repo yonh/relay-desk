@@ -4,8 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/localization.dart';
 import 'app/icon_settings.dart';
+import 'core/update/settings_storage.dart';
 import 'features/management/management_screen.dart';
 import 'features/common/dock_icon_bridge.dart';
+import 'features/update/update_controller.dart';
+import 'features/update/update_ui.dart';
 import 'features/workspace/workspace_screen.dart';
 import 'l10n/app_localizations.dart';
 
@@ -16,10 +19,12 @@ Future<void> main() async {
   // in-memory default keeps the app running on the system locale.
   LocaleStorage localeStorage = InMemoryLocaleStorage();
   IconStorage iconStorage = MemoryIconStorage();
+  UpdateStorage updateStorage = MemoryUpdateStorage();
   try {
     final preferences = await SharedPreferences.getInstance();
     localeStorage = SharedPreferencesLocaleStorage(preferences);
     iconStorage = SharedPreferencesIconStorage(preferences);
+    updateStorage = SharedPreferencesUpdateStorage(preferences);
   } catch (_) {}
   try {
     await PlatformAppIcon().apply(iconStorage.read());
@@ -31,6 +36,7 @@ Future<void> main() async {
       overrides: [
         localeStorageProvider.overrideWithValue(localeStorage),
         iconStorageProvider.overrideWithValue(iconStorage),
+        updateStorageProvider.overrideWithValue(updateStorage),
       ],
       child: const RelayDeskApp(),
     ),
@@ -63,12 +69,14 @@ class RelayDeskHome extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return const Scaffold(
-      body: Row(
-        children: [
-          ManagementScreen(),
-          VerticalDivider(width: 1),
-          Expanded(child: WorkspaceScreen()),
-        ],
+      body: UpdateGate(
+        child: Row(
+          children: [
+            ManagementScreen(),
+            VerticalDivider(width: 1),
+            Expanded(child: WorkspaceScreen()),
+          ],
+        ),
       ),
     );
   }

@@ -254,6 +254,17 @@
       }
     }
   },
+  "updateVersionTransition": "{current} → v{latest}",
+  "@updateVersionTransition": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
   "updateWhatsNew": "What's new",
   "updateDownload": "Download update",
   "updateDownloading": "Downloading… {percent}%",

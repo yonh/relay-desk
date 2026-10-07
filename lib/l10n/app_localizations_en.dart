@@ -482,6 +482,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String updateVersionTransition(String current, String latest) {
+    return '$current → v$latest';
+  }
+
+  @override
   String get updateWhatsNew => 'What\'s new';
 
   @override

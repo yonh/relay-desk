@@ -1,0 +1,100 @@
+#!/bin/bash
+# Relay Desk update installer. Bundled inside the main app (signed/notarized
+# with it) and launched via `/usr/bin/open -n … --args`, which spawns it
+# outside the main app's sandbox. All runtime values arrive as argv — nothing
+# is generated or written by the sandboxed app.
+#
+#   $1  parent PID (the running Relay Desk process)
+#   $2  update staging root  (<Application Support>/updates/<tag>)
+#   $3  staged .app path     ($ROOT/payload/<name>.app)
+#   $4  target .app path     (the installed bundle to replace)
+#   $5  downloaded archive   ($ROOT/package.zip — deleted on success)
+set -u
+PARENT="${1:?pid}"
+ROOT="${2:?root}"
+STAGED="${3:?staged}"
+TARGET="${4:?target}"
+ARCHIVE="${5:?archive}"
+MARKER="$ROOT/helper.started"
+ABORT="$ROOT/helper.abort"
+ABORTED="$ROOT/helper.aborted"
+LOCK="$ROOT/helper.lock"
+PAYLOAD="$ROOT/payload"
+BACKUP="$TARGET.relay-backup"
+OWN_LOCK=0
+# Self-heal on abnormal exit: if we die after parking the old bundle but
+# before a successful ditto, put it back; release the lock only if we own
+# it (a quiet-exit second helper must not drop the first helper's lock).
+cleanup() {
+  if [ -d "$BACKUP" ] && [ ! -d "$TARGET" ]; then
+    mv "$BACKUP" "$TARGET" 2>/dev/null || echo "rollback-failed" > "$ABORTED"
+  fi
+  [ "$OWN_LOCK" = 1 ] && rmdir "$LOCK" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
+touch "$MARKER"
+# Wait for the main app to exit (max ~120s), standing down early if the
+# app cancelled the hand-off after this helper launched late.
+for i in $(seq 1 600); do
+  [ -f "$ABORT" ] && exit 0
+  kill -0 $PARENT 2>/dev/null || break
+  sleep 0.2
+done
+sleep 1
+# Never swap a live app: the parent may be gone but the user could have
+# relaunched it in the gap — pgrep catches ANY running instance. The hit
+# reason goes into helper.aborted so a silent abort is diagnosable.
+if [ -f "$ABORT" ] || kill -0 $PARENT 2>/dev/null; then
+  echo "parent-alive-or-aborted" > "$ABORTED"
+  exit 1
+fi
+if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
+  echo "instance-running" > "$ABORTED"
+  exit 1
+fi
+# Single-swapper lock: a second helper reaching this point exits quietly
+# (both saw a dead parent; only one may mutate the target).
+mkdir "$LOCK" 2>/dev/null || exit 0
+OWN_LOCK=1
+rm -rf "$BACKUP"
+# If the old bundle exists, moving it aside MUST succeed — continuing with
+# the old bundle in place would merge old+new into a corrupted app.
+if [ -d "$TARGET" ]; then
+  mv "$TARGET" "$BACKUP" || { touch "$ABORTED"; exit 1; }
+fi
+if ditto "$STAGED" "$TARGET"; then
+  # TOCTOU re-check: the window between the early pgrep and this destructive
+  # step is the whole ditto — a relaunch inside it must roll back instead of
+  # deleting the running instance's bundle.
+  if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
+    rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
+    echo "instance-running-late" > "$ABORTED"
+    exit 1
+  fi
+  xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null
+  rm -rf "$PAYLOAD" "$ARCHIVE" "$MARKER" "$ABORT" "$LOCK"
+  OWN_LOCK=0
+  # Delete the backup only after the new app actually launches — if open
+  # fails, BACKUP stays on disk for manual recovery (L2 sweep handles it).
+  open "$TARGET" && rm -rf "$BACKUP"
+else
+  # Move the payload out of the swept staging dir FIRST — the relaunched
+  # app's own startup sweep would delete it before we get here otherwise.
+  TAG=$(basename "$ROOT")
+  DEST="$HOME/Downloads/RelayDesk-$TAG"
+  rm -rf "$DEST"
+  mv "$PAYLOAD" "$DEST" 2>/dev/null
+  rm -rf "$MARKER" "$LOCK"
+  OWN_LOCK=0
+  # Roll the old version back: ditto may have left a partial bundle, so the
+  # leftover target must be removed before mv — rename into a non-empty dir
+  # fails and would nest the backup inside the broken app.
+  if [ -d "$BACKUP" ]; then
+    rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
+  fi
+  # Relaunch the old version so the user is not stranded, then reveal the
+  # payload for a manual drag-install.
+  open "$TARGET" 2>/dev/null
+  if [ -d "$DEST" ]; then open -R "$DEST"; else open -R "$STAGED"; fi
+fi

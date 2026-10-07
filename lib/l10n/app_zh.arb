@@ -241,6 +241,17 @@
       }
     }
   },
+  "updateVersionTransition": "当前 {current} → v{latest}",
+  "@updateVersionTransition": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
   "updateWhatsNew": "更新内容",
   "updateDownload": "下载更新",
   "updateDownloading": "正在下载… {percent}%",

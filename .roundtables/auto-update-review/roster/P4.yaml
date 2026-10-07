@@ -1,0 +1,8 @@
+role: P4
+tool: opencode
+model: opencode/mimo-v2.6-flash-free
+thinking: high
+host: Yonhs-Mac-mini-2
+cwd: /Users/yonh/workspaces/flutter/relay-desk/.roundtables/auto-update-review
+ppid: 1161
+joined: 2026-10-07T22:29:43
