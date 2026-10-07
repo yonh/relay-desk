@@ -476,6 +476,12 @@ void main() {
   });
 
   group('UpdateController', () {
+    // The controller matches assets via the real host platform token — on
+    // Linux CI that is `linux`, which would select nothing from the macOS
+    // fixtures. Pin macOS for this group.
+    setUp(() => debugHostPlatformToken = 'macos');
+    tearDown(() => debugHostPlatformToken = null);
+
     test('newer release transitions to available', () async {
       final client = FakeReleaseClient()..release = release();
       final container = makeContainer(client: client);

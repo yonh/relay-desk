@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 /// A single downloadable file attached to a GitHub release.
@@ -147,9 +148,16 @@ ReleaseAsset? selectAsset(List<ReleaseAsset> assets, String platform) {
   }
 }
 
+/// Test seam for [hostPlatformToken]: set to force a platform token in
+/// tests (CI runs on Linux, where the real token is `linux` and fixtures
+/// carrying only a macOS asset would select nothing).
+@visibleForTesting
+String? debugHostPlatformToken;
+
 /// Current platform token used for asset matching; testable via
 /// [selectAsset]. Returns empty string on unsupported platforms.
 String hostPlatformToken() {
+  if (debugHostPlatformToken != null) return debugHostPlatformToken!;
   if (Platform.isMacOS) return 'macos';
   if (Platform.isWindows) return 'windows';
   if (Platform.isLinux) return 'linux';
