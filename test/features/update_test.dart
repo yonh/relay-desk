@@ -1167,10 +1167,7 @@ void main() {
         lineOf('mkdir "\$ARB"'),
       );
       expect(contend, greaterThan(lineOf('mkdir "\$ARB"')));
-      expect(
-        script,
-        contains('dir manually to unblock future installs'),
-      );
+      expect(script, contains('dir manually to unblock future installs'));
       // Deleting by hand is only safe once no helper is running — the
       // message must say so or a user could remove a live mutex.
       expect(script, contains('quit all running'));
@@ -1184,6 +1181,13 @@ void main() {
       // — a killed-mid-arbitration helper must not block future installs.
       expect(script, contains('OWN_ARB=1'));
       expect(script, contains('[ "\$OWN_ARB" = 1 ] && rm -rf "\$ARB"'));
+      // Ownership is claimed BEFORE the diagnostic pid write.
+      expect(script, contains('OWN_ARB=1\n  echo \$\$ > "\$ARB/pid"'));
+      // Release order matters: the flag drops BEFORE every rm — a signal
+      // landing between them must leave an orphan, never have cleanup()
+      // delete the ARB a new holder mkdir'd in the gap.
+      expect(script, contains('OWN_ARB=0\n    rm -rf "\$ARB"'));
+      expect(script, contains('OWN_ARB=0\n  rm -rf "\$ARB"'));
     });
 
     test('the lock is shared per install target, not per version', () {

@@ -183,11 +183,11 @@ while ! mkdir "$LOCK" 2>/dev/null; do
     echo "arb-contended: cannot arbitrate the stale install lock — first quit all running Relay Desk updater helpers and confirm no live holder of $LOCK/pid, then delete the leftover $ARB dir manually to unblock future installs" > "$ABORTED"
     exit 1
   fi
-  # We own ARB now — record our pid for diagnosis (and mark ownership so
-  # cleanup() releases it if we die before reclaim finishes), then
-  # re-read the lock's owner UNDER the mutex and act on that.
-  echo $$ > "$ARB/pid"
+  # Mark ownership FIRST — a signal between mkdir and here leaves an
+  # orphan rather than a deleted-someone-else's ARB. The pid write is
+  # for post-mortem diagnosis only.
   OWN_ARB=1
+  echo $$ > "$ARB/pid"
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
   LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
   LIVE=0
@@ -215,13 +215,17 @@ while ! mkdir "$LOCK" 2>/dev/null; do
       ;;
   esac
   if [ "$LIVE" = 1 ]; then
-    rm -rf "$ARB"
+    # Clear ownership BEFORE deleting: a signal landing between the two
+    # steps must leave an orphan, never have cleanup() delete a NEW
+    # holder's ARB that mkdir'd in the gap.
     OWN_ARB=0
+    rm -rf "$ARB"
     exit 0
   fi
   rm -rf "$LOCK"
-  rm -rf "$ARB"
+  # Same ordering: release ownership first, then remove the dir.
   OWN_ARB=0
+  rm -rf "$ARB"
 done
 echo $$ > "$LOCK/pid"
 OWN_LOCK=1
