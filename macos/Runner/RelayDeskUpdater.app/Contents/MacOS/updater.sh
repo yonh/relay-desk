@@ -53,10 +53,14 @@ if [ -z "$PARENT" ]; then
   fi
 fi
 : "${PARENT:?pid}" "${ROOT:?root}" "${STAGED:?staged}" "${TARGET:?target}" "${ARCHIVE:?archive}"
-# Containment checks on file-sourced params: PID numeric, payload must sit
-# inside the staging root, and only *.app bundles may be replaced.
+# Containment checks on file-sourced params: PID numeric; ROOT must be an
+# updates/<tag> dir; payload and archive must sit inside it; only *.app
+# bundles may be replaced (the target is wherever the running app was
+# installed, so it is not bounded to a fixed directory).
 case "$PARENT" in *[!0-9]*|"") exit 0;; esac
+case "$ROOT"   in */updates/?*) ;; *) exit 0;; esac
 case "$STAGED" in "$ROOT"/*) ;; *) exit 0;; esac
+case "$ARCHIVE" in "$ROOT"/*) ;; *) exit 0;; esac
 case "$TARGET" in *.app) ;; *) exit 0;; esac
 MARKER="$ROOT/helper.started"
 ABORT="$ROOT/helper.abort"
@@ -97,8 +101,17 @@ if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
   exit 1
 fi
 # Single-swapper lock: a second helper reaching this point exits quietly
-# (both saw a dead parent; only one may mutate the target).
-mkdir "$LOCK" 2>/dev/null || exit 0
+# (both saw a dead parent; only one may mutate the target). A lock whose
+# holder is no longer alive is a crash leftover — evict it and take over,
+# otherwise a SIGKILLed helper wedges every future update behind the
+# orphan and the crash-recovery below can never run.
+if ! mkdir "$LOCK" 2>/dev/null; then
+  if pgrep -f "$0" | grep -vx "$$" | grep -q .; then
+    exit 0
+  fi
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null || exit 0
+fi
 OWN_LOCK=1
 # Crash recovery FIRST: a previous helper killed after parking the old
 # bundle left TARGET missing and BACKUP as the only runnable copy —

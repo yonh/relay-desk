@@ -42,8 +42,9 @@ class DownloadCancelled implements Exception {
 abstract class UpdateDownloader {
   /// Streams [asset] to `<dir>/package.<ext>` showing progress via
   /// [onProgress] (0..1, `-1` content-length → bytes-only progress capped),
-  /// verifies the SHA-256 when GitHub published a digest, then extracts the
-  /// archive (macOS zip via `ditto`) and locates the `.app` bundle.
+  /// verifies the SHA-256 GitHub published (required — a release asset
+  /// with no digest cannot be auto-installed), then extracts the archive
+  /// (macOS zip via `ditto`) and locates the `.app` bundle.
   Future<StagedUpdate> fetchAndStage(
     ReleaseAsset asset,
     Directory dir, {
@@ -102,6 +103,11 @@ class HttpUpdateDownloader implements UpdateDownloader {
     Directory dir, {
     void Function(double progress)? onProgress,
   }) async {
+    // Fail closed: without a publisher-supplied digest there is nothing to
+    // verify the bytes against, and this artifact can replace the app.
+    if (asset.sha256 == null || asset.sha256!.trim().isEmpty) {
+      throw StateError('release asset lacks an integrity digest');
+    }
     await dir.create(recursive: true);
     final ext = asset.name.toLowerCase().endsWith('.tar.gz')
         ? '.tar.gz'
@@ -115,16 +121,35 @@ class HttpUpdateDownloader implements UpdateDownloader {
     try {
       final uri = Uri.parse(asset.downloadUrl);
       _checkAssetUri(uri);
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
-      final response = await request.close().timeout(
-        const Duration(seconds: 30),
-      );
+      // Redirects are followed manually and every hop is re-validated — a
+      // trusted URL must not smuggle the download to an arbitrary origin.
+      HttpClientResponse? response;
+      var current = uri;
+      for (var hops = 0; hops <= 5 && response == null; hops++) {
+        final request = await client.getUrl(current);
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
+        final hop = await request.close().timeout(const Duration(seconds: 30));
+        if (!hop.isRedirect) {
+          response = hop;
+          break;
+        }
+        final location = hop.headers.value(HttpHeaders.locationHeader);
+        await hop.drain<void>();
+        if (location == null) {
+          throw HttpException('redirect without location', uri: current);
+        }
+        current = current.resolve(location);
+        _checkAssetUri(current);
+      }
+      if (response == null) {
+        throw HttpException('too many redirects', uri: uri);
+      }
       if (response.statusCode != 200) {
         await response.drain<void>();
         throw HttpException(
           'download failed (${response.statusCode})',
-          uri: request.uri,
+          uri: current,
         );
       }
       final total = response.contentLength;
@@ -150,8 +175,7 @@ class HttpUpdateDownloader implements UpdateDownloader {
         throw const HttpException('empty download');
       }
       final sha = await sha256.bind(part.openRead()).first;
-      if (asset.sha256 != null &&
-          !sha.toString().equalsIgnoreCase(asset.sha256!)) {
+      if (!sha.toString().equalsIgnoreCase(asset.sha256!)) {
         throw StateError('sha256 mismatch');
       }
       await part.rename(archive.path);
@@ -173,17 +197,34 @@ class HttpUpdateDownloader implements UpdateDownloader {
       _active = null;
       client.close();
       // A cancelled/failed attempt leaves no half files behind.
-      if (await part.exists()) {
-        try {
-          await part.delete();
-        } catch (_) {}
-      }
-      // Extraction is only attempted after a verified archive exists, so a
-      // partial payload means we bailed mid-extract — drop it.
-      if (!await archive.exists() && await payload.exists()) {
-        try {
-          await payload.delete(recursive: true);
-        } catch (_) {}
+      if (_cancelRequested) {
+        // Cancel can land after the .part was renamed or after extraction
+        // completed — drop the full archive and payload, not just .part.
+        for (final f in [part, archive]) {
+          if (await f.exists()) {
+            try {
+              await f.delete();
+            } catch (_) {}
+          }
+        }
+        if (await payload.exists()) {
+          try {
+            await payload.delete(recursive: true);
+          } catch (_) {}
+        }
+      } else {
+        if (await part.exists()) {
+          try {
+            await part.delete();
+          } catch (_) {}
+        }
+        // Extraction is only attempted after a verified archive exists, so
+        // a partial payload means we bailed mid-extract — drop it.
+        if (!await archive.exists() && await payload.exists()) {
+          try {
+            await payload.delete(recursive: true);
+          } catch (_) {}
+        }
       }
     }
   }

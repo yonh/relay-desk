@@ -67,7 +67,9 @@ class _AppUpdatePaths implements UpdatePaths {
     final root = await updatesRoot();
     // The tag comes from release metadata — keep it a plain directory name
     // even if a tag ever slips past semver parsing with separators in it.
-    final safe = tag.replaceAll(RegExp('[^A-Za-z0-9._+-]'), '_');
+    var safe = tag.replaceAll(RegExp('[^A-Za-z0-9._+-]'), '_');
+    // Dots survive the filter, so '.'/'..' would escape the updates dir.
+    if (RegExp(r'^\.+$').hasMatch(safe)) safe = 'v$safe';
     return Directory(p.join(root.path, safe));
   }
 }

@@ -498,7 +498,12 @@ void main() {
         ]) {
           await expectLater(
             downloader.fetchAndStage(
-              ReleaseAsset(name: 'x.zip', downloadUrl: url, size: 0),
+              ReleaseAsset(
+                name: 'x.zip',
+                downloadUrl: url,
+                size: 0,
+                sha256: 'abc',
+              ),
               dir,
             ),
             throwsA(isA<StateError>()),
@@ -506,6 +511,23 @@ void main() {
         }
       },
     );
+
+    test('refuses a release asset that has no integrity digest', () async {
+      final dir = Directory.systemTemp.createTempSync('dl-digest');
+      addTearDown(() => dir.delete(recursive: true));
+      final downloader = HttpUpdateDownloader(clientFactory: HttpClient.new);
+      await expectLater(
+        downloader.fetchAndStage(
+          const ReleaseAsset(
+            name: 'x.zip',
+            downloadUrl: 'https://github.com/o/r/x.zip',
+            size: 0,
+          ),
+          dir,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
   });
 
   group('UpdateStorage', () {
@@ -850,6 +872,7 @@ void main() {
     test('file-sourced params pass containment and freshness checks', () {
       expect(script, contains('now - mtime)) -gt 600'));
       expect(script, contains('*[!0-9]*|"") exit 0'));
+      expect(script, contains('*/updates/?*) ;; *) exit 0'));
       expect(script, contains('"\$ROOT"/*) ;; *) exit 0'));
       expect(script, contains('*.app) ;; *) exit 0'));
       // The checks gate the marker write too — a planted handoff must not
@@ -857,6 +880,22 @@ void main() {
       expect(
         lineOf('*.app) ;; *) exit 0'),
         lessThan(lineOf('touch "\$MARKER"')),
+      );
+    });
+
+    test('an orphaned lock is evicted only when no live helper holds it', () {
+      // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
+      // helper must evict an orphan lock (liveness check, not age) instead
+      // of quietly exiting forever.
+      final take = lineOf('if ! mkdir "\$LOCK"');
+      expect(
+        lineOf('pgrep -f "\$0" | grep -vx "\$\$"', take),
+        lessThan(lineOf('rm -rf "\$LOCK"', take)),
+      );
+      // And only after eviction may the backup-rescue run.
+      expect(
+        lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', take),
+        greaterThan(lineOf('rm -rf "\$LOCK"', take)),
       );
     });
   });
