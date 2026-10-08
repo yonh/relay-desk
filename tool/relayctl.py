@@ -70,6 +70,11 @@ COMMANDS = {
         ('--match', 'match', None, 'exact or contains (default contains)'),
         ('--frame', 'frame', None, 'Frame label to search'),
     ),
+    'dom_inspect': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--ref', 'ref', None, 'Element ref <frame>.<position> from dom/dom_find'),
+        ('--document-id', 'documentId', None, 'documentId that issued the ref'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -97,6 +102,7 @@ SELECTOR_HELP = {
     'open_panel': 'Open the panel of an existing identity; --identity required',
     'dom': 'Bounded DOM summary of one identity panel; --identity required',
     'dom_find': 'Find elements by text/role/selector; --identity plus one criterion',
+    'dom_inspect': 'Inspect one element by ref; --identity --ref --document-id required',
 }
 
 

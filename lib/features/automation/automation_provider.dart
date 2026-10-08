@@ -38,6 +38,7 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     drainJsErrors: adapter.drainJsErrors,
     probeDom: adapter.probeDom,
     domFind: adapter.domFind,
+    domInspect: adapter.domInspect,
     // The same provider call the project sidebar makes — activation keeps
     // the UI's own semantics (layout restore, panel sync, selection).
     selectProject: (projectId) =>

@@ -127,6 +127,12 @@ void main() {
       String query,
     )?
     domFinder,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+      String query,
+    )?
+    domInspector,
     void Function(String projectId)? selectProject,
     void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
@@ -152,6 +158,9 @@ void main() {
         (viewId, identityId) async => throw UnimplementedError(),
     domFind:
         domFinder ??
+        (viewId, identityId, query) async => throw UnimplementedError(),
+    domInspect:
+        domInspector ??
         (viewId, identityId, query) async => throw UnimplementedError(),
     // Mimic what the real wiring does: the provider selection flips
     // immediately and the workspace marker catches up inside the same
@@ -1684,6 +1693,137 @@ void main() {
           'op': 'dom_find',
           'identityId': 'id-a1',
           'text': 'x',
+        }),
+        failure('target_changed', 409),
+      );
+    });
+  });
+
+  group('dom_inspect', () {
+    void wireView() {
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires identityId, ref and documentId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'dom_inspect', 'identityId': 'id-a1'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_inspect',
+          'identityId': 'id-a1',
+          'ref': '0.12',
+        }),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('forwards ref + documentId and returns the element', () async {
+      wireView();
+      String? sent;
+      queries = buildQueries(
+        domInspector: (viewId, identityId, query) async {
+          sent = query;
+          return {
+            'json': jsonEncode({
+              'ref': '0.12',
+              'frame': 'main',
+              'frameIndex': 0,
+              'tag': 'button',
+              'role': 'button',
+              'name': 'Save',
+              'visible': true,
+              'disabled': false,
+              'checked': null,
+              'selected': null,
+              'focused': false,
+              'attrs': {
+                'id': 'save-btn',
+                'href': 'https://ex.com/a?token=zzz',
+                'aria-disabled': 'false',
+              },
+              'rect': {
+                'x': 10.5,
+                'y': 22.0,
+                'width': 90.0,
+                'height': 28.0,
+                'coordinateSpace': 'frame',
+              },
+              'documentId': 'nonce1:0',
+            }),
+            'url': 'http://127.0.0.1:8901/p',
+            'windowId': 83,
+          };
+        },
+      );
+      final data = await run({
+        'op': 'dom_inspect',
+        'identityId': 'id-a1',
+        'ref': '0.12',
+        'documentId': 'nonce1:0',
+      });
+      final sentQuery = jsonDecode(sent!) as Map;
+      expect(sentQuery['ref'], '0.12');
+      expect(sentQuery['documentId'], 'nonce1:0');
+      final el = data['element'] as Map;
+      expect(el['tag'], 'button');
+      expect(el['rect']['coordinateSpace'], 'frame');
+      // href is sanitized like every other URL field.
+      expect((el['attrs'] as Map)['href'], 'https://ex.com/a');
+    });
+
+    test('stale_element and frame_unreachable map distinctly', () async {
+      wireView();
+      queries = buildQueries(
+        domInspector: (viewId, identityId, query) async => {
+          'json': jsonEncode({'error': 'stale_element', 'message': 'moved'}),
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_inspect',
+          'identityId': 'id-a1',
+          'ref': '0.12',
+          'documentId': 'd',
+        }),
+        failure('stale_element', 409),
+      );
+      queries = buildQueries(
+        domInspector: (viewId, identityId, query) async => {
+          'json': jsonEncode({'error': 'frame_unreachable', 'message': 'xo'}),
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_inspect',
+          'identityId': 'id-a1',
+          'ref': '1.3',
+          'documentId': 'd',
+        }),
+        failure('frame_unreachable', 409),
+      );
+    });
+
+    test('drift mid-inspect is target_changed', () async {
+      wireView();
+      queries = buildQueries(
+        domInspector: (viewId, identityId, query) async =>
+            throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_inspect',
+          'identityId': 'id-a1',
+          'ref': '0.1',
+          'documentId': 'd',
         }),
         failure('target_changed', 409),
       );

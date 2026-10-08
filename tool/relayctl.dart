@@ -219,6 +219,15 @@ const List<_Command> _commands = <_Command>[
       _Selector('--frame', 'frame', 'Frame label to search (main, f0, …)'),
     ],
   ),
+  _Command(
+    'dom_inspect',
+    'Inspect one element by ref; --identity --ref --document-id required',
+    <_Selector>[
+      _requiredIdentitySelector,
+      _Selector('--ref', 'ref', 'Element ref <frame>.<position> from dom/dom_find'),
+      _Selector('--document-id', 'documentId', 'documentId that issued the ref'),
+    ],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.

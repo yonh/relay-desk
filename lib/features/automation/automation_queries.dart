@@ -46,6 +46,7 @@ class AutomationQueries {
     required this.drainJsErrors,
     required this.probeDom,
     required this.domFind,
+    required this.domInspect,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -110,6 +111,15 @@ class AutomationQueries {
     String query,
   )
   domFind;
+
+  /// Read-only DOM element inspection of the view bound to `viewId`. The
+  /// third argument is a JSON string of `{ref, documentId}`.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domInspect;
 
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
@@ -185,6 +195,8 @@ class AutomationQueries {
         return _dom(command);
       case 'dom_find':
         return _domFind(command);
+      case 'dom_inspect':
+        return _domInspect(command);
       case 'activate_project':
         return _activateProject(command);
       case 'open_panel':
@@ -870,6 +882,97 @@ class AutomationQueries {
       'matchCount': count,
       'truncated': payload['truncated'] == true,
       'matches': matches,
+    };
+  }
+
+  /// Element inspection by `ref` (issue #22). `identityId`, `ref`
+  /// (`<frame>.<position>`) and `documentId` are required — a ref is
+  /// meaningless without the document nonce that issued it. The fixed
+  /// probe proves freshness via page-side marker expandos; any document
+  /// change is `stale_element`(409), never silently re-aimed. Read-only:
+  /// whitelisted non-sensitive attributes only — no values, no innerHTML.
+  Future<Map<String, Object?>> _domInspect(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    final ref = _optionalString(command, 'ref');
+    final documentId = _optionalString(command, 'documentId');
+    if (id == null || ref == null || documentId == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'dom_inspect requires identityId, ref and documentId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Identity has no live native web view',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domInspect(
+        viewId,
+        id,
+        jsonEncode({'ref': ref, 'documentId': documentId}),
+      );
+    } on PlatformException catch (error) {
+      const codes = {
+        'target_changed',
+        'dom_inspect_failed',
+        'dom_inspect_timeout',
+      };
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'DOM inspect could not run',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      throw const AutomationFailure(
+        'dom_inspect_failed',
+        'Native DOM inspect returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'DOM inspect failed',
+        status: error == 'invalid_argument'
+            ? 400
+            : (error == 'not_found' ? 404 : 409),
+      );
+    }
+    final attrs = payload['attrs'];
+    if (attrs is Map) {
+      for (final key in const ['href', 'src', 'action']) {
+        final v = attrs[key];
+        if (v is String) attrs[key] = _stripUrl(v);
+      }
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'sampledAt': DateTime.now().toUtc().toIso8601String(),
+      'url': _stripUrl(probed['url'] as String? ?? ''),
+      'element': payload,
     };
   }
 
