@@ -1,11 +1,11 @@
 ---
 name: relay-desk
-description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or sample a page's media playback state — and for code acceptance against real evidence. Scoped to Relay Desk on macOS; the transport is read-only metadata plus explicit-ID panel screenshot and media-state sampling — no page DOM, caller script evaluation or network capture.
+description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or sample a page's media playback state — and for code acceptance against real evidence. Scoped to Relay Desk on macOS; the transport is metadata plus explicit-ID panel screenshot, media-state and error sampling, and a bounded DOM summary — caller script evaluation and network capture are never served.
 ---
 
 # Relay Desk inspection
 
-Relay Desk is a Flutter macOS host whose panels are WKWebViews. `relayctl` reaches an opt-in local service inside a running instance and returns metadata about projects, identities, panels, AppKit NSWindows and saved workspaces. Every operation here is read-only.
+Relay Desk is a Flutter macOS host whose panels are WKWebViews. `relayctl` reaches an opt-in local service inside a running instance and returns metadata about projects, identities, panels, AppKit NSWindows and saved workspaces. Operations are read-only except the whitelisted write ops marked as such.
 
 ## Resolve the executable once per run
 
@@ -84,6 +84,16 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Rejection reasons are type-tagged (`[object Object]`), never serialized payloads; frame `url` and entry `source` are URL-sanitized like all transport fields.
 - The drain is read-only and does not clear the buffer — repeat calls on the same document return the same entries; compare `bufferId`+`count` for increments.
 
+## DOM summary
+
+`relayctl dom --identity <uuid>` (issue #20) walks the page with a fixed read-only probe — never caller-supplied JavaScript. It returns `documentId` (per-probe nonce — every call produces a fresh one, even for an unchanged page), `title`, sanitized `url`, and a `frames[]` walk:
+
+- Each frame reports `label` (`main`, `f0`, …), `depth`, `title`, `text` (bounded visible text), `elementCount`, and an `elements[]` list of semantic nodes: `ref`, `tag`, `role`, `label`, sanitized `href`.
+- A `ref` is `<frameIndex>.<document position>` — the element's `querySelectorAll('*')` preorder slot within its own frame's document. It is stable within that probe result; it **means nothing across calls or after DOM changes** — re-probe instead of assuming stability.
+- Same-origin iframes are recursed into; unreachable frames report `reachable:false` — "cannot observe", never "empty frame". A loading page legitimately returns empty frames — that is the honest loading state, not an error.
+- Budgets (depth 8, 16 frames, 300 elements/frame, 80-char labels, 2000-node scan) truncate oversized documents; top-level `truncated`/`skipped` flag what was cut — never read a truncated result as complete.
+- The probe never returns scripts, input values, or password fields — it is a summary for locating elements, not a DOM dump.
+
 ## Project activation (write op)
 
 `relayctl activate_project --project <uuid>` (issue #31) switches the app to an existing project — the same call the sidebar makes, so layout restore and panel sync are the UI's own. It is the first whitelisted **write** operation: `capabilities.readOnly` is now `false`, and writes are listed under `writeOperations` (reads stay under `operations`).
@@ -96,6 +106,6 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling and the page error buffer, plus the write operation `activate_project`; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer and a DOM summary, plus the write operation `activate_project`; they expose no element find/inspect, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
