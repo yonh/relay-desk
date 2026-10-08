@@ -74,7 +74,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final body = await response.transform(utf8.decoder).join().timeout(timeout);
+    final body = await _bodyBounded(response);
     final decoded = jsonDecode(body);
     if (decoded is! Map<String, dynamic>) return null;
     return GithubRelease.fromJson(decoded);
@@ -132,7 +132,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final html = await response.transform(utf8.decoder).join().timeout(timeout);
+    final html = await _bodyBounded(response);
     final assets = parseAssetsFromExpandedHtml(
       html: html,
       owner: owner,
@@ -173,6 +173,44 @@ class GithubReleaseClient implements ReleaseClient {
         return asset;
       }),
     );
+  }
+
+  /// Reads a response body with a hard bound on time AND size — a
+  /// hostile endpoint streaming gigabytes inside the timeout must not
+  /// exhaust memory. Cancelling on overflow also drops the connection.
+  Future<String> _bodyBounded(HttpClientResponse response) async {
+    const limit = 4 * 1024 * 1024;
+    final chunks = <int>[];
+    var total = 0;
+    final done = Completer<void>();
+    late StreamSubscription<List<int>> sub;
+    sub = response.listen(
+      (chunk) {
+        total += chunk.length;
+        if (total > limit) {
+          // cancel() may take a moment to tear the socket down — complete
+          // the wait NOW so a giant response fails fast instead of
+          // sitting out the read timeout.
+          if (!done.isCompleted) done.complete();
+          sub.cancel();
+          return;
+        }
+        chunks.addAll(chunk);
+      },
+      onError: done.completeError,
+      onDone: () {
+        if (!done.isCompleted) done.complete();
+      },
+    );
+    try {
+      await done.future.timeout(timeout);
+      if (total > limit) {
+        throw const HttpException('release response too large');
+      }
+      return utf8.decode(chunks);
+    } finally {
+      await sub.cancel();
+    }
   }
 
   /// Courtesy-drains a response body with a hard bound. Plain

@@ -73,10 +73,15 @@ class MacOSUpdateInstaller implements UpdateInstaller {
   /// late-starting helper to stand down instead of swapping.
   static const abortFileName = 'helper.abort';
 
-  /// Handoff file written into `update.root`'s PARENT directory (the shared
-  /// `<Application Support>/updates/` root the helper resolves from HOME).
-  /// Key=value lines, one per field — bash reads it without quoting pitfalls.
-  static const handoffFileName = 'handoff.params';
+  /// Handoff files live in `update.root`'s PARENT directory (the shared
+  /// `<Application Support>/updates/` root the helper resolves from HOME)
+  /// and carry a per-request name — `handoff-<epoch_ms>-<pid>.params` — so
+  /// two install attempts in the same second still order unambiguously and
+  /// a helper only ever deletes the file it actually consumed. Older
+  /// builds wrote a fixed `handoff.params`; the helper still accepts it
+  /// as a fallback. Key=value lines, one per field — bash reads it
+  /// without quoting pitfalls.
+  static const handoffFilePrefix = 'handoff-';
 
   @override
   Future<bool> installAndRelaunch(StagedUpdate update) async {
@@ -94,40 +99,56 @@ class MacOSUpdateInstaller implements UpdateInstaller {
     }
 
     // The handoff lives one level above the tag staging dir: the helper
-    // finds `<updatesRoot>/handoff.params` without needing argv. Key=value
-    // lines are sourced verbatim — no quoting, spaces in paths are fine.
+    // globs `<updatesRoot>/handoff-*.params` without needing argv. The
+    // name is per-request (`<epoch_ms>-<pid>`) so the newest request
+    // always wins even inside the same second. Key=value lines are
+    // sourced verbatim — no quoting, spaces in paths are fine.
+    File? handoff;
+    var handedOff = false;
     try {
-      final handoff = File(p.join(update.root.parent.path, handoffFileName));
+      final name =
+          '$handoffFilePrefix'
+          '${DateTime.now().millisecondsSinceEpoch}-$pid.params';
+      handoff = File(p.join(update.root.parent.path, name));
       await handoff.writeAsString(
-        '${[
-          'PARENT=$pid',
-          'ROOT=${update.root.path}',
-          'STAGED=${stagedApp.path}',
-          'TARGET=${target.path}',
-          'ARCHIVE=${update.archive.path}',
-        ].join('\n')}\n',
+        '${['PARENT=$pid', 'ROOT=${update.root.path}', 'STAGED=${stagedApp.path}', 'TARGET=${target.path}', 'ARCHIVE=${update.archive.path}'].join('\n')}\n',
       );
+
+      final launch = await Process.run('/usr/bin/open', ['-n', helper.path]);
+      if (launch.exitCode != 0) return false;
+
+      // Confirm the helper actually started before committing to quit.
+      final deadline = DateTime.now().add(markerTimeout);
+      while (DateTime.now().isBefore(deadline)) {
+        if (await marker.exists()) {
+          handedOff = true;
+          return true;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      // Re-check once after the deadline — a marker that landed inside
+      // the last poll interval is still a valid hand-off, not a failure.
+      if (await marker.exists()) {
+        handedOff = true;
+        return true;
+      }
+      // A late-starting helper would otherwise swap a still-running
+      // app — leave the abort file for it to find. This write has its
+      // own try: a failure must not skip the handoff retraction in the
+      // finally below.
+      try {
+        await abort.writeAsString('abort');
+      } catch (_) {}
     } catch (_) {
-      return false;
+      // Partial handoff write, open throwing, marker polling failing —
+      // every failure path retracts our request file in the finally.
+    } finally {
+      if (!handedOff) {
+        try {
+          await handoff?.delete();
+        } catch (_) {}
+      }
     }
-
-    final launch = await Process.run('/usr/bin/open', ['-n', helper.path]);
-    if (launch.exitCode != 0) return false;
-
-    // Confirm the helper actually started before committing to quit.
-    final deadline = DateTime.now().add(markerTimeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (await marker.exists()) return true;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    // Re-check once after the deadline — a marker that landed inside the
-    // last poll interval is still a valid hand-off, not a failure.
-    if (await marker.exists()) return true;
-    // A late-starting helper would otherwise swap a still-running app —
-    // leave the abort file for it to find.
-    try {
-      await abort.writeAsString('abort');
-    } catch (_) {}
     return false;
   }
 

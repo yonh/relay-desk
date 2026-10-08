@@ -671,6 +671,93 @@ void main() {
       expect(downloader.calls, 1);
     });
 
+    test('a second download while the staged probe is pending cannot '
+        'double-stage', () async {
+      final downloader = FakeDownloader()..gate = Completer<void>();
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(client: client, downloader: downloader);
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      // The staged-dir probe awaits before `busy` engages — two callers
+      // reaching download() in that window must still serialize on the
+      // operation mutex or both would write the same .part file.
+      final first = notifier.download();
+      unawaited(first);
+      unawaited(notifier.download());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(downloader.calls, 1);
+      downloader.gate!.complete();
+      // Let the winning download finish before the container is disposed.
+      await first;
+    });
+
+    test('a failed re-check clears the stale release candidate', () async {
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(client: client);
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      expect(container.read(updateStatusProvider).release, isNotNull);
+      client.error = const HttpException('boom');
+      await notifier.check(manual: true);
+      final s = container.read(updateStatusProvider);
+      expect(s.phase, UpdatePhase.failed);
+      expect(s.release, isNull);
+      // The installed-version row must survive the reset.
+      expect(s.currentVersion, isNotNull);
+    });
+
+    test(
+      'a partial package file alone is not accepted as a ready stage',
+      () async {
+        final root = Directory.systemTemp.createTempSync('relay-part-');
+        addTearDown(() => root.deleteSync(recursive: true));
+        Directory('${root.path}/v1.1.0').createSync();
+        File(
+          '${root.path}/v1.1.0/package.zip.part',
+        ).writeAsBytesSync([1, 2, 3]);
+        final storage = MemoryUpdateStorage(
+          const UpdateSettings(readyTag: 'v1.1.0'),
+        );
+        final client = FakeReleaseClient()..release = release();
+        final container = makeContainer(
+          storage: storage,
+          client: client,
+          paths: FakePaths(root),
+        );
+        addTearDown(container.dispose);
+        await container.read(updateStatusProvider.notifier).check(manual: true);
+        expect(
+          container.read(updateStatusProvider).phase,
+          UpdatePhase.available,
+        );
+      },
+    );
+
+    test('a deferred check never touches a disposed controller', () async {
+      final root = Directory.systemTemp.createTempSync('relay-disp-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final downloader = FakeDownloader()..gate = Completer<void>();
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(
+        client: client,
+        downloader: downloader,
+        paths: FakePaths(root),
+      );
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      final downloading = notifier.download();
+      // The mutex held by the in-flight download defers this auto-check
+      // — disposing must cancel the pending Timer or it would throw
+      // 'Cannot use Ref after disposed' asynchronously and fail here.
+      unawaited(notifier.check());
+      downloader.gate!.complete();
+      await downloading;
+      container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+    });
+
     test('skipped version silences auto but not manual check', () async {
       final storage = MemoryUpdateStorage(
         const UpdateSettings(skippedVersion: '1.1.0'),
@@ -982,10 +1069,11 @@ void main() {
       // would evict its live lock; the owner PID lives inside the lock.
       expect(script, contains('echo \$\$ > "\$LOCK/pid"'));
       expect(script, isNot(contains('pgrep -f "\$0"')));
-      final take = lineOf('if ! mkdir "\$LOCK"');
+      final take = lineOf('while ! mkdir "\$LOCK"');
       final read = lineOf('cat "\$LOCK/pid"', take);
       final alive = lineOf('kill -0 "\$LPID"', read);
-      expect(alive, lessThan(lineOf('mv "\$LOCK" "\$CLAIM"', alive)));
+      // Reclaim runs entirely under the $ARB arbitration mutex.
+      expect(alive, lessThan(lineOf('rm -rf "\$LOCK"', alive)));
       // A just-created lock without its pid yet gets a grace window.
       expect(script, contains('LAGE" -lt 10 ]'));
       // A live pid only counts when the process is actually a helper —
@@ -1008,46 +1096,106 @@ void main() {
 
     test('file-sourced params pass containment and freshness checks', () {
       expect(script, contains('now - mtime)) -gt 600'));
-      expect(script, contains('*[!0-9]*|"") exit 0'));
-      expect(script, contains('*/updates/?*) ;; *) exit 0'));
-      expect(script, contains('"\$ROOT"/*) ;; *) exit 0'));
-      expect(script, contains('*.app) ;; *) exit 0'));
+      // Validation failures retract the request file and exit — a bad
+      // handoff must never linger for a later helper to consume.
+      expect(script, contains('*[!0-9]*|"") BAD=1'));
+      expect(script, contains('*/updates/?*) ;; *) BAD=1'));
+      expect(script, contains('"\$ROOT"/*) ;; *) BAD=1'));
+      expect(script, contains('*.app) ;; *) BAD=1'));
+      // Planted-but-nonexistent payload paths die too.
+      expect(script, contains('[ -d "\$STAGED" ] || BAD=1'));
+      expect(script, contains('[ -f "\$ARCHIVE" ] || BAD=1'));
       // The checks gate the marker write too — a planted handoff must not
       // even fake a started helper.
       expect(
-        lineOf('*.app) ;; *) exit 0'),
+        lineOf('[ "\$BAD" = 1 ]; then'),
         lessThan(lineOf('touch "\$MARKER"')),
+      );
+      // cleanup() retracts the selected handoff on EVERY exit path.
+      expect(
+        script,
+        contains('[ -n "\$HANDOFF_FILE" ] && rm -f "\$HANDOFF_FILE"'),
       );
     });
 
     test('handoff candidates are freshness-checked inside the loop', () {
       // A stale file at the sandboxed path must not shadow a live handoff
       // the non-sandboxed build wrote — freshness runs per candidate, and
-      // among valid candidates the FRESHEST wins (an older-but-valid file
-      // must not win over the params written for this run).
-      final loop = lineOf('for c in');
+      // request-scoped names make the NEWEST request win even when two
+      // land in the same stat-resolution second.
+      final loop = lineOf('handoff-*.params');
       final fresh = lineOf('-gt 600 ] && continue', loop);
-      final best = lineOf('-le "\$best" ] && continue', fresh);
+      final best = lineOf('"\$base" > "\$bestname"', fresh);
       expect(best, lessThan(lineOf('HANDOFF_FILE="\$c"', best)));
+      // Legacy fixed-name handoff is only a fallback.
+      expect(
+        lineOf('if [ -z "\$HANDOFF_FILE" ]', best),
+        lessThan(lineOf('handoff.params"', best)),
+      );
     });
 
-    test(
-      'an orphaned lock is reclaimed atomically, never by a live holder',
-      () {
-        // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
-        // helper must reclaim an orphan (dead owner pid, then an atomic
-        // rename — never rm+mkdir, which a concurrent helper could turn
-        // against the lock we just created).
-        final take = lineOf('if ! mkdir "\$LOCK"');
-        final claim = lineOf('mv "\$LOCK" "\$CLAIM"', take);
-        expect(claim, lessThan(lineOf('rm -rf "\$CLAIM"', claim)));
-        // And only after the reclaim may the backup-rescue run.
-        expect(
-          lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', claim),
-          greaterThan(claim),
-        );
-      },
-    );
+    test('an orphaned lock is reclaimed under one arbitration mutex', () {
+      // SIGKILL skips the EXIT trap — its lock dir outlives it. Reclaim
+      // runs staleness-check + delete under $ARB so a racing helper can
+      // never replace the fresh lock we just created (the old
+      // mv-to-CLAIM dance was exactly that race).
+      final take = lineOf('while ! mkdir "\$LOCK"');
+      final arb = lineOf('mkdir "\$ARB"', take);
+      final read = lineOf('cat "\$LOCK/pid"', arb);
+      final delete = lineOf('rm -rf "\$LOCK"', read);
+      expect(delete, lessThan(lineOf('rm -rf "\$ARB"', delete)));
+      // And only after the reclaim may the backup-rescue run.
+      expect(
+        lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', delete),
+        greaterThan(delete),
+      );
+    });
+
+    test('a contended arbitration dir is never recycled — the helper '
+        'stands down instead', () {
+      // The review repro: reading a foreign ARB's pid and deleting on it
+      // could kill a LIVE ARB created in between. There is no safe
+      // check-then-delete for a foreign ARB, so contention just fails
+      // the install — helpers only ever remove an ARB they created.
+      expect(script, isNot(contains('APID=')));
+      expect(script, isNot(contains('kill -0 "\$APID"')));
+      // We never even stat a foreign ARB — only our own pid marker.
+      expect(script, isNot(contains('stat -f %m "\$ARB"')));
+      // Contention writes a diagnosable failure, not a silent exit.
+      final contend = lineOf(
+        'arb-contended: cannot arbitrate',
+        lineOf('mkdir "\$ARB"'),
+      );
+      expect(contend, greaterThan(lineOf('mkdir "\$ARB"')));
+      expect(script, contains('dir manually to unblock future installs'));
+      // Deleting by hand is only safe once no helper is running — the
+      // message must say so or a user could remove a live mutex.
+      expect(script, contains('quit all running'));
+      // The only ARB removals release OUR OWN mutex after reclaim —
+      // rm ARB always follows rm LOCK inside the arb-holding branch.
+      final ownRelease = lineOf('rm -rf "\$ARB"', lineOf('rm -rf "\$LOCK"'));
+      expect(ownRelease, greaterThan(0));
+      // The pid we write is for post-mortem diagnosis only.
+      expect(script, contains('echo \$\$ > "\$ARB/pid"'));
+      // Ownership is tracked so cleanup() releases an ARB we die holding
+      // — a killed-mid-arbitration helper must not block future installs.
+      expect(script, contains('OWN_ARB=1'));
+      expect(script, contains('[ "\$OWN_ARB" = 1 ] && rm -rf "\$ARB"'));
+      // Ownership is claimed BEFORE the diagnostic pid write.
+      expect(script, contains('OWN_ARB=1\n  echo \$\$ > "\$ARB/pid"'));
+      // Release order matters: the flag drops BEFORE every rm — a signal
+      // landing between them must leave an orphan, never have cleanup()
+      // delete the ARB a new holder mkdir'd in the gap.
+      expect(script, contains('OWN_ARB=0\n    rm -rf "\$ARB"'));
+      expect(script, contains('OWN_ARB=0\n  rm -rf "\$ARB"'));
+    });
+
+    test('the lock is shared per install target, not per version', () {
+      // Two versions stage under different roots but replace the same
+      // bundle — a per-ROOT lock would let them swap it concurrently.
+      expect(script, contains('LOCK="\$TARGET.update-lock"'));
+      expect(script, isNot(contains('LOCK="\$ROOT/')));
+    });
   });
 
   group('UpdateSettingsSection', () {
