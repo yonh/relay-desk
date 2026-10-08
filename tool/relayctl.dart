@@ -6,15 +6,17 @@
 /// dart:io are imported: no `package:` imports, no pubspec dependency, no
 /// Python execution and no Flutter at runtime.
 ///
-/// Scope is P0 protocol v1 (design/automation-roadmap.md): fifteen read-only
-/// operations plus the local `sessions` listing. No mutable operation is
-/// exposed. An absent selector defers to the backend's current selection —
-/// this CLI never guesses a project, identity, window or workspace and never
+/// Scope is protocol v2 (design/automation-roadmap.md): the read-only
+/// operations plus the whitelisted write `activate_project` (issue #31) and
+/// the local `sessions` listing. No other mutable operation is exposed. An
+/// absent selector defers to the backend's current selection — this CLI
+/// never guesses a project, identity, window or workspace and never
 /// inspects AppKit. `screenshot`, `media` and `errors` are the exceptions
 /// to the absent-selector rule: each requires an explicit --identity
 /// (screenshot also a local --output path), because a page-level read
 /// without a named target would silently sample whatever happens to be
-/// selected.
+/// selected. `activate_project` likewise requires an explicit --project —
+/// switching "whatever is selected" by name would hit the wrong project.
 ///
 /// Session descriptors are credentials. Only `file`, `pid` and `endpoint` are
 /// ever printed; the bearer token is neither logged nor included in errors.
@@ -114,8 +116,15 @@ const _requiredIdentitySelector = _Selector(
   'Exact identityId; required, no selection fallback',
   required: true,
 );
+const _requiredProjectSelector = _Selector(
+  '--project',
+  'projectId',
+  'Exact projectId; required, no name matching',
+  required: true,
+);
 
-/// The read-only P0 surface. Insertion order is the help listing order.
+/// The automation surface: read-only ops plus the whitelisted writes
+/// (issue #31). Insertion order is the help listing order.
 const List<_Command> _commands = <_Command>[
   _Command(
     'sessions',
@@ -181,6 +190,11 @@ const List<_Command> _commands = <_Command>[
     'errors',
     'Buffered page JS errors of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],
+  ),
+  _Command(
+    'activate_project',
+    'Switch the app to an existing project; --project required',
+    <_Selector>[_requiredProjectSelector],
   ),
 ];
 

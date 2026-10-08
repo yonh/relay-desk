@@ -52,6 +52,9 @@ COMMANDS = {
     'errors': (
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
     ),
+    'activate_project': (
+        ('--project', 'projectId', None, 'Exact projectId; required, no name matching'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -75,6 +78,7 @@ SELECTOR_HELP = {
     'screenshot': 'Viewport PNG of one identity panel; --identity and --output required',
     'media': 'Media-element state of one identity panel; --identity required',
     'errors': 'Buffered page JS errors of one identity panel; --identity required',
+    'activate_project': 'Switch the app to an existing project; --project required',
 }
 
 
@@ -150,7 +154,7 @@ def build_parser():
             # every other selector stays optional and defers to the
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
-                          required=op == 'screenshot' or (op in ('media', 'errors') and flag == '--identity'))
+                          required=op == 'screenshot' or (op in ('media', 'errors') and flag == '--identity') or (op == 'activate_project' and flag == '--project'))
     return parser
 
 

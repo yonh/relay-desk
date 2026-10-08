@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -35,6 +36,11 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     captureScreenshot: adapter.takeSnapshot,
     sampleMedia: adapter.sampleMedia,
     drainJsErrors: adapter.drainJsErrors,
+    // The same provider call the project sidebar makes — activation keeps
+    // the UI's own semantics (layout restore, panel sync, selection).
+    selectProject: (projectId) =>
+        ref.read(selectedProjectIdProvider.notifier).select(projectId),
+    awaitFrame: () => SchedulerBinding.instance.endOfFrame,
   );
   if (!ref.mounted) return null;
 

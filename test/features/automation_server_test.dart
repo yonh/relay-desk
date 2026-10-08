@@ -301,6 +301,44 @@ void main() {
         'workspaces',
         'workspace',
       });
+      // Writes are a separate, explicit whitelist (issue #31) — they pass
+      // the transport gate but stay enumerable apart from reads.
+      expect(automationWriteOperations, {'activate_project'});
+    });
+
+    test('serves whitelisted writes and serializes activations', () async {
+      final gate = Completer<void>();
+      var dispatches = 0;
+      final transport = await _Transport.start(
+        dispatch: (command) async {
+          dispatches++;
+          if (dispatches == 1) await gate.future;
+          return {'done': true};
+        },
+      );
+
+      final first = transport.command({
+        'op': 'activate_project',
+        'projectId': 'p-1',
+      });
+      // A concurrent activation — even of a different project — gets a
+      // distinguishable busy result instead of a silent last-writer-wins.
+      final concurrent = await transport.command({
+        'op': 'activate_project',
+        'projectId': 'p-2',
+      });
+      expect(concurrent.status, 409);
+      expect(concurrent.code, 'panel_busy');
+
+      gate.complete();
+      expect((await first).status, 200);
+
+      final retry = await transport.command({
+        'op': 'activate_project',
+        'projectId': 'p-2',
+      });
+      expect(retry.status, 200);
+      expect(dispatches, 2);
     });
 
     test('refuses missing, wrong and Origin-bearing credentials', () async {
