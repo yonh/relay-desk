@@ -211,8 +211,8 @@ Intel Mac 使用 `macos-x64` 目录；解包后的运行方式相同。Python �
 ### 案例驱动的后续切片（issue 逐个审核）
 
 5. **媒体状态采样（Issue #16，PR 待审）**：只读 `media` op——显式 identityId 固定脚本采 `video`/`audio`（currentTime/durationKind/paused/ended/seeking/readyState/playbackRate/seekable/error.code），主文档+同源 iframe 逐帧，不可达 frame 标 unavailable；非有限 duration 标 unknown/live 不出非法数字；绑定复核沿用快照机制。证据见 `design/automation-media-verification.md`。
-6. **页面 JS 错误缓冲（Issue #17，未开工）**：error/unhandledrejection 有界环形缓冲，显式 identityId。
-7. **截图产物管理（Issue #18，PR 待审）**：仅技能文档切片——专用产物目录与清理规则。
+6. **页面 JS 错误缓冲（Issue #17，PR #34 待审）**：只读 `errors` op——页面内 `error`/`unhandledrejection` 有界缓冲（`__relayErrors`，WKUserScript 按 `automationErrorCapture` 创建参数注入，200 条/字段截断/overflow 计数），`collectedAt`/`bufferId` 标记注入起点与导航批次，`installed:false` 区分未装监听；只观察不拦截，payload 不序列化。证据见 `design/automation-js-errors-verification.md`。
+7. **截图产物管理（Issue #18，PR #19 已合）**：仅技能文档切片——专用产物目录与清理规则。
 
 设置页开关是便利项。若代理已有该切片，可以小范围收尾；核心验收先使用已有 debug 显式启用方式，不等待发布、签名、公证或包内 CLI。
 
