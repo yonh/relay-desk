@@ -203,9 +203,10 @@ Intel Mac 使用 `macos-x64` 目录；解包后的运行方式相同。Python �
 1. **定位验收**：先在本地 macOS 独立调试实例核对已有查询，记录实际身份、面板和原生窗口的对应关系。未实际运行的项目标记待验收。
    已验收并合入（2026-10-08，Issue #10，PR #11 已合并）：矩阵场景实机取证；证据见 `design/automation-location-verification.md`。
 2. **看到页面**：线上实现指定 identityId 的面板截图，沿用当前 CLI → 应用接口 → 原生 WebView 的链路。返回图片与采样时目标映射、时间、尺寸；目标销毁或页面切换导致证据不一致时明确失败，不能返回其他身份的图片。
-   已实现并实机复核（2026-10-08，Issue #12，PR #14 待审）：嵌入/独立窗口截图、无选择回退；采样中连续导航命中 target_changed（e.html 60 连拍 22 中），pending→commit 跨越为构造性绑定、未实机复现；像素上限未实机触发。证据见 `design/automation-screenshot-verification.md`。
+   已实现并实机复核（2026-10-08，Issue #12，PR #14 已合并）：嵌入/独立窗口截图、无选择回退；采样中连续导航命中 target_changed（e.html 60 连拍 22 中），pending→commit 跨越为构造性绑定、未实机复现；像素上限未实机触发。证据见 `design/automation-screenshot-verification.md`。
 3. **按需文字采样**：截图不足以回答真实调试问题时，再追加最小 DOM 摘要，限定可见文字和所需控件状态，不提供任意脚本执行接口。
 4. **实际案例验收并停止**：用一个可复现页面问题走通定位、取证、分析、修复和前后对照；能力足够后停止扩展，不自动进入下一阶段。
+   已验收（2026-10-08，Issue #13）：`.roundtables/auto-update-review/index.html` 列表续行被 `render.py` 拆碎（1/1/1 编号 + 孤儿段落）的真实案例走通全流程，前后对照证据见 `design/automation-debug-case-verification.md` 与 `design/evidence/debug-case-2026-10-08/`。定位+截图链路足够完成案例，按需文字采样未追加。
 
 设置页开关是便利项。若代理已有该切片，可以小范围收尾；核心验收先使用已有 debug 显式启用方式，不等待发布、签名、公证或包内 CLI。
 
