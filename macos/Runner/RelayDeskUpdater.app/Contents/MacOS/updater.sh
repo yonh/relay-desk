@@ -163,36 +163,20 @@ fi
 # a concurrent helper just created.
 ARB="$LOCK.arb"
 while ! mkdir "$LOCK" 2>/dev/null; do
+  # The lock is held or orphaned — only the arbitration mutex may decide
+  # which. ARB is never recycled: there is NO safe check-then-delete for
+  # a foreign ARB (the pid we read can be stale by the time we delete),
+  # so contention ends this install outright. Whoever holds ARB finishes
+  # its arbitration — if a crash orphaned it, future installs keep
+  # failing here until the dir is removed MANUALLY:
+  #   rm -rf "<target>.update-lock.arb"
+  # Retrying alone never helps: the leftover dir does not disappear.
   if ! mkdir "$ARB" 2>/dev/null; then
-    # The arbitration dir is owned too — NEVER evict it on age alone: a
-    # paused-but-alive arbiter must keep its mutex, or two helpers end up
-    # reclaiming/inspecting the lock concurrently. Same ownership rules
-    # as the target lock: a live helper pid waits, a dead or reused one
-    # is evicted, an unreadable one is trusted only while fresh, and a
-    # missing pid counts as initializing for a few seconds at most.
-    APID="$(cat "$ARB/pid" 2>/dev/null || true)"
-    AAGE=$(( $(date +%s) - $(stat -f %m "$ARB" 2>/dev/null || echo 0) ))
-    case "$APID" in
-      ''|*[!0-9]*)
-        # mkdir landed but `pid` was not written yet — or the owner died
-        # in that sliver. Only an aged ownerless ARB is evicted.
-        [ "$AAGE" -ge 10 ] && rm -rf "$ARB" || sleep 0.1
-        ;;
-      *)
-        if ! kill -0 "$APID" 2>/dev/null; then
-          rm -rf "$ARB"
-        else
-          ACMD="$(ps -p "$APID" -o command= 2>/dev/null || true)"
-          case "$ACMD" in
-            *RelayDeskUpdater*|*updater.sh*) sleep 0.1 ;;
-            "") [ "$AAGE" -ge 600 ] && rm -rf "$ARB" || sleep 0.1 ;;
-            *) rm -rf "$ARB" ;; # pid reused by a non-helper — orphan
-          esac
-        fi
-        ;;
-    esac
-    continue
+    echo "arb-contended: cannot arbitrate the stale install lock — another helper is arbitrating or a killed helper left $ARB behind; delete that dir manually to unblock future installs" > "$ABORTED"
+    exit 1
   fi
+  # We own ARB now — record our pid for diagnosis, re-read the lock's
+  # owner UNDER the mutex, then act on what we actually verified.
   echo $$ > "$ARB/pid"
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
   LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))

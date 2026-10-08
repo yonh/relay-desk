@@ -1151,23 +1151,29 @@ void main() {
       );
     });
 
-    test('the arbitration dir itself is owned by pid, never evicted by '
-        'age alone', () {
-      // The review repro: an arbiter paused >60s kept its ARB anyway —
-      // age was enough to evict and two helpers entered ditto together.
-      // ARB must record its owner and reuse the lock's liveness rules.
-      final arb = lineOf('mkdir "\$ARB"');
+    test('a contended arbitration dir is never recycled — the helper '
+        'stands down instead', () {
+      // The review repro: reading a foreign ARB's pid and deleting on it
+      // could kill a LIVE ARB created in between. There is no safe
+      // check-then-delete for a foreign ARB, so contention just fails
+      // the install — helpers only ever remove an ARB they created.
+      expect(script, isNot(contains('APID=')));
+      expect(script, isNot(contains('kill -0 "\$APID"')));
+      // We never even stat a foreign ARB — only our own pid marker.
+      expect(script, isNot(contains('stat -f %m "\$ARB"')));
+      // Contention writes a diagnosable failure, not a silent exit.
+      final contend = lineOf('arb-contended');
+      expect(contend, greaterThan(lineOf('mkdir "\$ARB"')));
       expect(
         script,
-        contains('APID="\$(cat "\$ARB/pid" 2>/dev/null || true)"'),
+        contains('delete that dir manually to unblock future installs'),
       );
-      expect(script, contains('kill -0 "\$APID" 2>/dev/null'));
+      // The only ARB removals release OUR OWN mutex after reclaim —
+      // rm ARB always follows rm LOCK inside the arb-holding branch.
+      final ownRelease = lineOf('rm -rf "\$ARB"', lineOf('rm -rf "\$LOCK"'));
+      expect(ownRelease, greaterThan(0));
+      // The pid we write is for post-mortem diagnosis only.
       expect(script, contains('echo \$\$ > "\$ARB/pid"'));
-      // A live arbiter waits; only a dead/reused/undeterminable owner is
-      // evicted — never a timestamp alone.
-      expect(script, isNot(contains('-gt 60 ]')));
-      final pidWrite = lineOf('echo \$\$ > "\$ARB/pid"', arb);
-      expect(pidWrite, greaterThan(arb));
     });
 
     test('the lock is shared per install target, not per version', () {
