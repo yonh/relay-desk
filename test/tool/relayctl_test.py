@@ -308,6 +308,46 @@ class RelayCtlTest(unittest.TestCase):
         self.assertEqual(self.server.seen(), [])
         self.assertNoCredentialLeak(done)
 
+    def _tmp_litter(self, output):
+        # Temp files from the atomic-write path must never survive the run.
+        return list(Path(output).parent.glob(output.name + '.relayctl-*'))
+
+    def test_screenshot_replaces_an_existing_output_file(self):
+        output = Path(self.home.name) / 'shot.png'
+        output.write_bytes(b'SENTINEL-OLD-CAPTURE')
+        self.server.respond(self._screenshot_payload(TINY_PNG))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(output.read_bytes(), TINY_PNG)
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_rejected_payload_preserves_an_existing_output(self):
+        output = Path(self.home.name) / 'shot.png'
+        output.write_bytes(b'SENTINEL-OLD-CAPTURE')
+        self.server.respond(self._screenshot_payload(b'not-a-png-at-all'))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(output.read_bytes(), b'SENTINEL-OLD-CAPTURE')
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_write_failure_preserves_an_existing_output(self):
+        # A write-phase failure (rename onto an existing directory) must
+        # leave the pre-existing target untouched — the direct-write path
+        # used to truncate it, then delete it in cleanup.
+        output = Path(self.home.name) / 'shot.png'
+        output.mkdir()
+        self.server.respond(self._screenshot_payload(TINY_PNG))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertTrue(output.is_dir())
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
     # --- unsupported actions -------------------------------------------
 
     def test_removed_actions_are_rejected_without_a_request(self):

@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -171,10 +172,20 @@ def write_screenshot(result, output):
     if not png.startswith(PNG_MAGIC):
         raise RuntimeError('The automation endpoint returned a non-PNG screenshot')
     path = Path(output).expanduser()
+    # Write to a unique sibling temp file first, then atomically rename onto
+    # the target: a failed write can never truncate or delete an existing
+    # capture — cleanup only ever touches the temp file this run created.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + '.relayctl-', suffix='.tmp', dir=path.parent
+    )
     try:
-        path.write_bytes(png)
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(png)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
     except OSError:
-        path.unlink(missing_ok=True)
+        Path(tmp_name).unlink(missing_ok=True)
         raise
     reported = dict(data)
     reported.pop('pngBase64', None)

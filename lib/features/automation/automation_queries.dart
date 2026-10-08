@@ -372,7 +372,13 @@ class AutomationQueries {
       // instead of collapsing into command_failed: target_changed means the
       // binding drifted mid-capture and must not be mistaken for success on
       // a different target.
-      if (error.code == 'target_changed' || error.code == 'snapshot_failed') {
+      const codes = {
+        'target_changed',
+        'snapshot_failed',
+        'snapshot_timeout',
+        'snapshot_too_large',
+      };
+      if (codes.contains(error.code)) {
         throw AutomationFailure(
           error.code,
           error.message ?? 'Screenshot target could not be captured',

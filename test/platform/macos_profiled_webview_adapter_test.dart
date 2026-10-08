@@ -314,6 +314,117 @@ void main() {
       }
     },
   );
+
+  test('takeSnapshot returns bound metadata including the PNG bytes', () async {
+    final png = Uint8List.fromList(const [0x89, 0x50, 1, 2]);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'takeSnapshot') {
+        return <Object?, Object?>{
+          'png': png,
+          'width': 640,
+          'height': 480,
+          'url': 'https://a.example.com/',
+          'windowId': 63,
+        };
+      }
+      return null;
+    });
+
+    final shot = await adapter.takeSnapshot(9, 'iid');
+    expect(shot['png'], png);
+    expect(shot['width'], 640);
+    expect(shot['windowId'], 63);
+  });
+
+  test('takeSnapshot propagates distinguishable native error codes', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'takeSnapshot') {
+        throw PlatformException(
+          code: 'target_changed',
+          message: 'Target changed during capture',
+        );
+      }
+      return null;
+    });
+
+    await expectLater(
+      adapter.takeSnapshot(9, 'iid'),
+      throwsA(
+        isA<PlatformException>().having(
+          (e) => e.code,
+          'code',
+          'target_changed',
+        ),
+      ),
+    );
+  });
+
+  test(
+    'takeSnapshot bounds the wait: a wedged callback reports '
+    'snapshot_timeout, its late answer is dropped, and the adapter recovers',
+    () async {
+      final slow = MacosProfiledWebviewAdapter(
+        snapshotTimeout: const Duration(milliseconds: 40),
+      );
+      addTearDown(slow.dispose);
+      final gate = Completer<Object?>();
+      messenger.setMockMethodCallHandler(channel, (call) {
+        if (call.method == 'takeSnapshot') return gate.future;
+        return Future.value();
+      });
+
+      await expectLater(
+        slow.takeSnapshot(9, 'iid'),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'snapshot_timeout',
+          ),
+        ),
+      );
+
+      // The target is usable again: the adapter is not stuck on the first
+      // request's still-pending native call.
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'takeSnapshot') {
+          return <Object?, Object?>{
+            'png': Uint8List(0),
+            'width': 1,
+            'height': 1,
+          };
+        }
+        return null;
+      });
+      final retry = await slow.takeSnapshot(9, 'iid');
+      expect(retry['width'], 1);
+
+      // A late answer from the first call — success or error alike — is
+      // silently discarded, not delivered twice nor reported unhandled.
+      gate.completeError(PlatformException(code: 'snapshot_failed'));
+      await pumpEventQueue();
+    },
+  );
+
+  test(
+    'takeSnapshot rejects a non-map response with snapshot_failed',
+    () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'takeSnapshot') return 'not-a-map';
+        return null;
+      });
+      await expectLater(
+        adapter.takeSnapshot(9, 'iid'),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'snapshot_failed',
+          ),
+        ),
+      );
+    },
+  );
 }
 
 /// Recursively asserts every map reachable from [value] has String keys.

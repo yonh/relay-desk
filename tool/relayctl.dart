@@ -337,12 +337,18 @@ Future<void> _writeScreenshot(
     );
   }
   final file = File(output);
+  // Write to a unique sibling temp file first, then atomically rename onto
+  // the target: a failed write can never truncate or delete an existing
+  // capture — cleanup only ever touches the temp file this run created.
+  final tmp = File(
+    '${file.absolute.path}.relayctl-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
+  );
   try {
-    await file.writeAsBytes(bytes, flush: true);
+    await tmp.writeAsBytes(bytes, flush: true);
+    await tmp.rename(output);
   } catch (_) {
-    // A partial write must not stay behind looking like a valid capture.
     try {
-      await file.delete();
+      await tmp.delete();
     } catch (_) {}
     rethrow;
   }

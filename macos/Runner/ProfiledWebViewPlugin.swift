@@ -106,6 +106,22 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     // between capture start and completion means the page moved and the
     // pixels can no longer be attributed to the recorded target.
     private var navigationGenerations: [Int64: Int] = [:]
+    // viewId -> count of navigations committed on that view. A navigation
+    // can already be in flight when a snapshot binds itself; binding the
+    // commit generation too catches that nav landing mid-capture (including
+    // same-URL reloads, which leave webView.url unchanged).
+    private var navigationCommitGenerations: [Int64: Int] = [:]
+    // Snapshot bounds enforced BEFORE any native pixel allocation: a
+    // 4K-by-4K-viewport edge case stays far under these caps, while a huge
+    // or degenerate bounds can never drive TIFF/bitmap/PNG allocations that
+    // dwarf the Dart-side 16 MiB transport limit.
+    private static let snapshotMaxPixelDimension: Double = 16384
+    private static let snapshotMaxTotalPixels: Double = 64 * 1024 * 1024
+    private static let snapshotMaxPngBytes = 16 * 1024 * 1024
+    // One-shot completion deadline for a snapshot request. Deliberately
+    // below the transport's 10 s command bound so the timeout error still
+    // reaches the client, and below the adapter's 9 s safety net.
+    private static let snapshotDeadline: TimeInterval = 8
     // viewId -> pending load watchdog. WKWebView can wedge (dead WebContent
     // process, hung per-store network process, view-out-of-window suspension)
     // without ever calling a terminal navigation delegate method; the watchdog
@@ -1110,16 +1126,32 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// Read-only viewport snapshot for the automation transport.
     ///
     /// The request binds to (viewId, expectedIdentityId, the live WKWebView
-    /// instance, its navigation generation). takeSnapshot is asynchronous,
-    /// so all four are re-verified when the completion handler runs: a
-    /// destroyed/replaced view, a remapped identity, a closed window or a
-    /// navigation started mid-capture fails `target_changed` rather than
-    /// returning pixels under the originally recorded target. A nil
-    /// `webView.window` likewise fails — the snapshot of a view with no
-    /// window cannot be attributed to a window the caller verified.
+    /// instance, the window it sits in, and both navigation generations —
+    /// provisional starts and commits). takeSnapshot is asynchronous, so all
+    /// factors are re-verified when the capture completes: a
+    /// destroyed/replaced view, a remapped identity, a closed window, or a
+    /// navigation started — or an already in-flight one committed —
+    /// mid-capture fails `target_changed` rather than returning pixels under
+    /// the originally recorded target. Comparing the finished webView.url is
+    /// deliberately not the check: a same-URL reload changes the document
+    /// without touching the URL. A nil `webView.window` likewise fails.
     ///
     /// The capture rect is the view's own bounds: exactly the page viewport
     /// of that one WKWebView — no window chrome, no neighbouring panels.
+    /// The bounds are validated before any native pixel allocation: the
+    /// viewport must be finite and positive, and scaled by the window's
+    /// backing scale it must stay within `snapshotMaxPixelDimension` per
+    /// side and `snapshotMaxTotalPixels` overall — oversized targets fail
+    /// `snapshot_too_large` instead of driving unbounded TIFF/bitmap/PNG
+    /// allocations. The encoded PNG is re-checked against
+    /// `snapshotMaxPngBytes` for the same reason.
+    ///
+    /// The request completes exactly once: either the capture finishes, or
+    /// `snapshotDeadline` elapses and a `snapshot_timeout` error is
+    /// delivered. A WebKit callback that arrives late finds the flag set and
+    /// returns before touching the image — no double result, no post-timeout
+    /// transcoding, and the transport's per-target busy marker is freed so
+    /// the target stays queryable.
     private func takeSnapshot(_ args: [String: Any], result: @escaping FlutterResult) {
         guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
               let expectedIdentityId = args["expectedIdentityId"] as? String else {
@@ -1135,13 +1167,50 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
             return
         }
+        let bounds = webView.bounds
+        guard bounds.width.isFinite, bounds.height.isFinite,
+              bounds.width > 0, bounds.height > 0 else {
+            result(FlutterError(code: "snapshot_failed", message: "Target viewport is not measurable", details: nil))
+            return
+        }
+        let scale = webView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        let pixelsWide = bounds.width * scale
+        let pixelsHigh = bounds.height * scale
+        guard pixelsWide <= Self.snapshotMaxPixelDimension,
+              pixelsHigh <= Self.snapshotMaxPixelDimension,
+              pixelsWide * pixelsHigh <= Self.snapshotMaxTotalPixels else {
+            result(FlutterError(
+                code: "snapshot_too_large",
+                message: "Viewport is too large to snapshot (\(Int(pixelsWide))x\(Int(pixelsHigh)) px)",
+                details: nil,
+            ))
+            return
+        }
         let generation = navigationGenerations[viewId] ?? 0
+        let commitGeneration = navigationCommitGenerations[viewId] ?? 0
+        // All channel calls on this plugin run on the main thread, so
+        // `completed` is a plain flag on one serial context — the deadline
+        // and the WebKit callback can never interleave.
+        var completed = false
+        let finishOnce: (Any?) -> Void = { value in
+            guard !completed else { return }
+            completed = true
+            result(value)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.snapshotDeadline) {
+            finishOnce(FlutterError(
+                code: "snapshot_timeout",
+                message: "Snapshot did not complete within \(Int(Self.snapshotDeadline)) s",
+                details: nil,
+            ))
+        }
         let configuration = WKSnapshotConfiguration()
-        configuration.rect = webView.bounds
+        configuration.rect = bounds
         webView.takeSnapshot(with: configuration) { [weak self, weak webView] image, error in
+            guard !completed else { return }
             guard let self else { return }
             if let error {
-                result(FlutterError(code: "snapshot_failed", message: error.localizedDescription, details: nil))
+                finishOnce(FlutterError(code: "snapshot_failed", message: error.localizedDescription, details: nil))
                 return
             }
             guard let image,
@@ -1149,17 +1218,22 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                   self.webViews[viewId] === webView,
                   self.identityIdFor(viewId: viewId) == expectedIdentityId,
                   (self.navigationGenerations[viewId] ?? 0) == generation,
+                  (self.navigationCommitGenerations[viewId] ?? 0) == commitGeneration,
                   webView.window?.windowNumber == initialWindowNumber else {
-                result(FlutterError(code: "target_changed", message: "Target changed during capture", details: nil))
+                finishOnce(FlutterError(code: "target_changed", message: "Target changed during capture", details: nil))
                 return
             }
             guard let tiff = image.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiff),
                   let png = bitmap.representation(using: .png, properties: [:]) else {
-                result(FlutterError(code: "snapshot_failed", message: "PNG encoding failed", details: nil))
+                finishOnce(FlutterError(code: "snapshot_failed", message: "PNG encoding failed", details: nil))
                 return
             }
-            result([
+            guard png.count <= Self.snapshotMaxPngBytes else {
+                finishOnce(FlutterError(code: "snapshot_too_large", message: "PNG payload exceeds the byte budget", details: nil))
+                return
+            }
+            finishOnce([
                 "png": FlutterStandardTypedData(bytes: png),
                 "width": bitmap.pixelsWide,
                 "height": bitmap.pixelsHigh,
@@ -1175,6 +1249,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     func bumpNavigationGeneration(for webView: WKWebView) {
         guard let viewId = viewId(of: webView) else { return }
         navigationGenerations[viewId, default: 0] += 1
+    }
+
+    /// Bumps the commit-navigation generation for [webView]'s view. Called
+    /// from didCommit so a navigation already in flight when a snapshot was
+    /// bound is caught the moment it commits — where a provisional-only
+    /// generation would have missed it.
+    func bumpNavigationCommitGeneration(for webView: WKWebView) {
+        guard let viewId = viewId(of: webView) else { return }
+        navigationCommitGenerations[viewId, default: 0] += 1
     }
 
     /// Bridges an optional Int into a message-codec value: NSNull for nil so
@@ -2139,6 +2222,7 @@ final class NavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        plugin?.bumpNavigationCommitGeneration(for: webView)
         DiagnosticsLog.shared.log("nav.didCommit", fields: logFields(webView))
     }
 

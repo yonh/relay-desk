@@ -873,6 +873,21 @@ void main() {
       );
     });
 
+    test('propagates snapshot_timeout and native too_large as 500s', () async {
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      for (final code in const ['snapshot_timeout', 'snapshot_too_large']) {
+        queries = buildQueries(
+          screenshotCapturer: (viewId, expected) async =>
+              throw PlatformException(code: code),
+        );
+        expect(
+          queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+          failure(code, 500),
+          reason: '$code must surface as a distinguishable wire error',
+        );
+      }
+    });
+
     test('rejects a snapshot exceeding the PNG bound', () async {
       native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
       final oversized = Uint8List(AutomationQueries.screenshotPngLimit + 1);

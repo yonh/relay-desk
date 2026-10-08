@@ -37,14 +37,19 @@ const _eventChannelName = 'profiled_webview_events';
 
 /// Concrete WebviewAdapter for macOS 14+ using the in-repo thin native adapter.
 class MacosProfiledWebviewAdapter implements WebviewAdapter {
-  MacosProfiledWebviewAdapter()
-    : _channel = const MethodChannel(_methodChannelName),
+  MacosProfiledWebviewAdapter({Duration? snapshotTimeout})
+    : _snapshotTimeout = snapshotTimeout ?? const Duration(seconds: 9),
+      _channel = const MethodChannel(_methodChannelName),
       _eventChannel = const EventChannel(_eventChannelName) {
     _startEventListener();
     _channel.setMethodCallHandler(_handleNativeMethodCall);
   }
 
   final MethodChannel _channel;
+  // App-layer bound for one snapshot request: the native side answers inside
+  // 8 s, so a wedged callback still lets this Future complete instead of
+  // holding the caller's per-target busy marker forever.
+  final Duration _snapshotTimeout;
   final EventChannel _eventChannel;
   StreamSubscription<dynamic>? _eventSub;
 
@@ -724,10 +729,24 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     int viewId,
     String expectedIdentityId,
   ) async {
-    final raw = await _channel.invokeMethod<dynamic>('takeSnapshot', {
+    final pending = _channel.invokeMethod<dynamic>('takeSnapshot', {
       'viewId': viewId,
       'expectedIdentityId': expectedIdentityId,
     });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        // The channel call may still resolve after the deadline (a wedged
+        // WebKit callback): stop listening so its late result — success or
+        // error — is discarded instead of completing twice or surfacing as
+        // an unhandled zone error.
+        pending.ignore();
+        throw PlatformException(
+          code: 'snapshot_timeout',
+          message: 'Native snapshot did not complete within the deadline',
+        );
+      },
+    );
     if (raw is! Map) {
       throw PlatformException(code: 'snapshot_failed');
     }
