@@ -896,6 +896,18 @@ abstract class AppLocalizations {
   /// **'Updates'**
   String get updateSectionTitle;
 
+  /// No description provided for @updateCurrentVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Current version: v{version}'**
+  String updateCurrentVersion(String version);
+
+  /// No description provided for @updateSizeUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Size unknown'**
+  String get updateSizeUnknown;
+
   /// No description provided for @updateAutoCheck.
   ///
   /// In en, this message translates to:

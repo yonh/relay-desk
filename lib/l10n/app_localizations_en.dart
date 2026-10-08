@@ -457,6 +457,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateSectionTitle => 'Updates';
 
   @override
+  String updateCurrentVersion(String version) {
+    return 'Current version: v$version';
+  }
+
+  @override
+  String get updateSizeUnknown => 'Size unknown';
+
+  @override
   String get updateAutoCheck => 'Check for updates automatically';
 
   @override

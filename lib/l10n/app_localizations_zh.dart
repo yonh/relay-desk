@@ -447,6 +447,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateSectionTitle => '更新';
 
   @override
+  String updateCurrentVersion(String version) {
+    return '当前版本：v$version';
+  }
+
+  @override
+  String get updateSizeUnknown => '大小未知';
+
+  @override
   String get updateAutoCheck => '自动检查更新';
 
   @override

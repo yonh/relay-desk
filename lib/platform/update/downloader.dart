@@ -42,8 +42,9 @@ class DownloadCancelled implements Exception {
 abstract class UpdateDownloader {
   /// Streams [asset] to `<dir>/package.<ext>` showing progress via
   /// [onProgress] (0..1, `-1` content-length → bytes-only progress capped),
-  /// verifies the SHA-256 when GitHub published a digest, then extracts the
-  /// archive (macOS zip via `ditto`) and locates the `.app` bundle.
+  /// verifies the SHA-256 GitHub published (required — a release asset
+  /// with no digest cannot be auto-installed), then extracts the archive
+  /// (macOS zip via `ditto`) and locates the `.app` bundle.
   Future<StagedUpdate> fetchAndStage(
     ReleaseAsset asset,
     Directory dir, {
@@ -57,7 +58,32 @@ abstract class UpdateDownloader {
 
 /// dart:io implementation — dedicated [HttpClient] per download so cancel
 /// can force-close the socket without touching anything else.
+///
+/// The asset URL travels in release metadata, so it is validated before
+/// use: HTTPS only, on GitHub's own hosts. Anything else throws before a
+/// single byte is fetched — a hostile/MITM'd metadata payload cannot steer
+/// the updater at an arbitrary origin.
 class HttpUpdateDownloader implements UpdateDownloader {
+  /// Hosts a release asset may legitimately resolve to. The API emits
+  /// `api.github.com` `browser_download_url`s on `github.com`; the web
+  /// fallback builds them on `github.com` too. Redirects hop to
+  /// `objects.githubusercontent.com` (GitHub's asset CDN).
+  static const assetHosts = {
+    'github.com',
+    'api.github.com',
+    'objects.githubusercontent.com',
+    'githubusercontent.com',
+  };
+
+  static void _checkAssetUri(Uri uri) {
+    final hostOk = assetHosts.any(
+      (h) => uri.host == h || uri.host.endsWith('.$h'),
+    );
+    if (!uri.isScheme('https') || !hostOk) {
+      throw StateError('untrusted asset origin: ${uri.host}');
+    }
+  }
+
   HttpUpdateDownloader({HttpClient Function()? clientFactory})
     : _clientFactory = clientFactory ?? HttpClient.new;
 
@@ -77,6 +103,11 @@ class HttpUpdateDownloader implements UpdateDownloader {
     Directory dir, {
     void Function(double progress)? onProgress,
   }) async {
+    // Fail closed: without a publisher-supplied digest there is nothing to
+    // verify the bytes against, and this artifact can replace the app.
+    if (asset.sha256 == null || asset.sha256!.trim().isEmpty) {
+      throw StateError('release asset lacks an integrity digest');
+    }
     await dir.create(recursive: true);
     final ext = asset.name.toLowerCase().endsWith('.tar.gz')
         ? '.tar.gz'
@@ -88,16 +119,46 @@ class HttpUpdateDownloader implements UpdateDownloader {
     _active = client;
     _cancelRequested = false;
     try {
-      final request = await client.getUrl(Uri.parse(asset.downloadUrl));
-      request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
-      final response = await request.close().timeout(
-        const Duration(seconds: 30),
-      );
+      final uri = Uri.parse(asset.downloadUrl);
+      _checkAssetUri(uri);
+      // Redirects are followed manually and every hop is re-validated — a
+      // trusted URL must not smuggle the download to an arbitrary origin.
+      HttpClientResponse? response;
+      var current = uri;
+      for (var hops = 0; hops <= 5 && response == null; hops++) {
+        // Bound the CONNECT phase too — getUrl resolves DNS and opens the
+        // socket, which a stalled network can hold open indefinitely.
+        final request = await client
+            .getUrl(current)
+            .timeout(const Duration(seconds: 30));
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
+        final hop = await request.close().timeout(const Duration(seconds: 30));
+        if (!hop.isRedirect) {
+          response = hop;
+          break;
+        }
+        // Read and validate the target BEFORE consuming the body — a
+        // hostile hop streaming an endless redirect body must not pin the
+        // download or bypass the origin check on the next hop.
+        final location = hop.headers.value(HttpHeaders.locationHeader);
+        if (location == null) {
+          await _drainBounded(hop, const Duration(seconds: 10));
+          throw HttpException('redirect without location', uri: current);
+        }
+        current = current.resolve(location);
+        _checkAssetUri(current);
+        // Bound the courtesy drain — the connection is not reused anyway.
+        await _drainBounded(hop, const Duration(seconds: 10));
+      }
+      if (response == null) {
+        throw HttpException('too many redirects', uri: uri);
+      }
       if (response.statusCode != 200) {
-        await response.drain<void>();
+        await _drainBounded(response, const Duration(seconds: 10));
         throw HttpException(
           'download failed (${response.statusCode})',
-          uri: request.uri,
+          uri: current,
         );
       }
       final total = response.contentLength;
@@ -116,12 +177,14 @@ class HttpUpdateDownloader implements UpdateDownloader {
       } finally {
         await sink.close();
       }
+      // The stream is done but the dialog still shows "cancel" — a cancel
+      // racing the verify/extract stage must still win.
+      if (_cancelRequested) throw const DownloadCancelled();
       if (!await part.exists() || await part.length() == 0) {
         throw const HttpException('empty download');
       }
       final sha = await sha256.bind(part.openRead()).first;
-      if (asset.sha256 != null &&
-          !sha.toString().equalsIgnoreCase(asset.sha256!)) {
+      if (!sha.toString().equalsIgnoreCase(asset.sha256!)) {
         throw StateError('sha256 mismatch');
       }
       await part.rename(archive.path);
@@ -130,6 +193,9 @@ class HttpUpdateDownloader implements UpdateDownloader {
       if (Platform.isMacOS && ext == '.zip') {
         appBundle = await _extractApp(archive, payload);
       }
+      // Same check at the boundary: a cancel during ditto still aborts
+      // instead of reporting a staged update the user asked to drop.
+      if (_cancelRequested) throw const DownloadCancelled();
       return StagedUpdate(root: dir, archive: archive, app: appBundle);
     } catch (e) {
       if (_cancelRequested) {
@@ -140,18 +206,51 @@ class HttpUpdateDownloader implements UpdateDownloader {
       _active = null;
       client.close();
       // A cancelled/failed attempt leaves no half files behind.
-      if (await part.exists()) {
-        try {
-          await part.delete();
-        } catch (_) {}
+      if (_cancelRequested) {
+        // Cancel can land after the .part was renamed or after extraction
+        // completed — drop the full archive and payload, not just .part.
+        for (final f in [part, archive]) {
+          if (await f.exists()) {
+            try {
+              await f.delete();
+            } catch (_) {}
+          }
+        }
+        if (await payload.exists()) {
+          try {
+            await payload.delete(recursive: true);
+          } catch (_) {}
+        }
+      } else {
+        if (await part.exists()) {
+          try {
+            await part.delete();
+          } catch (_) {}
+        }
+        // Extraction is only attempted after a verified archive exists, so
+        // a partial payload means we bailed mid-extract — drop it.
+        if (!await archive.exists() && await payload.exists()) {
+          try {
+            await payload.delete(recursive: true);
+          } catch (_) {}
+        }
       }
-      // Extraction is only attempted after a verified archive exists, so a
-      // partial payload means we bailed mid-extract — drop it.
-      if (!await archive.exists() && await payload.exists()) {
-        try {
-          await payload.delete(recursive: true);
-        } catch (_) {}
-      }
+    }
+  }
+
+  /// Courtesy-drains an error body with a hard bound — and unlike a bare
+  /// `.drain().timeout()`, cancelling the subscription actually closes
+  /// the socket instead of leaving a hanging connection behind.
+  static Future<void> _drainBounded(
+    HttpClientResponse response,
+    Duration limit,
+  ) async {
+    final sub = response.listen((_) {}, onError: (_) {});
+    try {
+      await sub.asFuture<void>().timeout(limit);
+    } catch (_) {
+    } finally {
+      await sub.cancel();
     }
   }
 

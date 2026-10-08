@@ -393,7 +393,10 @@ void main() {
       expect(find.text('Google Translate'), findsOneWidget);
       final hostChrome = find.byKey(const ValueKey('quick-site-host-chrome'));
       expect(
-        find.descendant(of: hostChrome, matching: find.byTooltip('Reload')),
+        find.descendant(
+          of: hostChrome,
+          matching: find.byTooltip('Reload (⌘R)'),
+        ),
         findsOneWidget,
       );
       expect(

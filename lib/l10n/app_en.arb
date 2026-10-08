@@ -233,6 +233,15 @@
   "appIconPlatformNote": "The app logo and macOS Dock icon update immediately. Finder uses the bundled B2 icon.",
   "dockIconMenu": "Switch Icon",
   "updateSectionTitle": "Updates",
+  "updateCurrentVersion": "Current version: v{version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSizeUnknown": "Size unknown",
   "updateAutoCheck": "Check for updates automatically",
   "updateAutoDownload": "Download updates automatically",
   "updateCheckNow": "Check now",
