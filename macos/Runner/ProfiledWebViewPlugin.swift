@@ -1053,6 +1053,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             sampleMedia(args, result: result)
         case "drainJsErrors":
             drainJsErrors(args, result: result)
+        case "probeDom":
+            probeDom(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1587,6 +1589,207 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 liveWindowNumber: liveView?.window?.windowNumber
             ), let webView else {
                 result(FlutterError(code: "target_changed", message: "Target changed during error drain", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Fixed read-only DOM summary probe (issue #20). The caller cannot
+    /// inject script: this literal is the only thing evaluated. Walks the
+    /// main document plus same-origin iframes; unreachable frames are listed
+    /// `reachable:false`, never probed across the boundary.
+    ///
+    /// Emitted per document: `documentId` (a nonce unique to this probe run,
+    /// so a same-URL reload always produces different document ids), title,
+    /// url, and a bounded element list. Each element gets `ref`
+    /// (`<docIndex>.<n>` — an ephemeral reference scoped to this document
+    /// listing, not a stable CSS path and never reusable across probes),
+    /// tag, role, a short visible label, `disabled`, and for links a `href`.
+    /// Inputs report type/name/disabled only — `value` is never read, so no
+    /// password, token or typed text can leave the page. `script`, `style`,
+    /// `noscript`, `template` contents and `[hidden]`/`aria-hidden` subtrees
+    /// are skipped entirely (hidden text is counted, never collected).
+    /// Budgets: 8 depth, 16 frames, 300 elements shared across frames, 80
+    /// chars per label; anything cut is reported via the `truncated` flags,
+    /// so a bounded walk is never mistaken for "empty page".
+    private static let domProbeScript = """
+    (function () {
+      var MAX_DEPTH = 8, MAX_FRAMES = 16, MAX_NODES = 300, MAX_TEXT = 80;
+      var docNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      var frames = [], nodeBudget = MAX_NODES;
+      var skipped = { nodes: 0, frames: 0, hidden: 0, textTruncated: 0 };
+      var INTEREST = { A: 1, BUTTON: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1,
+                       OPTION: 1, SUMMARY: 1, LABEL: 1,
+                       H1: 1, H2: 1, H3: 1, H4: 1 };
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      function shortText(el) {
+        var t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+        if (t.length > MAX_TEXT) { skipped.textTruncated++; return t.slice(0, MAX_TEXT); }
+        return t;
+      }
+      function labelFor(el) {
+        var tag = el.tagName;
+        var l = el.getAttribute('aria-label') || el.innerText || el.textContent || '';
+        l = l.replace(/\\s+/g, ' ').trim();
+        if (l.length > MAX_TEXT) { skipped.textTruncated++; l = l.slice(0, MAX_TEXT); }
+        return l;
+      }
+      function isHidden(el) {
+        if (el.hidden) return true;
+        if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+        return false;
+      }
+      function walkEl(el, out, docIndex, depth) {
+        if (nodeBudget <= 0) { skipped.nodes++; return; }
+        if (isHidden(el)) { skipped.hidden++; return; }
+        var tag = el.tagName;
+        if (SKIP[tag]) return;
+        var interest = INTEREST[tag] || el.getAttribute('role');
+        if (interest) {
+          nodeBudget--;
+          var n = { ref: docIndex + '.' + out.length,
+                    tag: tag.toLowerCase() };
+          var role = el.getAttribute('role');
+          if (role) n.role = role;
+          var label = labelFor(el);
+          if (label) n.label = label;
+          if (tag === 'A' && el.getAttribute('href')) n.href = el.getAttribute('href');
+          if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'OPTION') {
+            n.inputType = el.type || tag.toLowerCase();
+            if (el.name) n.name = String(el.name);
+          }
+          if (el.disabled) n.disabled = true;
+          if (el.getAttribute('tabindex') !== null) n.tabindex = Number(el.getAttribute('tabindex')) || 0;
+          out.push(n);
+        }
+        if (depth >= MAX_DEPTH) { skipped.nodes += el.children.length; return; }
+        for (var i = 0; i < el.children.length; i++) {
+          walkEl(el.children[i], out, docIndex, depth + 1);
+        }
+      }
+      function collect(doc, label, url, depth, frameEl) {
+        if (frames.length >= MAX_FRAMES) { skipped.frames++; return; }
+        var f = { index: frames.length, label: label, url: url,
+                  documentId: docNonce + ':' + frames.length,
+                  depth: depth, reachable: true, elements: [] };
+        frames.push(f);
+        var texts = [];
+        try {
+          var walker = doc.createTreeWalker(doc.body || doc.documentElement,
+                                            4 /* SHOW_TEXT */, null);
+          var node, gathered = 0;
+          while ((node = walker.nextNode()) && gathered < 24 && texts.join(' ').length < 480) {
+            var s = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
+            if (s && !SKIP[node.parentElement && node.parentElement.tagName] &&
+                !(node.parentElement && isHidden(node.parentElement))) {
+              if (s.length > 120) s = s.slice(0, 120);
+              texts.push(s); gathered++;
+            }
+          }
+          if (walker.nextNode()) skipped.textTruncated++;
+        } catch (e) {}
+        f.text = texts.join(' ').slice(0, 480);
+        f.title = doc.title || null;
+        if (doc.body) walkEl(doc.body, f.elements, f.index, 0);
+        f.elementCount = f.elements.length;
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) { skipped.frames += iframes.length; return; }
+        for (var k = 0; k < iframes.length; k++) {
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            collect(idoc, childLabel,
+                    (idoc.location && idoc.location.href) || el.src || null,
+                    depth + 1, el);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skipped.frames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: el.src || null,
+                          documentId: docNonce + ':' + frames.length,
+                          depth: depth + 1, reachable: false,
+                          reason: 'unavailable',
+                          elements: [], elementCount: 0, text: '' });
+          }
+        }
+      }
+      collect(document, 'main', location.href, 0, null);
+      return JSON.stringify({
+        documentId: docNonce,
+        title: document.title || null,
+        url: location.href,
+        frames: frames,
+        truncated: skipped.nodes > 0 || skipped.frames > 0 || skipped.textTruncated > 0,
+        skipped: skipped
+      });
+    })()
+    """
+
+    /// Read-only DOM summary of the page bound to [args]' target. Same
+    /// binding, gate and deadline discipline as `sampleMedia` — drift
+    /// mid-eval fails `target_changed`, never mixes documents across
+    /// targets. Only the fixed probe runs.
+    private func probeDom(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_timeout",
+                    message: "DOM probe did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        webView.evaluateJavaScript(Self.domProbeScript) { [weak self, weak webView] value, error in
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "dom_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_failed", message: "DOM probe returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during DOM probe", details: nil))
                 return
             }
             result([

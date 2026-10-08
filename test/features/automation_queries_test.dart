@@ -116,6 +116,11 @@ void main() {
       String expectedIdentityId,
     )?
     errorsDrainer,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+    )?
+    domProber,
     void Function(String projectId)? selectProject,
     void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
@@ -135,6 +140,9 @@ void main() {
         (viewId, identityId) async => throw UnimplementedError(),
     drainJsErrors:
         errorsDrainer ??
+        (viewId, identityId) async => throw UnimplementedError(),
+    probeDom:
+        domProber ??
         (viewId, identityId) async => throw UnimplementedError(),
     // Mimic what the real wiring does: the provider selection flips
     // immediately and the workspace marker catches up inside the same
@@ -247,7 +255,6 @@ void main() {
     );
     final limitations = data['limitations'] as Map<String, Object?>;
     for (final unsupported in [
-      'dom',
       'eval',
       'actions',
       'console',
@@ -257,6 +264,7 @@ void main() {
       expect(limitations[unsupported], false, reason: unsupported);
     }
     expect(limitations['screenshot'], true);
+    expect(limitations['dom'], true);
   });
 
   test(
@@ -1375,6 +1383,135 @@ void main() {
       });
       expect(data['projectId'], projectB.id);
     });
+
+  group('dom', () {
+    Map<String, dynamic> domPayload() => {
+      'documentId': 'abc123',
+      'title': 'PAGE',
+      'url': 'http://127.0.0.1:8901/a.html?token=x#f',
+      'frames': [
+        {
+          'index': 0,
+          'label': 'main',
+          'url': 'http://127.0.0.1:8901/a.html?token=x#f',
+          'documentId': 'abc123:0',
+          'depth': 0,
+          'reachable': true,
+          'elements': [
+            {
+              'ref': '0.0',
+              'tag': 'a',
+              'label': 'Home',
+              'href': 'https://u:p@ex.com:9/p?q=1#s',
+            },
+            {'ref': '0.1', 'tag': 'input', 'inputType': 'password', 'name': 'pw'},
+          ],
+          'elementCount': 2,
+          'title': 'PAGE',
+          'text': 'hello',
+        },
+        {
+          'index': 1,
+          'label': 'f0',
+          'url': 'https://other.example/x?k=v',
+          'documentId': 'abc123:1',
+          'depth': 1,
+          'reachable': false,
+          'reason': 'unavailable',
+          'elements': [],
+          'elementCount': 0,
+          'text': '',
+        },
+      ],
+      'truncated': true,
+      'skipped': {'nodes': 3, 'frames': 0, 'hidden': 1, 'textTruncated': 2},
+    };
+
+    test('requires an explicit identityId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'dom'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('unknown identity is not_found; no view is no_native_view', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'dom', 'identityId': 'nope'}),
+        failure('not_found', 404),
+      );
+      expect(
+        queries.dispatch({'op': 'dom', 'identityId': 'id-a1'}),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('returns the bounded document with sanitized URLs', () async {
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+      queries = buildQueries(
+        domProber: (viewId, identityId) async => {
+          'json': jsonEncode(domPayload()),
+          'url': 'http://127.0.0.1:8901/a.html?token=x#f',
+          'windowId': 83,
+        },
+      );
+      final data = await run({'op': 'dom', 'identityId': 'id-a1'});
+      expect(data['documentId'], 'abc123');
+      expect(data['title'], 'PAGE');
+      expect(data['url'], 'http://127.0.0.1:8901/a.html');
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['truncated'], true);
+      expect((data['skipped'] as Map)['hidden'], 1);
+      final frames = (data['frames'] as List).cast<Map>();
+      expect(frames.length, 2);
+      expect(frames[0]['url'], 'http://127.0.0.1:8901/a.html');
+      final els = (frames[0]['elements'] as List).cast<Map>();
+      expect(els[0]['href'], 'https://ex.com:9/p');
+      expect(els[1]['inputType'], 'password');
+      expect(frames[1]['reachable'], false);
+      expect(frames[1]['reason'], 'unavailable');
+      // The page's own query/fragment never crosses the transport.
+      final encoded = jsonEncode(data);
+      expect(encoded, isNot(contains('token=x')));
+      expect(encoded, isNot(contains('?q=1')));
+      expect(encoded, isNot(contains('u:p@')));
+    });
+
+    test('drift mid-probe is target_changed', () async {
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+      queries = buildQueries(
+        domProber: (viewId, identityId) async =>
+            throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({'op': 'dom', 'identityId': 'id-a1'}),
+        failure('target_changed', 409),
+      );
+    });
+
+    test('malformed probe JSON is dom_failed', () async {
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+      queries = buildQueries(
+        domProber: (viewId, identityId) async => {
+          'json': 'not-json',
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({'op': 'dom', 'identityId': 'id-a1'}),
+        failure('dom_failed', 500),
+      );
+    });
+  });
 
   group('open_panel', () {
     test('requires an explicit identityId', () async {

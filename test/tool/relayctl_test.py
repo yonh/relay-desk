@@ -32,6 +32,7 @@ SELECTOR_CASES = (
     ('errors', '--identity', 'ident-3', 'identityId', 'ident-3'),
     ('activate_project', '--project', 'proj-9', 'projectId', 'proj-9'),
     ('open_panel', '--identity', 'ident-5', 'identityId', 'ident-5'),
+    ('dom', '--identity', 'ident-6', 'identityId', 'ident-6'),
 )
 SELECTION_CASES = ('capabilities', 'state', 'projects', 'identities', 'identity',
                    'panels', 'panel', 'windows', 'window', 'workspaces', 'workspace')

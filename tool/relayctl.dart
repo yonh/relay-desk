@@ -15,7 +15,7 @@
 /// to the absent-selector rule: each requires an explicit --identity
 /// (screenshot also a local --output path), because a page-level read
 /// without a named target would silently sample whatever happens to be
-/// selected. `activate_project` likewise requires an explicit --project —
+/// selected; `dom` is held to the same rule. `activate_project` likewise requires an explicit --project —
 /// switching "whatever is selected" by name would hit the wrong project.
 ///
 /// Session descriptors are credentials. Only `file`, `pid` and `endpoint` are
@@ -199,6 +199,11 @@ const List<_Command> _commands = <_Command>[
   _Command(
     'open_panel',
     'Open the panel of an existing identity; --identity required',
+    <_Selector>[_requiredIdentitySelector],
+  ),
+  _Command(
+    'dom',
+    'Bounded DOM summary of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],
   ),
 ];
