@@ -28,6 +28,7 @@ SELECTOR_CASES = (
     ('window', '--window', '42', 'windowId', 42),
     ('workspaces', '--project', 'proj-7', 'projectId', 'proj-7'),
     ('workspace', '--workspace', 'ws-9', 'workspaceId', 'ws-9'),
+    ('media', '--identity', 'ident-3', 'identityId', 'ident-3'),
 )
 SELECTION_CASES = ('capabilities', 'state', 'projects', 'identities', 'identity',
                    'panels', 'panel', 'windows', 'window', 'workspaces', 'workspace')
@@ -262,6 +263,12 @@ class RelayCtlTest(unittest.TestCase):
         # --output is CLI-local: the wire carries only the explicit identity.
         self.assertEqual(json.loads(request['body']),
                          {'op': 'screenshot', 'identityId': 'ident-3'})
+        self.assertNoCredentialLeak(done)
+
+    def test_media_requires_an_explicit_identity(self):
+        done = self.run_cli('media')
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(self.server.seen(), [])
         self.assertNoCredentialLeak(done)
 
     def test_screenshot_requires_an_explicit_identity(self):

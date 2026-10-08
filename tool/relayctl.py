@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """CLI for Relay Desk's opt-in, authenticated local automation transport.
 
-P0 speaks metadata reads plus the single read-only `screenshot` operation.
-Absence of a selector means "the backend's current selection": the CLI never
-guesses a project, identity, window or workspace on the caller's behalf, and
-never inspects AppKit itself. `screenshot` is the exception to the absent-
-selector rule: it requires an explicit --identity and a local --output path,
-because a screenshot without a named target would silently capture whatever
-happens to be selected.
+P0 speaks metadata reads plus the read-only `screenshot` and `media`
+operations. Absence of a selector means "the backend's current selection":
+the CLI never guesses a project, identity, window or workspace on the
+caller's behalf, and never inspects AppKit itself. `screenshot` and `media`
+are exceptions to the absent-selector rule: each requires an explicit
+--identity (plus a local --output path for screenshot), because page-level
+reads without a named target would silently sample whatever happens to be
+selected.
 """
 
 import argparse
@@ -45,6 +46,9 @@ COMMANDS = {
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
         ('--output', None, None, 'Local file path for the PNG; required, never sent to the app'),
     ),
+    'media': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -66,6 +70,7 @@ SELECTOR_HELP = {
     'workspaces': 'Saved layouts of one project, or of the current project',
     'workspace': 'One saved layout, or the current named layout',
     'screenshot': 'Viewport PNG of one identity panel; --identity and --output required',
+    'media': 'Media-element state of one identity panel; --identity required',
 }
 
 
@@ -137,9 +142,11 @@ def build_parser():
     for op, selectors in COMMANDS.items():
         p = sub.add_parser(op, help=SELECTOR_HELP[op], allow_abbrev=False)
         for flag, _, kind, help in selectors:
-            # screenshot's two flags are required; every other selector
-            # stays optional and defers to the backend's current selection.
-            p.add_argument(flag, type=kind, required=op == 'screenshot', help=help)
+            # screenshot's two flags are required, as is media's --identity;
+            # every other selector stays optional and defers to the
+            # backend's current selection.
+            p.add_argument(flag, type=kind, help=help,
+                          required=op == 'screenshot' or (op == 'media' and flag == '--identity'))
     return parser
 
 

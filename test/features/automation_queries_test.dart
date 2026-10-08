@@ -106,6 +106,11 @@ void main() {
       String expectedIdentityId,
     )?
     screenshotCapturer,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+    )?
+    mediaSampler,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -115,6 +120,9 @@ void main() {
     readNativeWindows: nativeReader ?? () async => native,
     captureScreenshot:
         screenshotCapturer ??
+        (viewId, identityId) async => throw UnimplementedError(),
+    sampleMedia:
+        mediaSampler ??
         (viewId, identityId) async => throw UnimplementedError(),
   );
 
@@ -929,6 +937,134 @@ void main() {
         expect((caps['limitations'] as Map)['actions'], isFalse);
       },
     );
+  });
+
+  group('media', () {
+    Map<String, dynamic> sample({
+      String? url = 'https://user:secret@a.example.com/page?q=1#f',
+      Object? windowId = 83,
+      String json = '{"frames":[]}' ,
+    }) => {'json': json, 'url': url, 'windowId': windowId};
+
+    test('requires an explicit identityId; no selection fallback', () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1')},
+        selectedPanelId: 'id-a1',
+      );
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      expect(
+        queries.dispatch({'op': 'media'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('reports not_found for an unknown identity', () async {
+      expect(
+        queries.dispatch({'op': 'media', 'identityId': 'missing'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('reports no_native_view when the panel has no live view', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot();
+      expect(
+        queries.dispatch({'op': 'media', 'identityId': 'id-a1'}),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('returns frames with every URL sanitized', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+      var boundViewId = -1;
+      var boundIdentity = '';
+      const probeJson = '''
+      {"frames":[
+        {"index":0,"label":"main",
+         "url":"https://u:p@a.example.com/v?tok=1#x",
+         "reachable":true,
+         "media":[{"index":0,"tag":"video","currentTime":12.5,
+           "duration":98.0,"durationKind":"finite","paused":false,
+           "ended":false,"seeking":false,"readyState":4,
+           "playbackRate":1.0,"seekable":[[0,98.0]],"error":null}],
+         "mediaCount":1},
+        {"index":1,"label":"iframe0",
+         "url":"https://ads.example.net/embed?click=2",
+         "reachable":false,"reason":"unavailable","media":[],
+         "mediaCount":0}
+      ]}
+      ''';
+      queries = buildQueries(
+        mediaSampler: (viewId, expected) async {
+          boundViewId = viewId;
+          boundIdentity = expected;
+          return sample(json: probeJson);
+        },
+      );
+
+      final data = await run({'op': 'media', 'identityId': 'id-a1'});
+      expect(boundViewId, 9);
+      expect(boundIdentity, 'id-a1');
+      expect(data['identityId'], 'id-a1');
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['sampledAt'], isA<String>());
+      expect(data['url'], 'https://a.example.com/page');
+      final frames = (data['frames'] as List).cast<Map<String, dynamic>>();
+      expect(frames, hasLength(2));
+      expect(frames[0]['url'], 'https://a.example.com/v');
+      expect(frames[0]['reachable'], isTrue);
+      expect((frames[0]['media'] as List), hasLength(1));
+      expect(frames[1]['reachable'], isFalse);
+      expect(frames[1]['url'], 'https://ads.example.net/embed');
+    });
+
+    test('maps target_changed to a 409 automation failure', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        mediaSampler: (viewId, expected) async =>
+            throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({'op': 'media', 'identityId': 'id-a1'}),
+        failure('target_changed', 409),
+      );
+    });
+
+    test('maps media_failed and media_timeout through their codes', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      for (final code in ['media_failed', 'media_timeout']) {
+        queries = buildQueries(
+          mediaSampler: (viewId, expected) async =>
+              throw PlatformException(code: code),
+        );
+        expect(
+          queries.dispatch({'op': 'media', 'identityId': 'id-a1'}),
+          failure(code, 500),
+        );
+      }
+    });
+
+    test('reports media_failed on a malformed probe payload', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        mediaSampler: (viewId, expected) async => sample(json: 'not json'),
+      );
+      expect(
+        queries.dispatch({'op': 'media', 'identityId': 'id-a1'}),
+        failure('media_failed', 500),
+      );
+    });
+
+    test('capabilities advertises the media operation', () async {
+      final caps = await run({'op': 'capabilities'});
+      expect((caps['limitations'] as Map)['media'], isTrue);
+      expect((caps['operations'] as List).cast<String>(), contains('media'));
+    });
   });
 
   group('transport whitelist', () {

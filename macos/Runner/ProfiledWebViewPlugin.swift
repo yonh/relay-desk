@@ -979,6 +979,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(windowInventory())
         case "takeSnapshot":
             takeSnapshot(args, result: result)
+        case "sampleMedia":
+            sampleMedia(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1239,6 +1241,147 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 "png": FlutterStandardTypedData(bytes: png),
                 "width": bitmap.pixelsWide,
                 "height": bitmap.pixelsHigh,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Fixed read-only probe evaluated inside the target page for `sampleMedia`.
+    /// Walks `video`/`audio` elements in the main document plus every same-origin
+    /// iframe reachable through `contentDocument`; a cross-origin or otherwise
+    /// unreachable frame is listed as `reachable: false` — never probed across
+    /// the boundary and never mistaken for "no media". `duration` that is NaN
+    /// or non-finite (live streams) is reported as `duration: null` with a
+    /// `durationKind` marker so JSON output never carries an invalid number.
+    /// The caller cannot inject script: this literal is the only thing run.
+    private static let mediaProbeScript = """
+    (function () {
+      var frames = [];
+      function seekableRanges(m) {
+        var ranges = [];
+        try {
+          var t = m.seekable;
+          for (var i = 0; i < t.length && ranges.length < 8; i++) {
+            ranges.push([t.start(i), t.end(i)]);
+          }
+        } catch (e) {}
+        return ranges;
+      }
+      function mediaEntry(m, i) {
+        var d = m.duration;
+        var kind = 'unknown';
+        var duration = null;
+        if (typeof d === 'number' && !isNaN(d)) {
+          if (isFinite(d)) { kind = 'finite'; duration = d; } else { kind = 'live'; }
+        }
+        return {
+          index: i, tag: String(m.tagName || '').toLowerCase(),
+          currentTime: m.currentTime, duration: duration, durationKind: kind,
+          paused: m.paused, ended: m.ended, seeking: m.seeking,
+          readyState: m.readyState, playbackRate: m.playbackRate,
+          seekable: seekableRanges(m),
+          error: m.error ? { code: m.error.code } : null
+        };
+      }
+      function collect(doc, label, url) {
+        var frame = { index: frames.length, label: label, url: url,
+                      reachable: true, media: [] };
+        var els = doc.querySelectorAll('video, audio');
+        for (var i = 0; i < els.length; i++) {
+          frame.media.push(mediaEntry(els[i], i));
+        }
+        frame.mediaCount = frame.media.length;
+        frames.push(frame);
+      }
+      collect(document, 'main', location.href);
+      var iframes = document.querySelectorAll('iframe');
+      for (var k = 0; k < iframes.length; k++) {
+        var el = iframes[k];
+        try {
+          var idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+          if (!idoc) { throw new Error('unavailable'); }
+          collect(idoc, 'iframe' + k,
+                  (idoc.location && idoc.location.href) || el.src || null);
+        } catch (e) {
+          frames.push({ index: frames.length, label: 'iframe' + k,
+                        url: el.src || null, reachable: false,
+                        reason: 'unavailable', media: [], mediaCount: 0 });
+        }
+      }
+      return JSON.stringify({ frames: frames });
+    })()
+    """
+
+    /// Read-only media-state sample of the page bound to [args]' target.
+    ///
+    /// Same binding discipline as `takeSnapshot`: (viewId, expectedIdentityId,
+    /// live instance, window, provisional + commit generations) is re-verified
+    /// when the async evaluation completes, so a navigation or instance swap
+    /// mid-eval fails `target_changed` instead of mixing results across
+    /// targets. Only the fixed `mediaProbeScript` runs — no caller-supplied
+    /// JavaScript. Completes exactly once via the shared completion gate:
+    /// the probe result or `media_timeout` after `SnapshotPolicy.deadline`.
+    private func sampleMedia(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "media_timeout",
+                    message: "Media probe did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        webView.evaluateJavaScript(Self.mediaProbeScript) { [weak self, weak webView] value, error in
+            // Late callback after the deadline: return before binding checks
+            // or any success result.
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "media_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "media_failed", message: "Media probe returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during media probe", details: nil))
+                return
+            }
+            result([
+                "json": json,
                 "url": webView.url?.absoluteString as Any,
                 "windowId": self.orNull(webView.window?.windowNumber),
             ])

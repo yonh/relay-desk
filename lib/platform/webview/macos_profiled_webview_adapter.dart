@@ -753,6 +753,40 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Read-only media-state sample of the page in the web view bound to
+  /// [viewId].
+  ///
+  /// Same native binding discipline as [takeSnapshot]: the target is
+  /// re-verified against [expectedIdentityId], the live view instance, window
+  /// and navigation generations when the fixed probe script finishes; drift
+  /// surfaces as `target_changed`. The returned map carries `json` (the fixed
+  /// probe's JSON string — decoded by the query layer), `url` and `windowId`.
+  /// Shares [_snapshotTimeout]: it is the generic deadline for bounded native
+  /// reads, matching the native-side deadline.
+  Future<Map<String, dynamic>> sampleMedia(
+    int viewId,
+    String expectedIdentityId,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('sampleMedia', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'media_timeout',
+          message: 'Native media probe did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'media_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
