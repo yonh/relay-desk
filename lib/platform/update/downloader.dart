@@ -154,7 +154,7 @@ class HttpUpdateDownloader implements UpdateDownloader {
         throw HttpException('too many redirects', uri: uri);
       }
       if (response.statusCode != 200) {
-        await response.drain<void>();
+        await _drainBounded(response, const Duration(seconds: 10));
         throw HttpException(
           'download failed (${response.statusCode})',
           uri: current,
@@ -234,6 +234,22 @@ class HttpUpdateDownloader implements UpdateDownloader {
           } catch (_) {}
         }
       }
+    }
+  }
+
+  /// Courtesy-drains an error body with a hard bound — and unlike a bare
+  /// `.drain().timeout()`, cancelling the subscription actually closes
+  /// the socket instead of leaving a hanging connection behind.
+  static Future<void> _drainBounded(
+    HttpClientResponse response,
+    Duration limit,
+  ) async {
+    final sub = response.listen((_) {}, onError: (_) {});
+    try {
+      await sub.asFuture<void>().timeout(limit);
+    } catch (_) {
+    } finally {
+      await sub.cancel();
     }
   }
 

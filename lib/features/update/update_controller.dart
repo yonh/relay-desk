@@ -136,6 +136,15 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// Auto-checks at most once per this interval; manual checks bypass.
   static const checkThrottle = Duration(hours: 6);
 
+  /// Shared operation mutex taken SYNCHRONOUSLY before the first await by
+  /// every entry point that mutates staged files. `state.busy` alone is
+  /// not enough: `skipVersion` awaits persistence and staging cleanup
+  /// while the phase is still `ready`, so a reopened dialog could start
+  /// an install over the same payload mid-delete.
+  var _opBusy = false;
+
+  bool get _locked => state.busy || _opBusy;
+
   @override
   UpdateStatus build() {
     Future<void>.microtask(_sweepStaging);
@@ -160,13 +169,13 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// skipped-version silencer — a user who asks for the latest release gets
   /// to see it even if they skipped it. Auto checks respect both.
   Future<void> check({bool manual = false}) async {
-    if (state.busy) return;
+    if (_locked) return;
     if (!manual &&
         DateTime.now().millisecondsSinceEpoch - _settings.lastCheckMs <
             checkThrottle.inMilliseconds) {
       return;
     }
-    state = const UpdateStatus(phase: UpdatePhase.checking);
+    state = state.copyWith(phase: UpdatePhase.checking, clearError: true);
     try {
       final release = await ref.read(releaseClientProvider).latestRelease();
       // Throttle consumes only on a completed fetch — a failed auto-check
@@ -179,7 +188,7 @@ class UpdateController extends Notifier<UpdateStatus> {
         state = UpdateStatus(
           phase: UpdatePhase.upToDate,
           latestVersion: release?.version,
-          currentVersion: current,
+          currentVersion: current ?? state.currentVersion,
         );
         return;
       }
@@ -226,14 +235,15 @@ class UpdateController extends Notifier<UpdateStatus> {
       }
     } catch (e) {
       // Auto-checks fail silently (network hiccups, API rate limits); a
-      // manual check surfaces the error in settings.
+      // manual check surfaces the error in settings. Either way the
+      // installed-version row must survive the reset.
       state = manual
-          ? UpdateStatus(
+          ? state.copyWith(
               phase: UpdatePhase.failed,
               stage: UpdateStage.check,
               error: e.toString(),
             )
-          : const UpdateStatus();
+          : state.copyWith(phase: UpdatePhase.idle, clearError: true);
     }
   }
 
@@ -242,7 +252,7 @@ class UpdateController extends Notifier<UpdateStatus> {
   Future<void> download() async {
     final release = state.release;
     final asset = state.asset;
-    if (release == null || asset == null || state.busy) return;
+    if (release == null || asset == null || _locked) return;
     if (_settings.readyTag == release.tag &&
         await _stagedAppExists(release.tag)) {
       state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
@@ -285,7 +295,7 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// confirms it is running.
   Future<void> installAndRelaunch() async {
     final release = state.release;
-    if (release == null || state.busy) return;
+    if (release == null || _locked) return;
     state = state.copyWith(phase: UpdatePhase.installing);
     try {
       final dir = await ref.read(updatePathsProvider).stageDir(release.tag);
@@ -334,7 +344,13 @@ class UpdateController extends Notifier<UpdateStatus> {
         state.phase == UpdatePhase.ready ||
         state.phase == UpdatePhase.failed) {
       unawaited(_settingsCtl.resetThrottle());
-      state = UpdateStatus(latestVersion: state.latestVersion);
+      // Keep latest+current versions — the settings rows must not blank
+      // out on dismiss.
+      state = state.copyWith(
+        phase: UpdatePhase.idle,
+        clearRelease: true,
+        clearError: true,
+      );
     }
   }
 
@@ -343,7 +359,7 @@ class UpdateController extends Notifier<UpdateStatus> {
     // A download-stage retry flips phase back to `available`, which clears
     // `busy` — without this guard a rapid second tap would start a second
     // fetchAndStage writing the same `.part` file concurrently.
-    if (state.busy) return;
+    if (_locked) return;
     if (state.stage == UpdateStage.check) {
       await check(manual: true);
     } else if (state.stage == UpdateStage.download) {
@@ -353,29 +369,36 @@ class UpdateController extends Notifier<UpdateStatus> {
       // The staged payload is still valid — go straight back to ready.
       state = state.copyWith(phase: UpdatePhase.ready, clearError: true);
     } else {
-      state = UpdateStatus(
-        phase: UpdatePhase.available,
-        release: state.release,
-        asset: state.asset,
-        latestVersion: state.latestVersion,
-      );
+      state = state.copyWith(phase: UpdatePhase.available, clearError: true);
     }
   }
 
   /// "Skip this version" — persists the normalized version, drops any
-  /// staged download for it, and settles back to quiet. Guarded by `busy`:
-  /// skipping mid-install would delete the payload under the helper's feet.
+  /// staged download for it, and settles back to quiet. The op lock is
+  /// taken synchronously: without it the awaits below run while the phase
+  /// still reads `ready`, letting a reopened dialog start an install over
+  /// the payload being deleted (and the final quiet state could clobber
+  /// an `installing` phase that started mid-skip).
   Future<void> skipVersion() async {
     final release = state.release;
-    if (release == null || state.busy) return;
-    await _settingsCtl.skipVersion(release.version.toString());
-    if (_settings.readyTag == release.tag) {
-      // Awaited for the same reason — a re-download of this exact tag must
-      // never race the removal of its old staging dir.
-      await _dropStage(release.tag);
-      await _settingsCtl.setReadyTag(null);
+    if (release == null || _locked) return;
+    _opBusy = true;
+    try {
+      await _settingsCtl.skipVersion(release.version.toString());
+      if (_settings.readyTag == release.tag) {
+        // Awaited for the same reason — a re-download of this exact tag
+        // must never race the removal of its old staging dir.
+        await _dropStage(release.tag);
+        await _settingsCtl.setReadyTag(null);
+      }
+      state = state.copyWith(
+        phase: UpdatePhase.upToDate,
+        clearRelease: true,
+        clearError: true,
+      );
+    } finally {
+      _opBusy = false;
     }
-    state = const UpdateStatus(phase: UpdatePhase.upToDate);
   }
 
   Future<Version?> _currentVersion() async {

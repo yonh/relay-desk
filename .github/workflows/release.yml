@@ -32,6 +32,9 @@ jobs:
 
   build:
     needs: test
+    # PRs only need the fast analyze+test gate; the three-platform matrix
+    # runs on pushes to main, tags, and manual dispatch.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:

@@ -25,19 +25,25 @@ HANDOFF_FILE=""
 if [ -z "$PARENT" ]; then
   # The sandboxed app writes the handoff inside its container; a
   # non-sandboxed build would use the plain Application Support dir.
+  # Freshness is checked PER candidate inside the loop — a stale file in
+  # one location must not shadow a live handoff the other build wrote.
+  now=$(date +%s)
+  best=0
   for c in \
     "$HOME/Library/Containers/com.example.relayDesk/Data/Library/Application Support/com.example.relayDesk/updates/handoff.params" \
     "$HOME/Library/Application Support/com.example.relayDesk/updates/handoff.params"; do
-    [ -f "$c" ] && HANDOFF_FILE="$c" && break
-  done
-  if [ -n "$HANDOFF_FILE" ]; then
+    [ -f "$c" ] || continue
     # Stale handoff: only trust a file written in the last 10 minutes — a
     # replayed/planted params file must not drive destructive swaps later.
-    now=$(date +%s)
-    mtime=$(stat -f %m "$HANDOFF_FILE" 2>/dev/null || echo 0)
-    if [ $((now - mtime)) -gt 600 ]; then
-      exit 0
-    fi
+    # And take the FRESHEST qualifying candidate: an older-but-valid file
+    # at one location must not win over the handoff written for this run.
+    mtime=$(stat -f %m "$c" 2>/dev/null || echo 0)
+    [ $((now - mtime)) -gt 600 ] && continue
+    [ "$mtime" -le "$best" ] && continue
+    best=$mtime
+    HANDOFF_FILE="$c"
+  done
+  if [ -n "$HANDOFF_FILE" ]; then
     # `|| [ -n "$line" ]` keeps a final line that has no trailing newline —
     # plain `read` would drop it and the last param would come out empty.
     while IFS= read -r line || [ -n "$line" ]; do
@@ -70,13 +76,18 @@ PAYLOAD="$ROOT/payload"
 BACKUP="$TARGET.relay-backup"
 OWN_LOCK=0
 # Self-heal on abnormal exit: if we die after parking the old bundle but
-# before a successful ditto, put it back; release the lock only if we own
-# it (a quiet-exit second helper must not drop the first helper's lock).
+# before a successful ditto, put it back. EVERYTHING here — restoring the
+# backup included — requires actually holding the lock: a second helper
+# that lost the mkdir race must never mutate TARGET/BACKUP, or its EXIT
+# trap would resurrect the old bundle under the lock-holder's ditto and
+# merge old+new files into one corrupt app.
 cleanup() {
-  if [ -d "$BACKUP" ] && [ ! -d "$TARGET" ]; then
-    mv "$BACKUP" "$TARGET" 2>/dev/null || echo "rollback-failed" > "$ABORTED"
+  if [ "$OWN_LOCK" = 1 ]; then
+    if [ -d "$BACKUP" ] && [ ! -d "$TARGET" ]; then
+      mv "$BACKUP" "$TARGET" 2>/dev/null || echo "rollback-failed" > "$ABORTED"
+    fi
+    rm -rf "$LOCK"
   fi
-  [ "$OWN_LOCK" = 1 ] && rmdir "$LOCK" 2>/dev/null
   return 0
 }
 trap cleanup EXIT
@@ -101,15 +112,39 @@ if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
   exit 1
 fi
 # Single-swapper lock: a second helper reaching this point exits quietly
-# (both saw a dead parent; only one may mutate the target). A lock whose
-# holder is no longer alive is a crash leftover — evict it and take over,
-# otherwise a SIGKILLed helper wedges every future update behind the
-# orphan and the crash-recovery below can never run. A second helper
-# losing the rename above exits quietly — exactly one swapper proceeds.
+# (both saw a dead parent; only one may mutate the target). Ownership is
+# recorded by PID inside the lock — matching a live helper by script path
+# was wrong: two different installs have different paths and would evict
+# each other's LIVE lock. A lock whose recorded owner is dead (or missing
+# past a grace window for a just-created lock) is a crash leftover —
+# evict it and take over, otherwise a SIGKILLed helper wedges updates.
 if ! mkdir "$LOCK" 2>/dev/null; then
-  if pgrep -f "$0" | grep -vx "$$" | grep -q .; then
-    exit 0
-  fi
+  LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+  case "$LPID" in
+    ''|*[!0-9]*)
+      # No recorded owner: a fresh lock is still being initialized by its
+      # creator — only an aged one counts as orphaned.
+      [ "$LAGE" -lt 10 ] && exit 0
+      ;;
+    *)
+      if kill -0 "$LPID" 2>/dev/null; then
+        # A live owner is only believed while it is actually a helper —
+        # pid reuse could otherwise keep an orphan lock looking alive
+        # forever. The pattern is install-agnostic (any RelayDeskUpdater /
+        # updater.sh path), NOT "$0" — two different installs must not
+        # evict each other. When the command can't be read, fall back to
+        # the lock's age: only a still-fresh lock is trusted, since a swap
+        # never outlasts the 120s parent wait plus copy time.
+        LCMD="$(ps -p "$LPID" -o command= 2>/dev/null || true)"
+        case "$LCMD" in
+          *RelayDeskUpdater*|*updater.sh*) exit 0 ;;
+          "") [ "$LAGE" -lt 600 ] && exit 0 ;;
+          *) ;; # pid reused by a non-helper — fall through and reclaim
+        esac
+      fi
+      ;;
+  esac
   # Reclaim the orphan atomically: park it under a per-process name, then
   # rebuild — a plain rm+mkdir would let a concurrent helper delete the
   # lock we just created and slip into the swap with us.
@@ -118,6 +153,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   rm -rf "$CLAIM"
   mkdir "$LOCK" 2>/dev/null || exit 0
 fi
+echo $$ > "$LOCK/pid"
 OWN_LOCK=1
 # Crash recovery FIRST: a previous helper killed after parking the old
 # bundle left TARGET missing and BACKUP as the only runnable copy —
@@ -141,12 +177,16 @@ if ditto "$STAGED" "$TARGET"; then
     exit 1
   fi
   xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null
-  rm -rf "$PAYLOAD" "$ARCHIVE" "$MARKER" "$ABORT" "$LOCK"
+  rm -rf "$PAYLOAD" "$ARCHIVE" "$MARKER" "$ABORT"
   [ -n "$HANDOFF_FILE" ] && rm -f "$HANDOFF_FILE"
-  OWN_LOCK=0
   # Delete the backup only after the new app actually launches — if open
   # fails, BACKUP stays on disk for manual recovery (L2 sweep handles it).
   open "$TARGET" && rm -rf "$BACKUP"
+  # The lock covers EVERY mutation including the backup delete — release
+  # it only here at the end so a second helper can never slip in while a
+  # half-finished swap still needs the rollback copy.
+  rm -rf "$LOCK"
+  OWN_LOCK=0
 else
   # Move the payload out of the swept staging dir FIRST — the relaunched
   # app's own startup sweep would delete it before we get here otherwise.
@@ -154,12 +194,12 @@ else
   DEST="$HOME/Downloads/RelayDesk-$TAG"
   rm -rf "$DEST"
   mv "$PAYLOAD" "$DEST" 2>/dev/null
-  rm -rf "$MARKER" "$LOCK"
+  rm -rf "$MARKER"
   [ -n "$HANDOFF_FILE" ] && rm -f "$HANDOFF_FILE"
-  OWN_LOCK=0
-  # Roll the old version back: ditto may have left a partial bundle, so the
-  # leftover target must be removed before mv — rename into a non-empty dir
-  # fails and would nest the backup inside the broken app.
+  # Roll the old version back while still holding the lock: ditto may have
+  # left a partial bundle, so the leftover target must be removed before
+  # mv — rename into a non-empty dir fails and would nest the backup
+  # inside the broken app.
   if [ -d "$BACKUP" ]; then
     rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
   fi
@@ -167,4 +207,6 @@ else
   # payload for a manual drag-install.
   open "$TARGET" 2>/dev/null
   if [ -d "$DEST" ]; then open -R "$DEST"; else open -R "$STAGED"; fi
+  rm -rf "$LOCK"
+  OWN_LOCK=0
 fi
