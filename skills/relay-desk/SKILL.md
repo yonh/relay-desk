@@ -1,6 +1,6 @@
 ---
 name: relay-desk
-description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, or use Relay Desk for code acceptance. Scoped to Relay Desk on macOS; the current transport is read-only metadata with no page DOM, screenshots, script evaluation or network capture.
+description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or use Relay Desk for code acceptance. Scoped to Relay Desk on macOS; the transport is read-only metadata plus an explicit-ID panel screenshot — no page DOM, script evaluation or network capture.
 ---
 
 # Relay Desk inspection
@@ -54,8 +54,19 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - `selectionConsistent: false` means the selected identity has no resident panel, or its identity is missing or belongs to a project other than the current one; report that as stale selection instead of attributing it to the new project. A named workspace left over from the previous project is a separate case — it returns `workspaceId: null` and leaves `selectionConsistent` alone.
 - `sharedSession` / `isIsolated: false` means the identity is **not** isolated. Identity and panel names are locating labels, not proof of which business account is logged in.
 
+## Screenshot artifacts
+
+`relayctl screenshot --identity <uuid> --output <path>` writes one PNG per call — nothing is captured automatically. Keep every screenshot for a task inside a dedicated artifact directory instead of scattering files in `/tmp`:
+
+- Pick the directory **once per task**: `~/Library/Caches/relay-desk/agent-evidence/<task-id>/` by default (`<task-id>` is any stable label, e.g. `issue-13`); honor an explicit user-specified path when given. The directory path is metadata, not a credential.
+- Always pass an absolute `--output` inside that directory; the flag stays mandatory — don't change invocation style for this.
+- Reuse fixed names: `current.png` for routine looks (each capture overwrites it, file count stays flat); `before.png` / `after.png` or a few meaningful fixed names for paired evidence. Do not build a polling screenshot library nobody asked for.
+- In your report, state the directory, file count and total size. A failed capture gets no fake success entry and no pointless retries keeping junk copies.
+- Copy into a repo evidence path only when the task requires formal archived evidence; never auto-commit business screenshots.
+- Cleanup is scoped to files this task owns: at task end, remove your own temporary look-only shots; keep evidence that must persist. Never sweep other files under `/tmp`, never touch an active task's directory or archived evidence.
+
 ## Scope
 
-The current stages expose no page DOM, screenshots, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
