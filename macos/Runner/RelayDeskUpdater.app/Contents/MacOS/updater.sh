@@ -113,6 +113,7 @@ LOCK="$TARGET.update-lock"
 PAYLOAD="$ROOT/payload"
 BACKUP="$TARGET.relay-backup"
 OWN_LOCK=0
+OWN_ARB=0
 # Self-heal on abnormal exit: if we die after parking the old bundle but
 # before a successful ditto, put it back. EVERYTHING here — restoring the
 # backup included — requires actually holding the lock: a second helper
@@ -126,6 +127,10 @@ cleanup() {
     fi
     rm -rf "$LOCK"
   fi
+  # An ARB we created and still hold (killed mid-arbitration) is ours to
+  # release — SIGKILL can't run this trap, so a forcible kill can still
+  # orphan it; the arb-contended message covers manual recovery.
+  [ "$OWN_ARB" = 1 ] && rm -rf "$ARB"
   # Whatever consumed or rejected this request file, it must not outlive
   # the helper that selected it — a file left behind could be picked up
   # by a FUTURE helper run for a request that was already abandoned.
@@ -172,12 +177,17 @@ while ! mkdir "$LOCK" 2>/dev/null; do
   #   rm -rf "<target>.update-lock.arb"
   # Retrying alone never helps: the leftover dir does not disappear.
   if ! mkdir "$ARB" 2>/dev/null; then
-    echo "arb-contended: cannot arbitrate the stale install lock — another helper is arbitrating or a killed helper left $ARB behind; delete that dir manually to unblock future installs" > "$ABORTED"
+    # Do NOT delete it yourself: it might be live. Only after every
+    # Relay Desk updater helper has exited (no live process holds
+    # $LOCK/pid) may the leftover dir be removed manually.
+    echo "arb-contended: cannot arbitrate the stale install lock — first quit all running Relay Desk updater helpers and confirm no live holder of $LOCK/pid, then delete the leftover $ARB dir manually to unblock future installs" > "$ABORTED"
     exit 1
   fi
-  # We own ARB now — record our pid for diagnosis, re-read the lock's
-  # owner UNDER the mutex, then act on what we actually verified.
+  # We own ARB now — record our pid for diagnosis (and mark ownership so
+  # cleanup() releases it if we die before reclaim finishes), then
+  # re-read the lock's owner UNDER the mutex and act on that.
   echo $$ > "$ARB/pid"
+  OWN_ARB=1
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
   LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
   LIVE=0
@@ -206,10 +216,12 @@ while ! mkdir "$LOCK" 2>/dev/null; do
   esac
   if [ "$LIVE" = 1 ]; then
     rm -rf "$ARB"
+    OWN_ARB=0
     exit 0
   fi
   rm -rf "$LOCK"
   rm -rf "$ARB"
+  OWN_ARB=0
 done
 echo $$ > "$LOCK/pid"
 OWN_LOCK=1

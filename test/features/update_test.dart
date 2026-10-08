@@ -1162,7 +1162,10 @@ void main() {
       // We never even stat a foreign ARB — only our own pid marker.
       expect(script, isNot(contains('stat -f %m "\$ARB"')));
       // Contention writes a diagnosable failure, not a silent exit.
-      final contend = lineOf('arb-contended');
+      final contend = lineOf(
+        'arb-contended: cannot arbitrate',
+        lineOf('mkdir "\$ARB"'),
+      );
       expect(contend, greaterThan(lineOf('mkdir "\$ARB"')));
       expect(
         script,
@@ -1174,6 +1177,10 @@ void main() {
       expect(ownRelease, greaterThan(0));
       // The pid we write is for post-mortem diagnosis only.
       expect(script, contains('echo \$\$ > "\$ARB/pid"'));
+      // Ownership is tracked so cleanup() releases an ARB we die holding
+      // — a killed-mid-arbitration helper must not block future installs.
+      expect(script, contains('OWN_ARB=1'));
+      expect(script, contains('[ "\$OWN_ARB" = 1 ] && rm -rf "\$ARB"'));
     });
 
     test('the lock is shared per install target, not per version', () {
