@@ -63,7 +63,7 @@ relayctl --session "$S" screenshot \
   --output build/shot-evidence/round2-b-detached.png
 ```
 
-完整返回 JSON 未留底（本次命令只打印了压缩字段），已记录字段：`nativeViewId=5, windowId=72, width=900, height=640`（279×141 之外的独立窗尺寸即 900×640 CSS px @1x），`url=http://127.0.0.1:8901/b.html`；`capturedAt` 以输出文件 mtime 近似：`2026-10-08T15:41:43Z`。入库文件为同一路径内容（`panel-b-detached.png` 重命名）。
+完整返回 JSON 未留底（本次命令只打印了压缩字段），已记录字段：`nativeViewId=5, windowId=72, width=900, height=640`（279×141 之外的独立窗尺寸即 900×640 CSS px @1x），`url=http://127.0.0.1:8901/b.html`；服务返回的 `capturedAt` 未留存，此处以输出文件的写入时间近似：`2026-10-08T15:41:43Z`（mtime ≠ 服务端采样时刻，仅作近似）。入库文件为同一路径内容（`panel-b-detached.png` 重命名）。
 
 ### UI 对照 — `evidence/screenshot-2026-10-08/app-window-for-reference.png`
 
@@ -94,13 +94,13 @@ relayctl --session "$S" screenshot \
 | 采样中导航 | B 指向 `/e.html`（50ms meta refresh 连续导航）后 60 连拍 | **22 target_changed + 38 ok**；无一返回错位页面。各次 ok 是否落在导航间隙窗口内无逐次归因（见下） |
 | pending→commit 跨越 | `/slow`（didStart→600ms→commit 循环）150 连拍 | 150/150 ok。**未验证** pending→commit 跨越是否命中——无逐次日志可区分各次完成相对 commit 的位置（`webview.log` 被 e.html 事件风暴轮转），不断言全部完成于 pending 窗口。该路径的实际拒绝行为由上述夹具中 commit 代次直测覆盖 |
 
-关闭面板后 `no_native_view`、401、URL 脱敏、白名单沿用 Issue #10/PR #11 轮实机结论，本轮 diff 未触碰这些路径。
+关闭面板后 `no_native_view` 为本 PR 首轮实机结果（B 面板关闭后 screenshot 返回 409）；401、URL 脱敏、白名单沿用 Issue #10/PR #11 轮实机结论，本轮 diff 未触碰这些路径。
 
 ## 剩余限制 / 未验证项
 
 - `snapshot_too_large` 像素上限未实机触发（无构造异常 bounds 的手段）——边界判定已由夹具直测生产代码覆盖，实机路径未验证。
 - commit 代次的 pending→commit 跨越未实机复现（如上，无逐次归因）——判定逻辑由夹具直测覆盖。
-- `no_native_view`、401、脱敏、白名单沿用上一轮实机结论，本轮 diff 未触碰。
+- `no_native_view` 实机证据来自本 PR 首轮；401、脱敏、白名单沿用 Issue #10/PR #11 轮实机结论，本轮 diff 未触碰。
 - macOS only；Windows/Linux 未实现。
 
 ## 测试与静态检查
