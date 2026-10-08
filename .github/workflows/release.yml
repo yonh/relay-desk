@@ -39,7 +39,7 @@ jobs:
       - run: bash test/fixtures/updater/run_fixtures.sh
 
   build:
-    needs: test
+    needs: [test, updater-fixtures]
     # PRs only need the fast analyze+test gate; the three-platform matrix
     # runs on pushes to main, tags, and manual dispatch.
     if: github.event_name != 'pull_request'

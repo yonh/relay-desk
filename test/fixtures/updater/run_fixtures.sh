@@ -30,11 +30,15 @@ DEADPID=99999   # stands in for the (dead) parent pid AND dead lock owners
 CHILDREN=""     # every backgrounded helper/sleeper — all killed on exit
 fail=0
 
+# Recursively kill a process and every descendant — stubs spawn their
+# own children (sleep), so pkill -P alone leaves grandchildren behind.
+killtree() {
+  local kid
+  for kid in $(pgrep -P "$1" 2>/dev/null); do killtree "$kid"; done
+  kill "$1" 2>/dev/null
+}
 teardown() {
-  for p in $CHILDREN; do
-    pkill -TERM -P "$p" 2>/dev/null   # the helper's stub children first
-    kill "$p" 2>/dev/null
-  done
+  for p in $CHILDREN; do killtree "$p"; done
   wait 2>/dev/null
   rm -rf "$FIX"
 }
@@ -44,8 +48,14 @@ say()  { printf '%s\n' "$*"; }
 ok()   { say "  PASS $*"; }
 bad()  { say "  FAIL $*"; fail=1; }
 
+# A timed-out barrier means the helper under test is stuck — continuing
+# would let it keep writing while later scenarios rebuild the same
+# directory. Fail the whole suite right away; teardown reaps every
+# tracked process subtree before the temp dir is removed.
+die()  { say "  FAIL $*"; exit 1; }
+
 # Bounded wait for a path to appear/disappear — synchronization, not a
-# fixed sleep. A timed-out barrier aborts the scenario (via `|| return`)
+# fixed sleep. A timed-out barrier aborts the scenario (via `|| die`)
 # so a stuck helper can't corrupt later scenarios' assertions.
 wait_for() { # path timeout_seconds
   local i=0
@@ -106,7 +116,7 @@ scenario_1() {
   setup
   run x "$W/h1.log" & CHILDREN="$CHILDREN $!"
   # Barrier: wait until H1 is actually inside ditto (backup parked, lock held).
-  wait_for "$W/ditto.entered" 10 || { bad "ditto barrier timed out"; return; }
+  wait_for "$W/ditto.entered" 10 || die "ditto barrier timed out"
   run x "$W/h2.log"; E2=$?
   wait; E1=0
   [ "$(ls "$W/Target.app/Contents/MacOS" | tr '\n' ' ')" = "new.txt " ] \
@@ -200,7 +210,7 @@ EOS
   PATH="$W/bin:/usr/bin:/bin" bash "$SCRIPT" "$DEADPID" $(ARGS) >"$W/h9.log" 2>&1 &
   H9=$!; CHILDREN="$CHILDREN $H9"
   # Barrier: helper is provably inside the ARB-holding inspection now.
-  wait_for "$W/ps.entered" 10 || { bad "ps barrier timed out"; kill "$H9" "$LOCKPID" 2>/dev/null; return; }
+  wait_for "$W/ps.entered" 10 || die "ps barrier timed out"
   kill -TERM "$H9" 2>/dev/null
   wait "$H9" 2>/dev/null
   kill "$LOCKPID" 2>/dev/null
@@ -241,7 +251,7 @@ EOS
   PATH="$W/bin:/usr/bin:/bin" bash "$SCRIPT" "$DEADPID" $(ARGS) >"$W/h11.log" 2>&1 &
   H11=$!; CHILDREN="$CHILDREN $H11"
   # Barrier: provably inside `OWN_ARB=0; rm -rf "$ARB"` right now.
-  wait_for "$W/rm.arb" 10 || { bad "rm barrier timed out"; kill "$H11" "$LOCKPID" 2>/dev/null; return; }
+  wait_for "$W/rm.arb" 10 || die "rm barrier timed out"
   kill -TERM "$H11" 2>/dev/null; wait "$H11" 2>/dev/null
   kill "$LOCKPID" 2>/dev/null
   # bash exits on TERM while its stubbed `rm` child is still sleeping —
