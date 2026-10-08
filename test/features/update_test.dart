@@ -988,8 +988,10 @@ void main() {
       expect(alive, lessThan(lineOf('mv "\$LOCK" "\$CLAIM"', alive)));
       // A just-created lock without its pid yet gets a grace window.
       expect(script, contains('LAGE" -lt 10 ]'));
-      // A "live" pid is only believed while the lock is fresh — a reused
-      // pid on an aged orphan must not stall updates forever.
+      // A live pid only counts when the process is actually a helper —
+      // pid reuse on an orphan must not stall updates, and a genuinely
+      // long install must not be evicted mid-swap.
+      expect(script, contains('*RelayDeskUpdater*|*updater.sh*'));
       expect(script, contains('LAGE" -lt 600 ]'));
     });
 

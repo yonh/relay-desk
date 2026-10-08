@@ -128,13 +128,20 @@ if ! mkdir "$LOCK" 2>/dev/null; then
       [ "$LAGE" -lt 10 ] && exit 0
       ;;
     *)
-      # A live owner is only believed while the lock is still fresh — a
-      # swap never outlasts the 120s parent wait plus copy time, so an
-      # aged lock with a "live" pid means the pid was REUSED by another
-      # process (or the holder is wedged): reclaim it rather than giving
-      # up on this and every later update.
-      if kill -0 "$LPID" 2>/dev/null && [ "$LAGE" -lt 600 ]; then
-        exit 0
+      if kill -0 "$LPID" 2>/dev/null; then
+        # A live owner is only believed while it is actually a helper —
+        # pid reuse could otherwise keep an orphan lock looking alive
+        # forever. The pattern is install-agnostic (any RelayDeskUpdater /
+        # updater.sh path), NOT "$0" — two different installs must not
+        # evict each other. When the command can't be read, fall back to
+        # the lock's age: only a still-fresh lock is trusted, since a swap
+        # never outlasts the 120s parent wait plus copy time.
+        LCMD="$(ps -p "$LPID" -o command= 2>/dev/null || true)"
+        case "$LCMD" in
+          *RelayDeskUpdater*|*updater.sh*) exit 0 ;;
+          "") [ "$LAGE" -lt 600 ] && exit 0 ;;
+          *) ;; # pid reused by a non-helper — fall through and reclaim
+        esac
       fi
       ;;
   esac
