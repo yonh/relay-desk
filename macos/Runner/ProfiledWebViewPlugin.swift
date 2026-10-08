@@ -101,6 +101,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     // overlay's own Escape/destroy path posts here so Dart state stays in
     // sync without a round-trip).
     private var measureHandlerIdentities: [String: String] = [:]
+    // viewId -> count of provisional navigations started on that view. The
+    // read-only snapshot path binds a request to this generation: a bump
+    // between capture start and completion means the page moved and the
+    // pixels can no longer be attributed to the recorded target.
+    private var navigationGenerations: [Int64: Int] = [:]
     // viewId -> pending load watchdog. WKWebView can wedge (dead WebContent
     // process, hung per-store network process, view-out-of-window suspension)
     // without ever calling a terminal navigation delegate method; the watchdog
@@ -962,6 +967,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             // responder state can be sampled directly here. Pure read: no
             // window is activated or focused and no web content is touched.
             result(windowInventory())
+        case "takeSnapshot":
+            takeSnapshot(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1098,6 +1105,76 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "windows": windows,
             "views": views,
         ]
+    }
+
+    /// Read-only viewport snapshot for the automation transport.
+    ///
+    /// The request binds to (viewId, expectedIdentityId, the live WKWebView
+    /// instance, its navigation generation). takeSnapshot is asynchronous,
+    /// so all four are re-verified when the completion handler runs: a
+    /// destroyed/replaced view, a remapped identity, a closed window or a
+    /// navigation started mid-capture fails `target_changed` rather than
+    /// returning pixels under the originally recorded target. A nil
+    /// `webView.window` likewise fails — the snapshot of a view with no
+    /// window cannot be attributed to a window the caller verified.
+    ///
+    /// The capture rect is the view's own bounds: exactly the page viewport
+    /// of that one WKWebView — no window chrome, no neighbouring panels.
+    private func takeSnapshot(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let generation = navigationGenerations[viewId] ?? 0
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = webView.bounds
+        webView.takeSnapshot(with: configuration) { [weak self, weak webView] image, error in
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "snapshot_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let image,
+                  let webView,
+                  self.webViews[viewId] === webView,
+                  self.identityIdFor(viewId: viewId) == expectedIdentityId,
+                  (self.navigationGenerations[viewId] ?? 0) == generation,
+                  webView.window?.windowNumber == initialWindowNumber else {
+                result(FlutterError(code: "target_changed", message: "Target changed during capture", details: nil))
+                return
+            }
+            guard let tiff = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:]) else {
+                result(FlutterError(code: "snapshot_failed", message: "PNG encoding failed", details: nil))
+                return
+            }
+            result([
+                "png": FlutterStandardTypedData(bytes: png),
+                "width": bitmap.pixelsWide,
+                "height": bitmap.pixelsHigh,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Bumps the provisional-navigation generation for [webView]'s view.
+    /// Called from didStartProvisionalNavigation so in-flight snapshots see
+    /// the target as changed once a page navigation actually begins.
+    func bumpNavigationGeneration(for webView: WKWebView) {
+        guard let viewId = viewId(of: webView) else { return }
+        navigationGenerations[viewId, default: 0] += 1
     }
 
     /// Bridges an optional Int into a message-codec value: NSNull for nil so
@@ -2051,6 +2128,7 @@ final class NavigationDelegate: NSObject, WKNavigationDelegate {
         // JS-initiated navigations are also covered.
         if let viewId = plugin?.viewId(of: webView) {
             plugin?.armLoadWatchdog(viewId: viewId, identityId: identityId, reason: "didStart")
+            plugin?.bumpNavigationGeneration(for: webView)
         }
         DiagnosticsLog.shared.log("nav.didStart", fields: logFields(webView))
         plugin?.emit([

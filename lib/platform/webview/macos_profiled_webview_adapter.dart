@@ -713,6 +713,27 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Read-only viewport snapshot of the web view bound to [viewId].
+  ///
+  /// The native side binds the request to [expectedIdentityId] and re-verifies
+  /// the view instance, identity mapping, window and navigation generation
+  /// when the async capture completes; any drift surfaces as a
+  /// `target_changed` [PlatformException]. The returned map carries `png`
+  /// (Uint8List), `width`, `height`, `url` and `windowId`.
+  Future<Map<String, dynamic>> takeSnapshot(
+    int viewId,
+    String expectedIdentityId,
+  ) async {
+    final raw = await _channel.invokeMethod<dynamic>('takeSnapshot', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+    });
+    if (raw is! Map) {
+      throw PlatformException(code: 'snapshot_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
@@ -722,6 +743,9 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
       for (final entry in map.entries)
         entry.key.toString(): _jsonCompatible(entry.value),
     },
+    // A typed-data payload (e.g. snapshot PNG bytes) is a List but must not
+    // be walked element-by-element into a List<Object?>.
+    Uint8List bytes => bytes,
     List list => [for (final item in list) _jsonCompatible(item)],
     _ => value,
   };

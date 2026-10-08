@@ -7,6 +7,10 @@
 /// stays testable and free of provider/global state.
 library;
 
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
 import '../../core/platform/domain.dart';
 import '../../data/repositories/project_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
@@ -32,6 +36,7 @@ class AutomationQueries {
     required this.readWorkspace,
     required this.readSelectedProjectId,
     required this.readNativeWindows,
+    required this.captureScreenshot,
   });
 
   final ProjectRepository projects;
@@ -47,6 +52,20 @@ class AutomationQueries {
 
   /// One-shot native window/view inventory sampled by the platform side.
   final Future<Map<String, dynamic>> Function() readNativeWindows;
+
+  /// One-shot viewport PNG capture of the web view bound to `viewId`,
+  /// re-validated natively against `expectedIdentityId`. Returns `png`
+  /// (Uint8List), `width`, `height`, `url`, `windowId`.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+  )
+  captureScreenshot;
+
+  /// Decoded PNG size bound for `screenshot`: a full-viewport capture should
+  /// stay far below this; anything larger is refused rather than shipped
+  /// over the transport unboundedly.
+  static const int screenshotPngLimit = 16 * 1024 * 1024;
 
   Future<Object?> dispatch(Map<String, dynamic> command) async {
     final op = command['op'];
@@ -87,6 +106,8 @@ class AutomationQueries {
         return _workspaces(command);
       case 'workspace':
         return _workspace(command);
+      case 'screenshot':
+        return _screenshot(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -103,7 +124,7 @@ class AutomationQueries {
     'operations': automationReadOperations.toList(),
     'limitations': {
       'dom': false,
-      'screenshot': false,
+      'screenshot': true,
       'eval': false,
       'actions': false,
       'console': false,
@@ -312,6 +333,82 @@ class AutomationQueries {
     String? projectId,
   ) async =>
       (await _savedWorkspaceFor(projectId, workspace.selectedWorkspaceId))?.id;
+
+  /// Viewport PNG of the panel bound to an explicit `identityId`.
+  ///
+  /// There is no selection fallback: omitting the id is `invalid_argument`,
+  /// an unknown id is `not_found`, and an identity with no live native view
+  /// is `no_native_view`. The native side binds the capture to (viewId,
+  /// identity, web view instance, navigation generation) and re-validates
+  /// after the async snapshot — drift arrives here as a `target_changed`
+  /// PlatformException, which is re-raised as an AutomationFailure so the
+  /// wire error stays distinguishable instead of a generic command_failed.
+  Future<Map<String, Object?>> _screenshot(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'screenshot requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Identity has no live native web view',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> shot;
+    try {
+      shot = await captureScreenshot(viewId, id);
+    } on PlatformException catch (error) {
+      // Distinguishable native failures keep their code over the transport
+      // instead of collapsing into command_failed: target_changed means the
+      // binding drifted mid-capture and must not be mistaken for success on
+      // a different target.
+      if (error.code == 'target_changed' || error.code == 'snapshot_failed') {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Screenshot target could not be captured',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final png = shot['png'];
+    if (png is! Uint8List) {
+      throw AutomationFailure(
+        'snapshot_failed',
+        'Native snapshot returned no image data: ${png.runtimeType}',
+        status: 500,
+      );
+    }
+    if (png.length > screenshotPngLimit) {
+      throw const AutomationFailure(
+        'snapshot_too_large',
+        'Snapshot exceeded the 16 MiB bound',
+        status: 500,
+      );
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': shot['windowId'] ?? view?['windowId'],
+      'capturedAt': DateTime.now().toUtc().toIso8601String(),
+      'format': 'png',
+      'width': shot['width'],
+      'height': shot['height'],
+      'url': _stripUrl(shot['url'] as String? ?? ''),
+      'pngBase64': base64Encode(png),
+    };
+  }
 
   // ---- selection ----
 

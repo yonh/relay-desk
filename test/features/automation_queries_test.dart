@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:relay_desk/core/platform/domain.dart';
 import 'package:relay_desk/core/platform/webview_adapter.dart';
@@ -100,6 +101,11 @@ void main() {
   /// pass their own [nativeReader] instead of mutating `native` up front.
   AutomationQueries buildQueries({
     Future<Map<String, dynamic>> Function()? nativeReader,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+    )?
+    screenshotCapturer,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -107,6 +113,9 @@ void main() {
     readWorkspace: () => workspace,
     readSelectedProjectId: () => selectedProjectId,
     readNativeWindows: nativeReader ?? () async => native,
+    captureScreenshot:
+        screenshotCapturer ??
+        (viewId, identityId) async => throw UnimplementedError(),
   );
 
   Matcher failure(String code, int status) => throwsA(
@@ -186,7 +195,6 @@ void main() {
     final limitations = data['limitations'] as Map<String, Object?>;
     for (final unsupported in [
       'dom',
-      'screenshot',
       'eval',
       'actions',
       'console',
@@ -195,6 +203,7 @@ void main() {
     ]) {
       expect(limitations[unsupported], false, reason: unsupported);
     }
+    expect(limitations['screenshot'], true);
   });
 
   test(
@@ -748,7 +757,7 @@ void main() {
   );
 
   test('mutation and unknown operations never enter dispatch', () async {
-    for (final op in ['navigate', 'eval', 'screenshot', 'click', 'nope']) {
+    for (final op in ['navigate', 'eval', 'click', 'nope']) {
       expect(
         queries.dispatch({'op': op}),
         failure('unsupported_operation', 400),
@@ -759,6 +768,151 @@ void main() {
     expect(
       queries.dispatch(<String, dynamic>{}),
       failure('invalid_argument', 400),
+    );
+  });
+
+  group('screenshot', () {
+    const png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+
+    Map<String, dynamic> shot({
+      List<int> bytes = png,
+      int width = 800,
+      int height = 600,
+      String? url = 'https://user:secret@a.example.com/path?q=1#f',
+      Object? windowId = 83,
+    }) => {
+      'png': Uint8List.fromList(bytes),
+      'width': width,
+      'height': height,
+      'url': url,
+      'windowId': windowId,
+    };
+
+    test('requires an explicit identityId; no selection fallback', () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1')},
+        selectedPanelId: 'id-a1',
+      );
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      // Selection exists but must not be picked up as the target.
+      expect(
+        queries.dispatch({'op': 'screenshot'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('reports not_found for an unknown identity', () async {
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'missing'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('reports no_native_view when the panel has no live view', () async {
+      // Identity exists and even has a panel, but the native inventory has
+      // no view for it (closed panel, minimized, or view torn down).
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot();
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('returns the captured PNG with bound metadata', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+      var boundViewId = -1;
+      var boundIdentity = '';
+      queries = buildQueries(
+        screenshotCapturer: (viewId, expected) async {
+          boundViewId = viewId;
+          boundIdentity = expected;
+          return shot();
+        },
+      );
+
+      final data = await run({'op': 'screenshot', 'identityId': 'id-a1'});
+      expect(boundViewId, 9);
+      expect(boundIdentity, 'id-a1');
+      expect(data['identityId'], 'id-a1');
+      expect(data['projectId'], projectA.id);
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['format'], 'png');
+      expect(data['width'], 800);
+      expect(data['height'], 600);
+      expect(data['capturedAt'], isA<String>());
+      // URL goes through the same stripping as every other field:
+      // credentials, query and fragment are dropped.
+      expect(data['url'], 'https://a.example.com/path');
+      expect(base64Decode(data['pngBase64']! as String), png);
+    });
+
+    test('propagates target_changed as a 409, not a generic failure', () async {
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        screenshotCapturer: (viewId, expected) async =>
+            throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+        failure('target_changed', 409),
+      );
+    });
+
+    test('propagates snapshot_failed as a 500', () async {
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        screenshotCapturer: (viewId, expected) async =>
+            throw PlatformException(code: 'snapshot_failed'),
+      );
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+        failure('snapshot_failed', 500),
+      );
+    });
+
+    test('rejects a snapshot exceeding the PNG bound', () async {
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      final oversized = Uint8List(AutomationQueries.screenshotPngLimit + 1);
+      queries = buildQueries(
+        screenshotCapturer: (viewId, expected) async => shot(bytes: oversized),
+      );
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+        failure('snapshot_too_large', 500),
+      );
+    });
+
+    test('rejects a reply carrying no image data', () async {
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        screenshotCapturer: (viewId, expected) async => {
+          'width': 1,
+          'height': 1,
+        },
+      );
+      expect(
+        queries.dispatch({'op': 'screenshot', 'identityId': 'id-a1'}),
+        failure('snapshot_failed', 500),
+      );
+    });
+
+    test(
+      'capabilities advertises screenshot and the op is whitelisted',
+      () async {
+        final caps = await run({'op': 'capabilities'});
+        expect((caps['limitations'] as Map)['screenshot'], isTrue);
+        expect(
+          (caps['operations'] as List).cast<String>(),
+          contains('screenshot'),
+        );
+        // And read-only claims stay true — no navigate/eval slipped in.
+        expect(caps['readOnly'], isTrue);
+        expect((caps['limitations'] as Map)['eval'], isFalse);
+        expect((caps['limitations'] as Map)['actions'], isFalse);
+      },
     );
   });
 
@@ -809,7 +963,7 @@ void main() {
     });
 
     test('rejects non-read operations before dispatch', () async {
-      for (final op in ['navigate', 'reload', 'eval', 'screenshot']) {
+      for (final op in ['navigate', 'reload', 'eval', 'click']) {
         final response = await post({'op': op, 'identityId': 'id-a1'});
         expect(response['status'], 400, reason: op);
         expect(response['ok'], false);

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """CLI for Relay Desk's opt-in, authenticated local automation transport.
 
-P0 speaks metadata reads only. Absence of a selector means "the backend's
-current selection": the CLI never guesses a project, identity, window or
-workspace on the caller's behalf, and never inspects AppKit itself.
+P0 speaks metadata reads plus the single read-only `screenshot` operation.
+Absence of a selector means "the backend's current selection": the CLI never
+guesses a project, identity, window or workspace on the caller's behalf, and
+never inspects AppKit itself. `screenshot` is the exception to the absent-
+selector rule: it requires an explicit --identity and a local --output path,
+because a screenshot without a named target would silently capture whatever
+happens to be selected.
 """
 
 import argparse
+import base64
 import glob
 import json
 import os
@@ -18,6 +23,9 @@ import urllib.request
 
 
 # op -> ((flag, request field, type, help), ...)
+# A `None` request field marks a CLI-local option: parsed and validated here
+# but never forwarded into the command JSON, so the server never receives a
+# local filesystem path to write to.
 COMMANDS = {
     'sessions': (),
     'capabilities': (),
@@ -32,7 +40,15 @@ COMMANDS = {
     'window': (('--window', 'windowId', int, 'Exact native windowId; omit for the key window'),),
     'workspaces': (('--project', 'projectId', None, 'Exact projectId; omit for the current project'),),
     'workspace': (('--workspace', 'workspaceId', None, 'Exact workspaceId; omit for the current workspace'),),
+    'screenshot': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--output', None, None, 'Local file path for the PNG; required, never sent to the app'),
+    ),
 }
+
+# The PNG magic bytes every PNG file starts with. A payload that fails this
+# check is not an image and is never written to --output.
+PNG_MAGIC = b'\x89PNG\r\n\x1a\n'
 
 SELECTOR_HELP = {
     'sessions': 'List local session descriptors; never contacts a server',
@@ -48,6 +64,7 @@ SELECTOR_HELP = {
     'window': 'One window, or the key window; no main-window fallback',
     'workspaces': 'Saved layouts of one project, or of the current project',
     'workspace': 'One saved layout, or the current named layout',
+    'screenshot': 'Viewport PNG of one identity panel; --identity and --output required',
 }
 
 
@@ -111,23 +128,59 @@ def send(session, command):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description=__doc__)
+    # allow_abbrev=False: a removed or mistyped flag (e.g. `--out`) must exit
+    # 2 instead of prefix-matching a live option like `--output`.
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--session', help='Session file; otherwise RELAY_DESK_SESSION or discovery')
     sub = parser.add_subparsers(dest='op', required=True)
     for op, selectors in COMMANDS.items():
-        p = sub.add_parser(op, help=SELECTOR_HELP[op])
+        p = sub.add_parser(op, help=SELECTOR_HELP[op], allow_abbrev=False)
         for flag, _, kind, help in selectors:
-            p.add_argument(flag, type=kind, help=help)
+            # screenshot's two flags are required; every other selector
+            # stays optional and defers to the backend's current selection.
+            p.add_argument(flag, type=kind, required=op == 'screenshot', help=help)
     return parser
 
 
 def build_command(args):
     command = {'op': args.op}
     for flag, field, _, _ in COMMANDS[args.op]:
+        if field is None:
+            continue
         value = getattr(args, flag.lstrip('-').replace('-', '_'))
         if value is not None:
             command[field] = value
     return command
+
+
+def write_screenshot(result, output):
+    """Decode the base64 payload, prove it is a PNG, then write --output.
+
+    The decoded bytes are validated before any file is touched, so a
+    malformed or oversized reply never leaves a corrupt file behind; on a
+    filesystem failure the partial file is removed.
+    """
+    data = result.get('data')
+    encoded = data.get('pngBase64') if isinstance(data, dict) else None
+    if not isinstance(encoded, str) or not encoded:
+        raise RuntimeError('Unexpected response from automation endpoint')
+    try:
+        png = base64.b64decode(encoded, validate=True)
+    except ValueError:
+        raise RuntimeError('Unexpected response from automation endpoint')
+    if not png.startswith(PNG_MAGIC):
+        raise RuntimeError('The automation endpoint returned a non-PNG screenshot')
+    path = Path(output).expanduser()
+    try:
+        path.write_bytes(png)
+    except OSError:
+        path.unlink(missing_ok=True)
+        raise
+    reported = dict(data)
+    reported.pop('pngBase64', None)
+    reported['outputPath'] = str(path.resolve())
+    reported['byteLength'] = len(png)
+    print(json.dumps({'ok': True, 'data': reported}, ensure_ascii=False, indent=2))
 
 
 def main():
@@ -136,6 +189,9 @@ def main():
         print(json.dumps({'sessions': sessions()}, ensure_ascii=False, indent=2))
         return 0
     result = send(load_session(args.session), build_command(args))
+    if args.op == 'screenshot' and result.get('ok'):
+        write_screenshot(result, args.output)
+        return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get('ok') else 1
 
