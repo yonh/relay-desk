@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/localization.dart';
 import 'app/icon_settings.dart';
+import 'features/automation/automation_provider.dart';
 import 'core/update/settings_storage.dart';
 import 'features/management/management_screen.dart';
 import 'features/common/dock_icon_bridge.dart';
@@ -68,6 +69,7 @@ class RelayDeskHome extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(automationServerProvider);
     return const Scaffold(
       body: UpdateGate(
         child: Row(

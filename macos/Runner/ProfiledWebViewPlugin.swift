@@ -957,6 +957,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 "webviewCount": webViews.count,
                 "dataStoreCount": dataStores.count,
             ] as [String: Any])
+        case "windowInventory":
+            // handle() is invoked on the main thread, so AppKit window and
+            // responder state can be sampled directly here. Pure read: no
+            // window is activated or focused and no web content is touched.
+            result(windowInventory())
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1038,6 +1043,68 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
     private func identityIdFor(viewId: Int64) -> String? {
         viewIdByIdentity.first(where: { $0.value == viewId })?.key
+    }
+
+    /// One-shot inventory of AppKit windows and this plugin's live webviews
+    /// for the read-only automation transport. Everything is sampled from
+    /// NSApp and the plugin's own maps on the main thread — no WebKit calls.
+    private func windowInventory() -> [String: Any] {
+        let appActive = NSApp.isActive
+        var windows: [[String: Any]] = []
+        for window in NSApp.windows {
+            let frame = window.frame
+            windows.append([
+                "windowId": window.windowNumber,
+                "title": window.title,
+                "isKey": window.isKeyWindow,
+                "isMain": window.isMainWindow,
+                "isVisible": window.isVisible,
+                "isMiniaturized": window.isMiniaturized,
+                "bounds": [
+                    "x": frame.origin.x,
+                    "y": frame.origin.y,
+                    "width": frame.size.width,
+                    "height": frame.size.height,
+                ],
+            ])
+        }
+        var views: [[String: Any]] = []
+        for (viewId, webView) in webViews {
+            let window = webView.window
+            // A webview owns keyboard focus only while the app is active,
+            // its window is key, and the window's first responder is the
+            // webView or a descendant — Flutter chrome (address bar,
+            // sidebar) holding the responder reports no focused view.
+            var hasKeyboardFocus = false
+            if appActive,
+               let window,
+               window.isKeyWindow,
+               let responder = window.firstResponder as? NSView {
+                hasKeyboardFocus = responder === webView || responder.isDescendant(of: webView)
+            }
+            views.append([
+                "viewId": viewId,
+                "identityId": identityIdFor(viewId: viewId) ?? "",
+                "windowId": orNull(window?.windowNumber),
+                "hasKeyboardFocus": hasKeyboardFocus,
+            ])
+        }
+        // currentWindowId is the key window only while the app is active.
+        // AppKit can keep an isKey window while inactive; an inactive app
+        // reports null rather than falling back to mainWindow.
+        return [
+            "currentWindowId": appActive ? orNull(NSApp.keyWindow?.windowNumber) : NSNull(),
+            "mainWindowId": orNull(NSApp.mainWindow?.windowNumber),
+            "windows": windows,
+            "views": views,
+        ]
+    }
+
+    /// Bridges an optional Int into a message-codec value: NSNull for nil so
+    /// the key survives as JSON null instead of a malformed entry.
+    private func orNull(_ value: Int?) -> Any {
+        guard let value else { return NSNull() }
+        return value
     }
 
     /// Runs a navigation action on the resolved webview. A miss is logged and,

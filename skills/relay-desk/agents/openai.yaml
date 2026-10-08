@@ -1,0 +1,7 @@
+interface:
+  display_name: "Relay Desk"
+  short_description: "只读检查 Relay Desk 项目/身份/面板/窗口元数据并做代码验收"
+  default_prompt: "Use $relay-desk to inspect the running Relay Desk instance, bind the exact identity, panel and native window, and report which acceptance items are verified versus unavailable."
+
+policy:
+  allow_implicit_invocation: true

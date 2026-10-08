@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,6 +168,164 @@ void main() {
       expect(adapter.stateFor('iid'), WebviewState.closed);
     },
   );
+
+  test('windowInventory only calls windowInventory, leaves view/profile state '
+      'untouched, and returns json-safe string-keyed dictionaries', () async {
+    final calls = <MethodCall>[];
+    Object? response;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      if (call.method == 'windowInventory') return response;
+      return null;
+    });
+
+    // StandardMessageCodec decodes native dictionaries as
+    // Map<Object?, Object?> with nested dictionaries, lists and NSNull
+    // entries — the exact shape windowInventory() has to normalize.
+    response = <Object?, Object?>{
+      'currentWindowId': null,
+      'mainWindowId': 7,
+      'windows': <Object?>[
+        <Object?, Object?>{
+          'windowId': 7,
+          'title': 'main',
+          'isKey': false,
+          'isMain': true,
+          'bounds': <Object?, Object?>{
+            'x': 0.0,
+            'y': 0.0,
+            'width': 800.0,
+            'height': 600.0,
+          },
+        },
+      ],
+      'views': <Object?>[
+        <Object?, Object?>{
+          'viewId': 7,
+          'identityId': 'iid',
+          'windowId': 7,
+          'hasKeyboardFocus': false,
+        },
+      ],
+    };
+
+    final events = <WebviewEvent>[];
+    final sub = adapter.events.listen(events.add);
+    await adapter.openEmbedded(config('fp-1'), _bounds());
+    adapter.registerView('iid', 7);
+    await pumpEventQueue();
+    final fingerprint = adapter.fingerprintFor('iid');
+    final navUrl = adapter.navInfoFor('iid').url;
+    calls.clear();
+    events.clear();
+
+    final inventory = await adapter.windowInventory();
+
+    // Read-only sample: no arguments, and nothing else crosses the channel.
+    expect(calls.map((c) => c.method), <String>['windowInventory']);
+    expect(calls.single.arguments, isNull);
+
+    // The sample must not touch the identity's view/profile bookkeeping.
+    expect(adapter.viewIdFor('iid'), 7);
+    expect(adapter.stateFor('iid'), WebviewState.embedded);
+    expect(adapter.fingerprintFor('iid'), fingerprint);
+    expect(adapter.navInfoFor('iid').url, navUrl);
+    expect(events, isEmpty);
+
+    // Semantic values (and the null that must survive as JSON null).
+    expect(inventory, isA<Map<String, dynamic>>());
+    expect(inventory.containsKey('currentWindowId'), isTrue);
+    expect(inventory['currentWindowId'], isNull);
+    expect(inventory['mainWindowId'], 7);
+
+    expect((inventory['windows']! as List).length, 1);
+    final rawWindow = (inventory['windows']! as List).single;
+    expect(rawWindow, isA<Map<String, dynamic>>());
+    final window = (rawWindow! as Map).cast<String, Object?>();
+    expect(window['windowId'], 7);
+    expect(window['isKey'], isFalse);
+
+    final rawBounds = window['bounds'];
+    expect(rawBounds, isA<Map<String, dynamic>>());
+    final bounds = (rawBounds! as Map).cast<String, Object?>();
+    expect(bounds['width'], 800.0);
+    expect(bounds['height'], 600.0);
+
+    expect((inventory['views']! as List).length, 1);
+    final rawView = (inventory['views']! as List).single;
+    expect(rawView, isA<Map<String, dynamic>>());
+    final view = (rawView! as Map).cast<String, Object?>();
+    expect(view['viewId'], 7);
+    expect(view['identityId'], 'iid');
+    expect(view['windowId'], 7);
+    expect(view['hasKeyboardFocus'], isFalse);
+
+    // Every nested map is string-keyed, which is what jsonEncode requires.
+    expect(_allStringKeys(inventory), isTrue);
+    final encoded = jsonEncode(inventory);
+    expect(jsonDecode(encoded), equals(inventory));
+    await sub.cancel();
+  });
+
+  test('windowInventory propagates a native PlatformException', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'windowInventory') {
+        throw PlatformException(code: 'inventory_failed', message: 'sample');
+      }
+      return null;
+    });
+
+    await expectLater(
+      adapter.windowInventory(),
+      throwsA(
+        isA<PlatformException>().having(
+          (e) => e.code,
+          'code',
+          'inventory_failed',
+        ),
+      ),
+    );
+  });
+
+  test(
+    'windowInventory rejects a null or list response with '
+    'window_inventory_failed instead of reporting an empty inventory',
+    () async {
+      Object? response;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'windowInventory') return response;
+        return null;
+      });
+
+      for (final raw in <Object?>[
+        null,
+        <Object?>['not', 'a', 'map'],
+      ]) {
+        response = raw;
+        await expectLater(
+          adapter.windowInventory(),
+          throwsA(
+            isA<PlatformException>()
+                .having((e) => e.code, 'code', 'window_inventory_failed')
+                .having((e) => e.message, 'message', isNull),
+          ),
+          reason: 'native response $raw must fail, not become {}',
+        );
+      }
+    },
+  );
+}
+
+/// Recursively asserts every map reachable from [value] has String keys.
+bool _allStringKeys(Object? value) {
+  if (value is Map) {
+    return value.keys.every((k) => k is String) &&
+        value.values.every(_allStringKeys);
+  }
+  if (value is List) {
+    return value.every(_allStringKeys);
+  }
+  return true;
 }
 
 /// Delivers a native `stateChanged` event through the event channel, the same

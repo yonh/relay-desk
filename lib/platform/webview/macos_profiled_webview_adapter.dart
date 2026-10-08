@@ -701,6 +701,31 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     }
   }
 
+  /// One-shot AppKit window/view inventory for the read-only automation
+  /// transport. The native side samples NSApp.windows plus the plugin's own
+  /// view maps. Errors propagate: a failed or malformed sample surfaces as a
+  /// command failure, never as a fabricated empty inventory.
+  Future<Map<String, dynamic>> windowInventory() async {
+    final raw = await _channel.invokeMethod<dynamic>('windowInventory');
+    if (raw is! Map) {
+      throw PlatformException(code: 'window_inventory_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
+  /// StandardMessageCodec decodes native dictionaries as
+  /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
+  /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
+  /// `List<dynamic>`.
+  static Object? _jsonCompatible(Object? value) => switch (value) {
+    Map map => {
+      for (final entry in map.entries)
+        entry.key.toString(): _jsonCompatible(entry.value),
+    },
+    List list => [for (final item in list) _jsonCompatible(item)],
+    _ => value,
+  };
+
   /// App RSS / webview / datastore counts for resource evidence.
   Future<Map<String, dynamic>> getProcessInfo() async {
     try {

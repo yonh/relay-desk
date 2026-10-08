@@ -1,0 +1,57 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../../app/providers.dart';
+import '../../platform/webview/macos_profiled_webview_adapter.dart';
+import '../workspace/workspace_controller.dart';
+import 'automation_queries.dart';
+import 'automation_server.dart';
+
+/// This transport is opt-in for a macOS development build. Ordinary release
+/// builds never bind a port or create a credential file.
+final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
+  if (!kDebugMode ||
+      !const bool.fromEnvironment('RELAY_DESK_AUTOMATION') ||
+      !Platform.isMacOS) {
+    return null;
+  }
+  final adapter = ref.read(webviewAdapterProvider);
+  if (adapter is! MacosProfiledWebviewAdapter) return null;
+
+  // Repositories are awaited once at startup so a dispatch never suspends on
+  // database initialization; UI selection and workspace state are read
+  // lazily per request so every command observes the current values.
+  final queries = AutomationQueries(
+    projects: await ref.read(projectRepositoryProvider.future),
+    identities: await ref.read(identityRepositoryProvider.future),
+    workspaces: await ref.read(workspaceRepositoryProvider.future),
+    readWorkspace: () => ref.read(workspaceControllerProvider),
+    readSelectedProjectId: () => ref.read(selectedProjectIdProvider),
+    readNativeWindows: adapter.windowInventory,
+  );
+  if (!ref.mounted) return null;
+
+  final server = AutomationServer(dispatch: queries.dispatch);
+  ref.onDispose(() => unawaited(server.close()));
+  try {
+    final support = await getApplicationSupportDirectory();
+    if (!ref.mounted) return null;
+    final directory = Directory('${support.path}/automation');
+    await server.start(directory);
+    if (!ref.mounted) {
+      await server.close();
+      return null;
+    }
+    debugPrint('Relay Desk automation session directory: ${directory.path}');
+    return server;
+  } catch (_) {
+    debugPrint(
+      'Relay Desk automation could not start; normal workspace remains available.',
+    );
+    return null;
+  }
+});
