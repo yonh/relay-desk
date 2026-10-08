@@ -57,7 +57,8 @@ class _UpdateGateState extends ConsumerState<UpdateGate> {
       // exemption must not apply when there is nothing to download: a
       // release without a matching asset would otherwise stall silently.
       final autoDl = ref.read(updateSettingsProvider).autoDownload;
-      final wantsPrompt = next.phase == UpdatePhase.ready ||
+      final wantsPrompt =
+          next.phase == UpdatePhase.ready ||
           (next.phase == UpdatePhase.available &&
               (!autoDl || next.asset == null));
       if (tag == null ||
@@ -297,6 +298,9 @@ class _ReleaseBody extends StatelessWidget {
   }
 
   String _assetSizeLabel(ReleaseAsset asset) {
+    // The web-fallback path can only scrape sizes best-effort — show a
+    // placeholder rather than a bogus '~0.0 MB'.
+    if (asset.size <= 0) return l10n.updateSizeUnknown;
     final mb = asset.size / (1024 * 1024);
     return '~${mb.toStringAsFixed(1)} MB';
   }
@@ -318,6 +322,14 @@ class UpdateSettingsSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(l10n.updateSectionTitle, style: theme.textTheme.titleMedium),
+        if (status.currentVersion != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              l10n.updateCurrentVersion(status.currentVersion.toString()),
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         SwitchListTile(
           key: const ValueKey('update-auto-check'),
           dense: true,
@@ -362,7 +374,9 @@ class UpdateSettingsSection extends ConsumerWidget {
               child: Text(l10n.updateCheckNow),
             ),
             const SizedBox(width: 8),
-            Expanded(child: _StatusLine(status: status, l10n: l10n)),
+            Expanded(
+              child: _StatusLine(status: status, l10n: l10n),
+            ),
           ],
         ),
       ],

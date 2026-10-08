@@ -139,6 +139,14 @@ class UpdateController extends Notifier<UpdateStatus> {
   @override
   UpdateStatus build() {
     Future<void>.microtask(_sweepStaging);
+    // The settings section always shows the installed version — populate
+    // it now instead of waiting for the first check to run.
+    Future<void>.microtask(() async {
+      final v = await _currentVersion();
+      if (v != null && state.currentVersion == null) {
+        state = state.copyWith(currentVersion: v);
+      }
+    });
     return const UpdateStatus();
   }
 

@@ -131,12 +131,45 @@ class GithubReleaseClient implements ReleaseClient {
       );
     }
     final html = await response.transform(utf8.decoder).join().timeout(timeout);
-    return parseAssetsFromExpandedHtml(
+    final assets = parseAssetsFromExpandedHtml(
       html: html,
       owner: owner,
       repo: repo,
       tag: tag,
       downloadBase: '$_webBase',
+    );
+    return _fillAssetSizes(assets);
+  }
+
+  /// The expanded_assets fragment carries no size column — one HEAD per
+  /// asset fills Content-Length so the dialog shows the real download
+  /// size. A failed HEAD leaves the size at 0 rather than blocking the
+  /// whole release (the dialog then shows "size unknown").
+  Future<List<ReleaseAsset>> _fillAssetSizes(List<ReleaseAsset> assets) {
+    return Future.wait(
+      assets.map((asset) async {
+        if (asset.size > 0) return asset;
+        try {
+          final request = await _client
+              .headUrl(Uri.parse(asset.downloadUrl))
+              .timeout(timeout);
+          request.headers.set(
+            HttpHeaders.userAgentHeader,
+            'relay-desk-updater',
+          );
+          final head = await request.close().timeout(timeout);
+          await head.drain<void>();
+          if (head.statusCode == 200 && head.contentLength > 0) {
+            return ReleaseAsset(
+              name: asset.name,
+              downloadUrl: asset.downloadUrl,
+              size: head.contentLength,
+              sha256: asset.sha256,
+            );
+          }
+        } catch (_) {}
+        return asset;
+      }),
     );
   }
 

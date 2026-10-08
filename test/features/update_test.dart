@@ -330,6 +330,14 @@ void main() {
               '/yonh/relay-desk/releases/expanded_assets/v9.9.9') {
             req.response.statusCode = 200;
             req.response.write(assetsHtml);
+          } else if (req.method == 'HEAD' &&
+              path.startsWith('/yonh/relay-desk/releases/download/')) {
+            // The page carries no size column — sizes arrive via HEAD.
+            req.response.statusCode = 200;
+            req.response.headers.set(
+              HttpHeaders.contentLengthHeader,
+              path.endsWith('-universal.zip') ? '1048576' : '2097152',
+            );
           } else {
             req.response.statusCode = 404;
           }
@@ -362,6 +370,17 @@ void main() {
         expect(
           release.assets.firstWhere((a) => a.name.endsWith('.dmg')).sha256,
           isNull,
+        );
+        // Sizes are absent from the fragment — filled by a HEAD per asset.
+        expect(
+          release.assets
+              .firstWhere((a) => a.name.endsWith('-universal.zip'))
+              .size,
+          1048576,
+        );
+        expect(
+          release.assets.firstWhere((a) => a.name.endsWith('.dmg')).size,
+          2097152,
         );
         expect(
           release.assets.first.downloadUrl,
@@ -927,6 +946,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      // The installed version is always shown, even before any check.
+      expect(find.text('Current version: v1.0.2'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('update-auto-download')));
       await tester.pumpAndSettle();
       expect(storage.read().autoDownload, isTrue);
