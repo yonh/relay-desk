@@ -142,6 +142,7 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// while the phase is still `ready`, so a reopened dialog could start
   /// an install over the same payload mid-delete.
   var _opBusy = false;
+  var _deferredChecks = 0;
 
   bool get _locked => state.busy || _opBusy;
 
@@ -169,7 +170,22 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// skipped-version silencer — a user who asks for the latest release gets
   /// to see it even if they skipped it. Auto checks respect both.
   Future<void> check({bool manual = false}) async {
-    if (_locked) return;
+    if (_locked) {
+      // The launch-time auto-check fires once — if launch cleanup still
+      // holds the op mutex it would silently die here and the update
+      // would go undiscovered until the next run. Defer a bounded number
+      // of retries; a manual check just reports busy (UI shows it).
+      if (!manual && _deferredChecks < 3) {
+        _deferredChecks++;
+        unawaited(
+          Future<void>.delayed(
+            const Duration(milliseconds: 500),
+          ).then((_) => check()),
+        );
+      }
+      return;
+    }
+    _deferredChecks = 0;
     if (!manual &&
         DateTime.now().millisecondsSinceEpoch - _settings.lastCheckMs <
             checkThrottle.inMilliseconds) {
@@ -211,7 +227,7 @@ class UpdateController extends Notifier<UpdateStatus> {
       // A previously staged download for exactly this release is still
       // usable — skip straight to install.
       if (_settings.readyTag == release.tag &&
-          await _stagedAppExists(release.tag)) {
+          await _stagedUpdateExists(release.tag)) {
         state = UpdateStatus(
           phase: UpdatePhase.ready,
           release: release,
@@ -267,7 +283,7 @@ class UpdateController extends Notifier<UpdateStatus> {
     _opBusy = true;
     try {
       if (_settings.readyTag == release.tag &&
-          await _stagedAppExists(release.tag)) {
+          await _stagedUpdateExists(release.tag)) {
         state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
         return;
       }
@@ -439,26 +455,34 @@ class UpdateController extends Notifier<UpdateStatus> {
     }
   }
 
-  Future<bool> _stagedAppExists(String tag) async {
-    try {
-      final payload = Directory(
-        p.join(
-          (await ref.read(updatePathsProvider).stageDir(tag)).path,
-          'payload',
-        ),
-      );
-      await for (final entity in payload.list(recursive: true)) {
-        if (entity is Directory && entity.path.endsWith('.app')) return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
   Future<void> _dropStage(String tag) async {
     try {
       final dir = await ref.read(updatePathsProvider).stageDir(tag);
       if (await dir.exists()) await dir.delete(recursive: true);
     } catch (_) {}
+  }
+
+  /// Whether a usable staged download exists for [tag]: macOS stages an
+  /// extracted `.app` under `payload/`; other platforms keep only the
+  /// archive — accept either so the ready short-circuit works everywhere.
+  Future<bool> _stagedUpdateExists(String tag) async {
+    try {
+      final dir = await ref.read(updatePathsProvider).stageDir(tag);
+      final payload = Directory(p.join(dir.path, 'payload'));
+      if (await payload.exists()) {
+        await for (final entity in payload.list(recursive: true)) {
+          if (entity is Directory && entity.path.endsWith('.app')) {
+            return true;
+          }
+        }
+      }
+      await for (final entity in dir.list()) {
+        if (entity is File && p.basename(entity.path).startsWith('package.')) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
   }
 
   /// Launch-time cleanup: delete staging for anything that is not the

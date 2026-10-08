@@ -92,6 +92,10 @@ case "$ROOT"   in */updates/?*) ;; *) exit 0;; esac
 case "$STAGED" in "$ROOT"/*) ;; *) exit 0;; esac
 case "$ARCHIVE" in "$ROOT"/*) ;; *) exit 0;; esac
 case "$TARGET" in *.app) ;; *) exit 0;; esac
+# The staged payload and its archive must actually exist — a planted
+# handoff pointing at nothing must die here, not swap an empty path.
+[ -d "$STAGED" ] || exit 0
+[ -f "$ARCHIVE" ] || exit 0
 MARKER="$ROOT/helper.started"
 ABORT="$ROOT/helper.abort"
 ABORTED="$ROOT/helper.aborted"

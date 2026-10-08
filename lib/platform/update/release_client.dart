@@ -175,14 +175,27 @@ class GithubReleaseClient implements ReleaseClient {
     );
   }
 
-  /// Reads a response body with a hard bound that actually cancels the
-  /// subscription on timeout — `.join().timeout()` would stop waiting but
-  /// leave the socket streaming in the background.
+  /// Reads a response body with a hard bound on time AND size — a
+  /// hostile endpoint streaming gigabytes inside the timeout must not
+  /// exhaust memory. Cancelling on overflow also drops the connection.
   Future<String> _bodyBounded(HttpClientResponse response) async {
+    const limit = 4 * 1024 * 1024;
     final chunks = <int>[];
-    final sub = response.listen(chunks.addAll);
+    var total = 0;
+    late StreamSubscription<List<int>> sub;
+    sub = response.listen((chunk) {
+      total += chunk.length;
+      if (total > limit) {
+        sub.cancel();
+        return;
+      }
+      chunks.addAll(chunk);
+    });
     try {
       await sub.asFuture<void>().timeout(timeout);
+      if (total > limit) {
+        throw const HttpException('release response too large');
+      }
       return utf8.decode(chunks);
     } finally {
       await sub.cancel();

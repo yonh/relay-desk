@@ -103,11 +103,12 @@ class MacOSUpdateInstaller implements UpdateInstaller {
     // name is per-request (`<epoch_ms>-<pid>`) so the newest request
     // always wins even inside the same second. Key=value lines are
     // sourced verbatim — no quoting, spaces in paths are fine.
+    File? handoff;
     try {
       final name =
           '$handoffFilePrefix'
           '${DateTime.now().millisecondsSinceEpoch}-$pid.params';
-      final handoff = File(p.join(update.root.parent.path, name));
+      handoff = File(p.join(update.root.parent.path, name));
       await handoff.writeAsString(
         '${['PARENT=$pid', 'ROOT=${update.root.path}', 'STAGED=${stagedApp.path}', 'TARGET=${target.path}', 'ARCHIVE=${update.archive.path}'].join('\n')}\n',
       );
@@ -115,8 +116,16 @@ class MacOSUpdateInstaller implements UpdateInstaller {
       return false;
     }
 
+    // Every failure path below must remove OUR handoff file — otherwise
+    // retry after retry they pile up in the updates root, and a helper
+    // launched much later could pick a stale one.
     final launch = await Process.run('/usr/bin/open', ['-n', helper.path]);
-    if (launch.exitCode != 0) return false;
+    if (launch.exitCode != 0) {
+      try {
+        await handoff.delete();
+      } catch (_) {}
+      return false;
+    }
 
     // Confirm the helper actually started before committing to quit.
     final deadline = DateTime.now().add(markerTimeout);
@@ -128,9 +137,11 @@ class MacOSUpdateInstaller implements UpdateInstaller {
     // last poll interval is still a valid hand-off, not a failure.
     if (await marker.exists()) return true;
     // A late-starting helper would otherwise swap a still-running app —
-    // leave the abort file for it to find.
+    // leave the abort file for it to find, and retract our handoff so it
+    // has nothing stale to consume.
     try {
       await abort.writeAsString('abort');
+      await handoff.delete();
     } catch (_) {}
     return false;
   }
