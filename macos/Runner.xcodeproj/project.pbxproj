@@ -32,6 +32,7 @@
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		BB00000100000000000000001 /* ProfiledWebViewPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000200000000000000001 /* ProfiledWebViewPlugin.swift */; };
 		BB00000300000000000000001 /* RelayDeskUpdater.app in Resources */ = {isa = PBXBuildFile; fileRef = BB00000400000000000000001 /* RelayDeskUpdater.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		BB00000500000000000000001 /* SnapshotPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000600000000000000001 /* SnapshotPolicy.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -91,6 +92,7 @@
 		99B3DBBD6819B60E5BB61556 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB00000200000000000000001 /* ProfiledWebViewPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfiledWebViewPlugin.swift; sourceTree = "<group>"; };
 		BB00000400000000000000001 /* RelayDeskUpdater.app */ = {isa = PBXFileReference; lastKnownFileType = wrapper.application; path = RelayDeskUpdater.app; sourceTree = "<group>"; };
+		BB00000600000000000000001 /* SnapshotPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotPolicy.swift; sourceTree = "<group>"; };
 		C09236568F1B540B572C1FA6 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		EE83A4CAAC6880BC4D4388C2 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		FBD19A63A4D61965CF1305AD /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -186,6 +188,7 @@
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				BB00000200000000000000001 /* ProfiledWebViewPlugin.swift */,
+				BB00000600000000000000001 /* SnapshotPolicy.swift */,
 				BB00000400000000000000001 /* RelayDeskUpdater.app */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
@@ -456,6 +459,7 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				BB00000100000000000000001 /* ProfiledWebViewPlugin.swift in Sources */,
+				BB00000500000000000000001 /* SnapshotPolicy.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
