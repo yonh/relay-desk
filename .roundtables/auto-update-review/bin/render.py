@@ -108,8 +108,14 @@ def md(text):
             while i < len(lines) and re.match(r"^\s*([-*]\s+|\d+\.\s+)", lines[i]):
                 item = re.sub(r"^\s*([-*]|\d+\.)\s+", "", lines[i])
                 item = re.sub(r"^\[([ xX])\]\s+", lambda m: "☑ " if m.group(1).lower() == "x" else "☐ ", item)
-                out.append(f"<li>{inline(item)}</li>")
                 i += 1
+                # 缩进的续行属于当前列表项（非列表 marker），并入本 <li>，
+                # 否则续行会断开列表变成孤立 <p>，后续项重新开 <ol> 导致编号回退到 1
+                while i < len(lines) and re.match(r"^\s+\S", lines[i]) \
+                        and not re.match(r"^\s*([-*]\s+|\d+\.\s+)", lines[i]):
+                    item += " " + lines[i].strip()
+                    i += 1
+                out.append(f"<li>{inline(item)}</li>")
             out.append(f"</{tag}>")
             continue
         elif s.startswith(">"):

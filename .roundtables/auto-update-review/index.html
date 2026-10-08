@@ -76,7 +76,7 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
     <span class="pill">讨论轮 ×1</span>
     <span class="pill">总结者 host</span>
     <span class="pill ok">已总结</span>
-    <span class="legend">开局盲答 → 多轮交锋 → 总结 · 4 席 · 生成于 2026-10-07 22:55</span>
+    <span class="legend">开局盲答 → 多轮交锋 → 总结 · 4 席 · 生成于 2026-10-08 10:20</span>
   </div>
 </header>
 <section class="seats"><button class="seat" data-seat="P1" style="--c:#6ea8fe" title="点击只看 P1 的发言；再点一次取消"><span class="seat-av">P1</span><span class="seat-meta"><b>P1</b><i class="join" data-on="true">●</i></span><span class="seat-chips"><span class="chip tool">opencode</span><span class="chip model">fledge-alpha-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span></span></button><button class="seat" data-seat="P2" style="--c:#b18cff" title="点击只看 P2 的发言；再点一次取消"><span class="seat-av">P2</span><span class="seat-meta"><b>P2</b><i class="join" data-on="true">●</i></span><span class="seat-chips"><span class="chip tool">opencode</span><span class="chip model">ling-3.1-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span></span></button><button class="seat" data-seat="P3" style="--c:#4ec9b0" title="点击只看 P3 的发言；再点一次取消"><span class="seat-av">P3</span><span class="seat-meta"><b>P3</b><i class="join" data-on="true">●</i></span><span class="seat-chips"><span class="chip tool">opencode</span><span class="chip model">longcat-2.5-preview-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span></span></button><button class="seat" data-seat="P4" style="--c:#e0a55e" title="点击只看 P4 的发言；再点一次取消"><span class="seat-av">P4</span><span class="seat-meta"><b>P4</b><i class="join" data-on="true">●</i></span><span class="seat-chips"><span class="chip tool">opencode</span><span class="chip model">opencode/mimo-v2.6-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span></span></button></section>
@@ -109,21 +109,15 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 </ul>
 <h2>焦点问题</h2>
 <ol>
-<li>§5 安装握手在修复后是否还有&quot;替换运行中 app / 丢失暂存 / 无法回滚&quot;</li>
-</ol>
-<p>的时序漏洞？（逐行审 helper 脚本）</p>
-<ol>
-<li>状态机（§4）与实现是否一致？autoDownload、retry、dismiss 三条修复</li>
-</ol>
-<p>路径是否有遗漏或新矛盾？</p>
-<ol>
+<li>§5 安装握手在修复后是否还有&quot;替换运行中 app / 丢失暂存 / 无法回滚&quot; 的时序漏洞？（逐行审 helper 脚本）</li>
+<li>状态机（§4）与实现是否一致？autoDownload、retry、dismiss 三条修复 路径是否有遗漏或新矛盾？</li>
 <li>AC1–AC19 是否覆盖第二轮发现的全部风险？还缺哪条验收？</li>
 <li>给出裁决：当前实现可否随 v1.0.3 发布？若否，列出必须修的项。</li>
 </ol>
 <h2>产出要求</h2>
 <p>结论逐条对应焦点问题；分歧标注席位与理由，不粉饰成共识； blocker 级问题必须给出最小修复建议。中文，控制在两屏内。</p></div></div>
 <div class="round-div"><span>开局陈述 · 盲答</span></div>
-<div class="msg from-P1" data-seat="P1"><div class="av" style="--c:#6ea8fe">P1</div><div class="bubble"><div class="head"><b style="color:#6ea8fe">P1</b><span class="chip tool">opencode</span><span class="chip model">fledge-alpha-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:11</span></div><div class="stance">helper 时序修复总体成立，但 autoDownload 豁免在 Gate 层制造了一个新的静默死角，需修后方可发布</div><div class="md"><h2>立场</h2>
+<div class="msg from-P1" data-seat="P1"><div class="av" style="--c:#6ea8fe">P1</div><div class="bubble"><div class="head"><b style="color:#6ea8fe">P1</b><span class="chip tool">opencode</span><span class="chip model">fledge-alpha-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">helper 时序修复总体成立，但 autoDownload 豁免在 Gate 层制造了一个新的静默死角，需修后方可发布</div><div class="md"><h2>立场</h2>
 <p>第二轮修复的主线（复检 kill -0、abort 拦截、payload 移 Downloads、retry 回 ready、dismiss 重置节流、超时、单例弹窗）逐条落实了，helper 脚本的中止语义现在是自洽的：<strong>任何&quot;主进程仍存活/出现 abort&quot;的情况下都不会 swap</strong>，失败方向偏安全（宁可 aborted 也不会替换运行中的 app）。但终审复查发现一条由 autoDownload 弹窗豁免引入的新矛盾，以及 helper 脚本中两处未防护的失败分支。裁决：<strong>修掉 B1 后可随 v1.0.3 发布</strong>，B2/B3 可作为本版 known issue 或一并修掉。</p>
 <h2>论点</h2>
 <ul>
@@ -148,7 +142,30 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>B2 的 ditto 合并损坏路径：你们是否在实测中复现过 mv 失败分支，是否同意加 <code>mv</code> 失败即 abort？</li>
 <li>「自动下载失败静默化」是否该算新增 issue 进 §11，还是 v1 必修？</li>
 </ul></div></div></div>
-<div class="msg from-P3" data-seat="P3"><div class="av" style="--c:#4ec9b0">P3</div><div class="bubble"><div class="head"><b style="color:#4ec9b0">P3</b><span class="chip tool">opencode</span><span class="chip model">longcat-2.5-preview-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:14</span></div><div class="stance">第二轮修复整体成立，但 ditto 部分失败后回滚路径有 blocker 级缺陷，需修复后方可随 v1.0.3 发布。</div><div class="md"><h2>立场</h2>
+<div class="msg from-P2" data-seat="P2"><div class="av" style="--c:#b18cff">P2</div><div class="bubble"><div class="head"><b style="color:#b18cff">P2</b><span class="chip tool">opencode</span><span class="chip model">ling-3.1-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">第二轮修复逐项对码成立，未发现 blocker；裁决为「有条件可发布」——唯一发布闸门是 spec §8 自列的干净机/公证产物握手实测，R1–R5 低危项 follow-up 不阻塞。</div><div class="md"><h2>立场</h2>
+<p>修复成立、可以收口，但「可发布」附一个硬前提：v1.0.3 发布前必须在干净机器 + 正式公证产物上实测一次完整握手链路（成功路径 + 8s 超时回退路径）。helper 链路目前只在开发机实测过（spec §8 自认），而它是全方案唯一不可回退的环节；其余失败路径（超时、swap 失败、下载损坏）在代码里都有安全落点。另有 R1–R5 五项低危 hardening 建议 follow-up，不阻塞发布。</p>
+<h2>论点</h2>
+<ul>
+<li>第二轮修复逐条对码确认落实：<code>helper.abort</code> 拦截迟到 helper（installer.dart:120-122,158,165-168）、循环后 <code>kill -0</code> 复检（installer.dart:162-168）、swap 失败 payload 移出暂存区（installer.dart:183-187）、Gate 层 autoDownload 豁免（update_ui.dart:57-59）、retry→ready 复用暂存（update_controller.dart:324-326）、dismiss 重置节流（update_controller.dart:308-315）、markChecked 仅在 fetch 成功后（update_controller.dart:156-158）、连接 30s/分块 60s 超时（downloader.dart:93-111）、对话框单例守卫（update_ui.dart:75-87）。</li>
+<li>隐性不变量成立：ABORT 被 helper 以 0.2s 间隔轮询，因此「8s marker 超时 → 用户点重试」不会产生双 helper 竞争——迟到 helper 在 0.2s 内即退出。这是第二轮未明说、但代码里真实成立的关键安全性，也是我认为方案可收口的核心理由。</li>
+<li>状态机与实现一致：busy 单飞、readyTag 短路、download 幂等、retry 三分支、dismiss 相位限定均符合 §4；verifying 相位在校验完成后才置位属文案级偏差，§12 已澄清。autoDownload/retry/dismiss 三条修复路径无新矛盾。</li>
+<li>AC1–AC19 覆盖第二轮全部高风险项；清理三层与代码一致（downloader.dart:139-155 finally 清理、update_controller.dart:387-408 L2 清扫）。</li>
+</ul>
+<h2>风险与盲点</h2>
+<ul>
+<li>R1（中低危·换机重开竞态）：helper 只复检原 PID（installer.dart:165）。用户在 app 退出后 ~1.2s 窗口内手动重开，新 PID 存活而 swap 照常进行，成功分支 <code>rm -rf &quot;$BACKUP&quot;</code> 会删除正在运行实例的 bundle。最小修复：swap 前 <code>pgrep -f</code> 检测运行中实例，命中则 stand down。概率极低，但违背「绝不替换运行中 app」的本轮核心不变量。</li>
+<li>R2（低危）：<code>mv &quot;$TARGET&quot; &quot;$BACKUP&quot;</code> 返回值未检查（installer.dart:172）。mv 失败而 ditto 成功会产生新旧混合 bundle。最小修复：mv 失败即 <code>touch helper.aborted</code> + exit 1。</li>
+<li>R3（低危）：helper 若在 mv 成功后、ditto 前崩溃，<code>.relay-backup</code> 残留而原 app 消失，无自愈。建议启动时检测 <code>$TARGET.relay-backup</code> 并还原。</li>
+<li>R4（低危）：<code>GithubRelease.fromJson</code> 只过滤 API prerelease 布尔，不过滤 semver prerelease tag（models.dart:53-57）——<code>v1.1.0-rc.1</code> 若作为正式 release 发布，会提示更新到 RC。</li>
+<li>R5（低危）：解压失败时 payload 不清理（downloader.dart:150 的条件为 <code>!archive.exists()</code>），重下时 ditto 合并残留文件。</li>
+<li>干净机 + 公证产物握手未实测（spec §8 自列）——唯一真正的发布闸门。</li>
+</ul>
+<h2>抛给圆桌的问题</h2>
+<ul>
+<li>R1 的 pgrep 守卫：进 v1.0.3 还是 follow-up？我倾向 follow-up（概率极低、失败模式可恢复），但若其他席位认为它直接违背本轮核心不变量，应升级为 blocker。</li>
+<li>干净机实测若在发布前无法完成，裁决是否降为「需修改后才能发布」？我的看法：失败模式安全（8s 超时 → abort → failed(install) + 访达展示），最坏是 UX 降级而非数据丢失，故不构成硬阻塞——请各席裁决。</li>
+</ul></div></div></div>
+<div class="msg from-P3" data-seat="P3"><div class="av" style="--c:#4ec9b0">P3</div><div class="bubble"><div class="head"><b style="color:#4ec9b0">P3</b><span class="chip tool">opencode</span><span class="chip model">longcat-2.5-preview-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">第二轮修复整体成立，但 ditto 部分失败后回滚路径有 blocker 级缺陷，需修复后方可随 v1.0.3 发布。</div><div class="md"><h2>立场</h2>
 <p>第二轮互审的 15 项修复在 spec v1.1 与实现中基本落实，helper 脚本的时序与中止语义（循环结束复检 <code>kill -0</code> + abort 文件双重检查）逻辑闭环，主程序 8s 超时写 abort 的修复也成立。但逐行审 helper 脚本后发现一个 <strong>blocker 级缺陷</strong>：ditto 部分失败时回滚 <code>mv &quot;$BACKUP&quot; &quot;$TARGET&quot;</code> 会因目标目录非空而失败，导致用户得到损坏 app 且旧版无法恢复。此项修复后方可发布。</p>
 <h2>论点</h2>
 <ul>
@@ -170,7 +187,7 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>ditto 部分失败场景下，是否有比&quot;先 <code>rm -rf &quot;$TARGET&quot;</code> 再 <code>mv &quot;$BACKUP&quot; &quot;$TARGET&quot;</code>&quot;更稳健的回滚策略（如先 rename TARGET 到临时名再删）？</li>
 <li>成功路径是否应延迟删除 <code>.relay-backup</code>（如保留到下次启动 L2 清扫）以覆盖 <code>open</code> 失败场景？</li>
 </ul></div></div></div>
-<div class="msg from-P4" data-seat="P4"><div class="av" style="--c:#e0a55e">P4</div><div class="bubble"><div class="head"><b style="color:#e0a55e">P4</b><span class="chip tool">opencode</span><span class="chip model">opencode/mimo-v2.6-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:17</span></div><div class="stance">需修改后才能发布——第二轮 15 项修复本身成立，但逐行审 helper 脚本与 UI 契约发现 4 个新问题（全在失败路径/竞态），最小修复约 30 行，修完可随 v1.0.3 发</div><div class="md"><h2>立场</h2>
+<div class="msg from-P4" data-seat="P4"><div class="av" style="--c:#e0a55e">P4</div><div class="bubble"><div class="head"><b style="color:#e0a55e">P4</b><span class="chip tool">opencode</span><span class="chip model">opencode/mimo-v2.6-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">需修改后才能发布——第二轮 15 项修复本身成立，但逐行审 helper 脚本与 UI 契约发现 4 个新问题（全在失败路径/竞态），最小修复约 30 行，修完可随 v1.0.3 发</div><div class="md"><h2>立场</h2>
 <p>我裁决&quot;需修改后可发布&quot;，不是&quot;可发布&quot;。理由：第二轮互审的修复我逐条对照实现验证过（§12 表格 17 行全部能在代码里落到行号，无一虚标），这部分是扎实的；但以&quot;失败路径也算路径&quot;的标准再审一遍 helper 脚本（installer.dart:151-189）和 dialog 动作表（update_ui.dart:170-237），找到 4 个新缺陷——其中 2 个会在 /Applications 里留下损坏的 bundle 或吃掉 AC14 承诺的兜底 payload。修复都是 shell 里 ≤10 行的改动，修不动才叫设计问题，修得动就必须修完再发。</p>
 <h2>论点</h2>
 <ul>
@@ -195,31 +212,8 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>有人在<strong>成功路径</strong>（mv→ditto→xattr→rm→open）上找到硬伤吗？我逐行只在失败分支和 UI 契约上找到问题，成功路径未发现 blocker——请交叉验证我的盲区。</li>
 <li>autoDownload 失败静默（不弹窗、仅设置页状态行）：产品可接受，还是必须补一条弹窗 AC？请在总结前给出明确站队。</li>
 </ol></div></div></div>
-<div class="msg from-P2" data-seat="P2"><div class="av" style="--c:#b18cff">P2</div><div class="bubble"><div class="head"><b style="color:#b18cff">P2</b><span class="chip tool">opencode</span><span class="chip model">ling-3.1-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:21</span></div><div class="stance">第二轮修复逐项对码成立，未发现 blocker；裁决为「有条件可发布」——唯一发布闸门是 spec §8 自列的干净机/公证产物握手实测，R1–R5 低危项 follow-up 不阻塞。</div><div class="md"><h2>立场</h2>
-<p>修复成立、可以收口，但「可发布」附一个硬前提：v1.0.3 发布前必须在干净机器 + 正式公证产物上实测一次完整握手链路（成功路径 + 8s 超时回退路径）。helper 链路目前只在开发机实测过（spec §8 自认），而它是全方案唯一不可回退的环节；其余失败路径（超时、swap 失败、下载损坏）在代码里都有安全落点。另有 R1–R5 五项低危 hardening 建议 follow-up，不阻塞发布。</p>
-<h2>论点</h2>
-<ul>
-<li>第二轮修复逐条对码确认落实：<code>helper.abort</code> 拦截迟到 helper（installer.dart:120-122,158,165-168）、循环后 <code>kill -0</code> 复检（installer.dart:162-168）、swap 失败 payload 移出暂存区（installer.dart:183-187）、Gate 层 autoDownload 豁免（update_ui.dart:57-59）、retry→ready 复用暂存（update_controller.dart:324-326）、dismiss 重置节流（update_controller.dart:308-315）、markChecked 仅在 fetch 成功后（update_controller.dart:156-158）、连接 30s/分块 60s 超时（downloader.dart:93-111）、对话框单例守卫（update_ui.dart:75-87）。</li>
-<li>隐性不变量成立：ABORT 被 helper 以 0.2s 间隔轮询，因此「8s marker 超时 → 用户点重试」不会产生双 helper 竞争——迟到 helper 在 0.2s 内即退出。这是第二轮未明说、但代码里真实成立的关键安全性，也是我认为方案可收口的核心理由。</li>
-<li>状态机与实现一致：busy 单飞、readyTag 短路、download 幂等、retry 三分支、dismiss 相位限定均符合 §4；verifying 相位在校验完成后才置位属文案级偏差，§12 已澄清。autoDownload/retry/dismiss 三条修复路径无新矛盾。</li>
-<li>AC1–AC19 覆盖第二轮全部高风险项；清理三层与代码一致（downloader.dart:139-155 finally 清理、update_controller.dart:387-408 L2 清扫）。</li>
-</ul>
-<h2>风险与盲点</h2>
-<ul>
-<li>R1（中低危·换机重开竞态）：helper 只复检原 PID（installer.dart:165）。用户在 app 退出后 ~1.2s 窗口内手动重开，新 PID 存活而 swap 照常进行，成功分支 <code>rm -rf &quot;$BACKUP&quot;</code> 会删除正在运行实例的 bundle。最小修复：swap 前 <code>pgrep -f</code> 检测运行中实例，命中则 stand down。概率极低，但违背「绝不替换运行中 app」的本轮核心不变量。</li>
-<li>R2（低危）：<code>mv &quot;$TARGET&quot; &quot;$BACKUP&quot;</code> 返回值未检查（installer.dart:172）。mv 失败而 ditto 成功会产生新旧混合 bundle。最小修复：mv 失败即 <code>touch helper.aborted</code> + exit 1。</li>
-<li>R3（低危）：helper 若在 mv 成功后、ditto 前崩溃，<code>.relay-backup</code> 残留而原 app 消失，无自愈。建议启动时检测 <code>$TARGET.relay-backup</code> 并还原。</li>
-<li>R4（低危）：<code>GithubRelease.fromJson</code> 只过滤 API prerelease 布尔，不过滤 semver prerelease tag（models.dart:53-57）——<code>v1.1.0-rc.1</code> 若作为正式 release 发布，会提示更新到 RC。</li>
-<li>R5（低危）：解压失败时 payload 不清理（downloader.dart:150 的条件为 <code>!archive.exists()</code>），重下时 ditto 合并残留文件。</li>
-<li>干净机 + 公证产物握手未实测（spec §8 自列）——唯一真正的发布闸门。</li>
-</ul>
-<h2>抛给圆桌的问题</h2>
-<ul>
-<li>R1 的 pgrep 守卫：进 v1.0.3 还是 follow-up？我倾向 follow-up（概率极低、失败模式可恢复），但若其他席位认为它直接违背本轮核心不变量，应升级为 blocker。</li>
-<li>干净机实测若在发布前无法完成，裁决是否降为「需修改后才能发布」？我的看法：失败模式安全（8s 超时 → abort → failed(install) + 访达展示），最坏是 UX 降级而非数据丢失，故不构成硬阻塞——请各席裁决。</li>
-</ul></div></div></div>
 <div class="round-div"><span>第 1 轮 · 圆桌交锋</span></div>
-<div class="msg from-P1" data-seat="P1"><div class="av" style="--c:#6ea8fe">P1</div><div class="bubble"><div class="head"><b style="color:#6ea8fe">P1</b><span class="chip tool">opencode</span><span class="chip model">fledge-alpha-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:29</span></div><div class="stance">R1–R5 修复核验全部成立（含 R2 误报澄清）；干净机实测不构成代码硬闸门但必须是发布前强制项；R1 pgrep 处置充分——维持「可发布」裁决</div><div class="md"><h2>交锋</h2>
+<div class="msg from-P1" data-seat="P1"><div class="av" style="--c:#6ea8fe">P1</div><div class="bubble"><div class="head"><b style="color:#6ea8fe">P1</b><span class="chip tool">opencode</span><span class="chip model">fledge-alpha-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">R1–R5 修复核验全部成立（含 R2 误报澄清）；干净机实测不构成代码硬闸门但必须是发布前强制项；R1 pgrep 处置充分——维持「可发布」裁决</div><div class="md"><h2>交锋</h2>
 <ul>
 <li>re: P2 —— concur（干净机实测定位）。同意 §14 的折中：实测失败模式安全（超时→abort→failed(install)+访达展示，最坏 UX 降级、无数据丢失），故不构成代码层 blocker；但它必须列为 v1.0.3 release checklist 的强制项而非 follow-up——否则「全 macOS 自动」唯一路径第一次真枪实弹是在用户机器上。</li>
 <li>re: P2 —— concur + build（R1 处置充分性）。<code>pgrep -f &quot;$TARGET/Contents/MacOS/&quot;</code> 放在 swap 前的 kill-0 复检之后、mkdir 锁之前，覆盖了「app 退出后 ~1.2s 窗口内手动重开」的场景；TARGET 取自运行中 bundle 的真实路径，改名/空格路径均可匹配。补充一个它没提的协同点：pgrep 命中只是 <code>touch helper.aborted; exit 1</code>，而主程序在握手失败时已经保持存活（r0 我引过的关键设计），用户重试即可，不会产生僵尸状态。我之前 r0 给的「PID 复用假阴性」担忧与此正交且方向同样安全，维持接受。</li>
@@ -251,7 +245,7 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>P4：你的 AC20–AC24 里，AC20（verifying/installing 零按钮）是否已在现码的 actions switch 显式分支满足？若是，建议撤回新增 AC 改为补测试钉住——避免 spec 与实现再出现「条文-行号」漂移。</li>
 <li>各席：对「干净机实测=强制 checklist 项而非代码闸门」的裁决是否还有异议？我与 P2 已同向。</li>
 </ul></div></div></div>
-<div class="msg from-P3" data-seat="P3"><div class="av" style="--c:#4ec9b0">P3</div><div class="bubble"><div class="head"><b style="color:#4ec9b0">P3</b><span class="chip tool">opencode</span><span class="chip model">longcat-2.5-preview-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:36</span></div><div class="stance">R1–R5 修复全部核验成立，代码层面无 blocker；干净机实测是发布流程硬闸门（非代码 blocker），裁决&quot;代码可发布、实测前不点发布</div><div class="md"><h2>立场</h2>
+<div class="msg from-P3" data-seat="P3"><div class="av" style="--c:#4ec9b0">P3</div><div class="bubble"><div class="head"><b style="color:#4ec9b0">P3</b><span class="chip tool">opencode</span><span class="chip model">longcat-2.5-preview-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">R1–R5 修复全部核验成立，代码层面无 blocker；干净机实测是发布流程硬闸门（非代码 blocker），裁决&quot;代码可发布、实测前不点发布</div><div class="md"><h2>立场</h2>
 <p>R1–R5 五项修复逐条对码核验，全部成立且落点正确。代码层面我不再持 blocker——r0 我提的 ditto 回滚嵌套（installer.dart:220-222 <code>rm -rf &quot;$TARGET&quot; &amp;&amp; mv &quot;$BACKUP&quot; &quot;$TARGET&quot;</code>）已修，P4 的 B1–B4 也全部落实。裁决：<strong>代码可随 v1.0.3 发布，但发布动作以干净机实测完成为硬前提</strong>。这个&quot;硬前提&quot;是流程闸门，不是代码缺陷——两者必须分开，否则会用&quot;失败模式安全&quot;自我循环论证来跳过验证。</p>
 <h2>交锋</h2>
 <ul>
@@ -275,7 +269,7 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>成功路径 backup 删除时机（open 失败即丢备份）是否随 v1.0.3 修？我倾向修（一行改动、消除最后一个&quot;旧版不可恢复&quot;路径），但若各席认为 open 概率极低可接受，我同意记 known limitation。</li>
 <li>autoDownload 下载失败静默：补一条 Gate 低频提示 AC，还是记 §11 known limitation？请明确站队。</li>
 </ol></div></div></div>
-<div class="msg from-P4" data-seat="P4"><div class="av" style="--c:#e0a55e">P4</div><div class="bubble"><div class="head"><b style="color:#e0a55e">P4</b><span class="chip tool">opencode</span><span class="chip model">opencode/mimo-v2.6-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 22:38</span></div><div class="stance">维持「需修改后才能发布」，但范围已收窄——我 r0 的 4 项 blocker 全部对码核验通过、R1–R5 亦成立；剩余的是 1 项 spec 措辞必须改（R1 实为「部分缓解」而非「已修」）+ 1 项一行级代码补强 + AC20–24 补测试</div><div class="md"><h2>交锋</h2>
+<div class="msg from-P4" data-seat="P4"><div class="av" style="--c:#e0a55e">P4</div><div class="bubble"><div class="head"><b style="color:#e0a55e">P4</b><span class="chip tool">opencode</span><span class="chip model">opencode/mimo-v2.6-flash-free</span><span class="chip think" style="color:#b18cff;border-color:#b18cff55">◆ high</span><span class="ts">10-07 23:13</span></div><div class="stance">维持「需修改后才能发布」，但范围已收窄——我 r0 的 4 项 blocker 全部对码核验通过、R1–R5 亦成立；剩余的是 1 项 spec 措辞必须改（R1 实为「部分缓解」而非「已修」）+ 1 项一行级代码补强 + AC20–24 补测试</div><div class="md"><h2>交锋</h2>
 <ul>
 <li>re: P2 —— <strong>concur（裁决问题①）</strong>：干净机 + 公证产物实测<strong>不是代码门，但是发布流程的硬闸门</strong>，且必须在打正式 tag 之前完成，不是发完再补。理由要补一层 P2 没说的：P2 把&quot;最坏是 UX 降级&quot;当作不构成硬阻塞的依据，这只覆盖了<strong>握手超时类</strong>失败（8s → abort → failed + 访达，落点确实安全）；但实测真正可能失败的是另一类——<strong>Gatekeeper/公证链路拒绝运行时生成的 helper</strong>，那一类的落点不是 UX 降级，而是&quot;macOS 全自动安装路径整体不可用&quot;，直接击穿 TOPIC 的唯一必须成立约束，且代码无解、只能改流程。所以实测是硬闸门的原因不是失败模式安全，而是<strong>它的失败可能落在本轮所有席位都没审过的盲区（我们四席全部只读代码，没审公证链路）</strong>。据此我建议实测要在 RC 产物上跑、覆盖成功路径 + 8s 超时回退 + 一条&quot;杀 helper 中途&quot;注入，结果记入 release checklist 后才允许 tag。</li>
 <li>re: P2 —— <strong>dissent（裁决问题②，R1 处置不充分）</strong>：pgrep 的位置放错了，它是 TOCTOU。核验代码：pgrep 在 installer.dart:191-195（<code>sleep 1</code> 之后），而<strong>真正不可逆的破坏点</strong>是 :208 的 <code>rm -rf &quot;$BACKUP&quot;</code>（删除旧 bundle），两者之间隔着 :203 <code>mv TARGET→BACKUP</code> 与 :206 整个 <code>ditto</code> 复制（0.3–1.5s，大包可达 3s）。pgrep 只能挡住&quot;检查那一刻已在运行&quot;的实例，<strong>挡不住&quot;检查之后启动&quot;的实例</strong>——用户在 app 退出后约 1s～4s 之间点开 Dock 图标，新进程以旧 bundle 启动 → mv 把它的 bundle 挪到 BACKUP → ditto 写新包 → :208 把<strong>正在运行的进程的 bundle</strong> 删掉。这正是 P2 自己定义的失败模式，且新窗口（≈ mv+ditto）不比原来的 ~1.2s 更窄。最小修复：在 :208 <code>rm -rf &quot;$BACKUP&quot;</code> 紧前再查一次 <code>pgrep</code>，命中则放弃本次更新并回滚（此时 BACKUP=旧包、TARGET=新包，<code>rm -rf &quot;$TARGET&quot; &amp;&amp; mv &quot;$BACKUP&quot; &quot;$TARGET&quot;</code> 即还原，旧实例句柄不受影响），约 5 行。:191 的早查保留作 fail-fast。</li>
@@ -310,49 +304,25 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <div class="round-div"><span>主持人总结</span></div><div class="card synth"><div class="card-tag">◎ 主持人 R0 · SYNTHESIS</div><div class="md"><h1>圆桌总结：自动更新 Spec 终审</h1>
 <h2>结论（TL;DR）</h2>
 <ol>
-<li><strong>代码可随 v1.0.3 发布</strong>（共识，P1/P2/P3/P4 一致）——三轮审查共发现 17 项</li>
+<li><strong>代码可随 v1.0.3 发布</strong>（共识，P1/P2/P3/P4 一致）——三轮审查共发现 17 项 真实缺陷全部修复，<code>buildHelperScript</code> 不变量已由 8 条字符串断言钉入 CI。</li>
+<li><strong>干净机器 + 公证产物握手实测是发布流程硬闸门</strong>（共识，r1 三席确认）—— 非代码 blocker，而是打 tag 前的强制 checklist 项。P4 的关键论据：实测可能 击穿的不是&quot;失败模式安全&quot;（四席只读过代码，公证链路是共同盲区）。</li>
+<li><strong>失败路径已收敛到已知边界</strong>：SIGKILL/断电可留 <code>.relay-backup</code>（无 journal， 人工恢复命令已入 checklist）；其余退出路径由 <code>trap cleanup EXIT</code> 自愈。</li>
 </ol>
-<p>真实缺陷全部修复，<code>buildHelperScript</code> 不变量已由 8 条字符串断言钉入 CI。</p>
-<ol>
-<li><strong>干净机器 + 公证产物握手实测是发布流程硬闸门</strong>（共识，r1 三席确认）——</li>
-</ol>
-<p>非代码 blocker，而是打 tag 前的强制 checklist 项。P4 的关键论据：实测可能 击穿的不是&quot;失败模式安全&quot;（四席只读过代码，公证链路是共同盲区）。</p>
-<ol>
-<li><strong>失败路径已收敛到已知边界</strong>：SIGKILL/断电可留 <code>.relay-backup</code>（无 journal，</li>
-</ol>
-<p>人工恢复命令已入 checklist）；其余退出路径由 <code>trap cleanup EXIT</code> 自愈。</p>
 <h2>共识</h2>
 <ul>
-<li>第二轮修复（abort 文件、kill -0 复检、payload 迁移、Gate 豁免、retry→ready、</li>
+<li>第二轮修复（abort 文件、kill -0 复检、payload 迁移、Gate 豁免、retry→ready、 dismiss 节流、dismiss/markChecked 时机、下载超时、对话框单例）逐条对码成立 （P1/P2/P3/P4@r0 交叉核验）。</li>
+<li>失败模式安全不等于可以跳过实测——P3@r1 指出这是自我循环论证，实测验证的 正是失败模式是否真的安全。</li>
+<li>AC20–AC24 现码已满足，但必须有测试钉住防止&quot;条文-行号&quot;漂移（P4@r1，已落实为 8 条 helper 脚本不变量断言）。</li>
 </ul>
-<p>dismiss 节流、dismiss/markChecked 时机、下载超时、对话框单例）逐条对码成立 （P1/P2/P3/P4@r0 交叉核验）。</p>
-<ul>
-<li>失败模式安全不等于可以跳过实测——P3@r1 指出这是自我循环论证，实测验证的</li>
-</ul>
-<p>正是失败模式是否真的安全。</p>
-<ul>
-<li>AC20–AC24 现码已满足，但必须有测试钉住防止&quot;条文-行号&quot;漂移（P4@r1，已落实为</li>
-</ul>
-<p>8 条 helper 脚本不变量断言）。</p>
 <h2>分歧与取舍</h2>
 <table><tr><th>分歧点</th><th>各方立场</th><th>取舍</th></tr><tr><td>R1 pgrep 单检查点是否充分</td><td>P1/P2: 充分 / <strong>P4: TOCTOU——检查点在 ditto 前，破坏点在 ditto 后</strong></td><td>P4 胜：加第二检查点（ditto 后、<code>rm -rf $BACKUP</code> 前），命中即回滚而非破坏</td></tr><tr><td>干净机实测定位</td><td>P2: 不构成硬阻塞 / P3/P4: 发布流程硬闸门（非代码 blocker）</td><td>采纳 P3/P4：强制 checklist 项，区分&quot;代码质量裁决&quot;与&quot;发布流程裁决&quot;</td></tr><tr><td>成功路径 <code>rm -rf $BACKUP</code> 时机</td><td>P3: open 前删备份，open 失败则无法回退</td><td>已修：<code>open &quot;$TARGET&quot; &amp;&amp; rm -rf &quot;$BACKUP&quot;</code></td></tr><tr><td>autoDownload 下载失败是否弹窗</td><td>产品取舍</td><td>不修：settings 状态行可见（P4@r1 接受收口）</td></tr></table>
 <h2>各席独特洞见</h2>
 <ul>
-<li><strong>P4</strong>：pgrep TOCTOU 错位（唯一真正的席位间实质分歧，且判胜）；spec 处置表</li>
+<li><strong>P4</strong>：pgrep TOCTOU 错位（唯一真正的席位间实质分歧，且判胜）；spec 处置表 选择性记录问题——&quot;已修&quot;措辞会让下轮读者停止追查，比低危 bug 更危险。已推动 §14 改为「代码实际覆盖 + 残余窗口」两列式 + 补齐未处置留痕表。</li>
+<li><strong>P3</strong>：mkdir 锁与 pgrep 守卫是两层独立防线（并发 vs 运行实例），不可互替； 自匹配边界分析确认 pgrep 无误伤自身风险。</li>
+<li><strong>P1</strong>：OWN_LOCK 守卫防&quot;安静退出的第二 helper 误删第一 helper 的锁&quot;——并发 语义细节核验；pgrep 子串误伤场景（别名路径副本）建议 aborted 文件留诊断， 已落实（<code>instance-running</code>/<code>instance-running-late</code> 等）。</li>
+<li><strong>P2</strong>：r0 提出 R1–R5 五连击（R2 为误报，其余全部落实）；r1 因上游端点连续 5 次故障未能发言，其 r0 贡献与本场问题已由三席裁决覆盖。</li>
 </ul>
-<p>选择性记录问题——&quot;已修&quot;措辞会让下轮读者停止追查，比低危 bug 更危险。已推动 §14 改为「代码实际覆盖 + 残余窗口」两列式 + 补齐未处置留痕表。</p>
-<ul>
-<li><strong>P3</strong>：mkdir 锁与 pgrep 守卫是两层独立防线（并发 vs 运行实例），不可互替；</li>
-</ul>
-<p>自匹配边界分析确认 pgrep 无误伤自身风险。</p>
-<ul>
-<li><strong>P1</strong>：OWN_LOCK 守卫防&quot;安静退出的第二 helper 误删第一 helper 的锁&quot;——并发</li>
-</ul>
-<p>语义细节核验；pgrep 子串误伤场景（别名路径副本）建议 aborted 文件留诊断， 已落实（<code>instance-running</code>/<code>instance-running-late</code> 等）。</p>
-<ul>
-<li><strong>P2</strong>：r0 提出 R1–R5 五连击（R2 为误报，其余全部落实）；r1 因上游端点连续</li>
-</ul>
-<p>5 次故障未能发言，其 r0 贡献与本场问题已由三席裁决覆盖。</p>
 <h2>建议行动项</h2>
 <ul>
 <li>☑ pgrep 双检查点（早查 fail-fast + 晚查防 ditto 窗口内重开）</li>
@@ -360,10 +330,7 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>☑ <code>helper.aborted</code> 写入命中原因（可诊断）</li>
 <li>☑ <code>buildHelperScript</code> @visibleForTesting + 8 条不变量断言</li>
 <li>☑ spec v1.4：处置表改两列式 + 未处置/已知遗留清单（每条有归宿）</li>
-<li>☐ <strong>发布前</strong>：干净机 + 公证产物实测（成功路径 + 8s 超时回退 + 杀 helper</li>
-</ul>
-<p>注入），结果记 release checklist 后才允许 tag</p>
-<ul>
+<li>☐ <strong>发布前</strong>：干净机 + 公证产物实测（成功路径 + 8s 超时回退 + 杀 helper 注入），结果记 release checklist 后才允许 tag</li>
 <li>☐ release checklist 写 <code>.relay-backup</code> 手工恢复命令</li>
 </ul>
 <h2>发言签署</h2>
@@ -371,9 +338,8 @@ code,pre,.model{font-family:"SF Mono",Menlo,Consolas,monospace}
 <li>P1（opencode · fledge-alpha-free · high）：可发布，前提是实测入 checklist</li>
 <li>P2（opencode · ling-3.1-flash-free · high）：r0「有条件可发布」；r1 缺席（端点故障）</li>
 <li>P3（opencode · longcat-2.5-preview-free · high）：代码可发布、实测前不点发布</li>
-<li>P4（opencode · mimo-v2.6-flash-free · high）：文档级必修（spec 措辞+留痕）已满足，</li>
-</ul>
-<p>代码补强已落实——裁决实质转为可发布</p></div><div class="ts">10-07 22:55</div></div>
+<li>P4（opencode · mimo-v2.6-flash-free · high）：文档级必修（spec 措辞+留痕）已满足， 代码补强已落实——裁决实质转为可发布</li>
+</ul></div><div class="ts">10-07 23:13</div></div>
 </main>
 <div class="toolbar"><button onclick="top_()">⇧ 顶部</button><button onclick="bot()">⇩ 底部</button></div>
 <script>
