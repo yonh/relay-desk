@@ -87,15 +87,22 @@ fi
 # updates/<tag> dir; payload and archive must sit inside it; only *.app
 # bundles may be replaced (the target is wherever the running app was
 # installed, so it is not bounded to a fixed directory).
-case "$PARENT" in *[!0-9]*|"") exit 0;; esac
-case "$ROOT"   in */updates/?*) ;; *) exit 0;; esac
-case "$STAGED" in "$ROOT"/*) ;; *) exit 0;; esac
-case "$ARCHIVE" in "$ROOT"/*) ;; *) exit 0;; esac
-case "$TARGET" in *.app) ;; *) exit 0;; esac
+BAD=0
+case "$PARENT" in *[!0-9]*|"") BAD=1;; esac
+case "$ROOT"   in */updates/?*) ;; *) BAD=1;; esac
+case "$STAGED" in "$ROOT"/*) ;; *) BAD=1;; esac
+case "$ARCHIVE" in "$ROOT"/*) ;; *) BAD=1;; esac
+case "$TARGET" in *.app) ;; *) BAD=1;; esac
 # The staged payload and its archive must actually exist — a planted
 # handoff pointing at nothing must die here, not swap an empty path.
-[ -d "$STAGED" ] || exit 0
-[ -f "$ARCHIVE" ] || exit 0
+[ -d "$STAGED" ] || BAD=1
+[ -f "$ARCHIVE" ] || BAD=1
+if [ "$BAD" = 1 ]; then
+  # This request can never be consumed — retract it so no later helper
+  # picks it up. (cleanup() below does this for every exit path too.)
+  rm -f "$HANDOFF_FILE" 2>/dev/null
+  exit 0
+fi
 MARKER="$ROOT/helper.started"
 ABORT="$ROOT/helper.abort"
 ABORTED="$ROOT/helper.aborted"
@@ -119,6 +126,10 @@ cleanup() {
     fi
     rm -rf "$LOCK"
   fi
+  # Whatever consumed or rejected this request file, it must not outlive
+  # the helper that selected it — a file left behind could be picked up
+  # by a FUTURE helper run for a request that was already abandoned.
+  [ -n "$HANDOFF_FILE" ] && rm -f "$HANDOFF_FILE" 2>/dev/null
   return 0
 }
 trap cleanup EXIT
@@ -152,16 +163,37 @@ fi
 # a concurrent helper just created.
 ARB="$LOCK.arb"
 while ! mkdir "$LOCK" 2>/dev/null; do
-  # A wedged helper can orphan the arbitration dir too — it is held for
-  # microseconds, so an aged one is definitively stale.
   if ! mkdir "$ARB" 2>/dev/null; then
-    if [ $(( $(date +%s) - $(stat -f %m "$ARB" 2>/dev/null || echo 0) )) -gt 60 ]; then
-      rm -rf "$ARB"
-    else
-      sleep 0.1
-    fi
+    # The arbitration dir is owned too — NEVER evict it on age alone: a
+    # paused-but-alive arbiter must keep its mutex, or two helpers end up
+    # reclaiming/inspecting the lock concurrently. Same ownership rules
+    # as the target lock: a live helper pid waits, a dead or reused one
+    # is evicted, an unreadable one is trusted only while fresh, and a
+    # missing pid counts as initializing for a few seconds at most.
+    APID="$(cat "$ARB/pid" 2>/dev/null || true)"
+    AAGE=$(( $(date +%s) - $(stat -f %m "$ARB" 2>/dev/null || echo 0) ))
+    case "$APID" in
+      ''|*[!0-9]*)
+        # mkdir landed but `pid` was not written yet — or the owner died
+        # in that sliver. Only an aged ownerless ARB is evicted.
+        [ "$AAGE" -ge 10 ] && rm -rf "$ARB" || sleep 0.1
+        ;;
+      *)
+        if ! kill -0 "$APID" 2>/dev/null; then
+          rm -rf "$ARB"
+        else
+          ACMD="$(ps -p "$APID" -o command= 2>/dev/null || true)"
+          case "$ACMD" in
+            *RelayDeskUpdater*|*updater.sh*) sleep 0.1 ;;
+            "") [ "$AAGE" -ge 600 ] && rm -rf "$ARB" || sleep 0.1 ;;
+            *) rm -rf "$ARB" ;; # pid reused by a non-helper — orphan
+          esac
+        fi
+        ;;
+    esac
     continue
   fi
+  echo $$ > "$ARB/pid"
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
   LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
   LIVE=0

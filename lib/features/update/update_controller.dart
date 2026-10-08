@@ -143,11 +143,13 @@ class UpdateController extends Notifier<UpdateStatus> {
   /// an install over the same payload mid-delete.
   var _opBusy = false;
   var _deferredChecks = 0;
+  Timer? _deferredCheck;
 
   bool get _locked => state.busy || _opBusy;
 
   @override
   UpdateStatus build() {
+    ref.onDispose(() => _deferredCheck?.cancel());
     Future<void>.microtask(_sweepStaging);
     // The settings section always shows the installed version — populate
     // it now instead of waiting for the first check to run.
@@ -177,11 +179,10 @@ class UpdateController extends Notifier<UpdateStatus> {
       // of retries; a manual check just reports busy (UI shows it).
       if (!manual && _deferredChecks < 3) {
         _deferredChecks++;
-        unawaited(
-          Future<void>.delayed(
-            const Duration(milliseconds: 500),
-          ).then((_) => check()),
-        );
+        // A Timer (not a delayed future) so dispose can cancel it — a
+        // pending callback must never touch a dead ref.
+        _deferredCheck?.cancel();
+        _deferredCheck = Timer(const Duration(milliseconds: 500), check);
       }
       return;
     }
@@ -347,7 +348,7 @@ class UpdateController extends Notifier<UpdateStatus> {
       // not a hardcoded package.zip — find what actually landed.
       var archive = File(p.join(dir.path, 'package.zip'));
       await for (final entity in dir.list()) {
-        if (entity is File && p.basename(entity.path).startsWith('package.')) {
+        if (entity is File && _isCompletePackage(entity.path)) {
           archive = entity;
           break;
         }
@@ -477,12 +478,25 @@ class UpdateController extends Notifier<UpdateStatus> {
         }
       }
       await for (final entity in dir.list()) {
-        if (entity is File && p.basename(entity.path).startsWith('package.')) {
+        if (entity is File && _isCompletePackage(entity.path)) {
           return true;
         }
       }
     } catch (_) {}
     return false;
+  }
+
+  /// A staged archive counts only when it is a COMPLETE download —
+  /// macOS ships `package.zip`, Linux `package.tar.gz`; `.part` files,
+  /// zero-byte files and unrelated `package.*` names are all rejected.
+  static bool _isCompletePackage(String path) {
+    final name = p.basename(path);
+    if (name != 'package.zip' && name != 'package.tar.gz') return false;
+    try {
+      return File(path).lengthSync() > 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Launch-time cleanup: delete staging for anything that is not the

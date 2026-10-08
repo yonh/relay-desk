@@ -708,6 +708,56 @@ void main() {
       expect(s.currentVersion, isNotNull);
     });
 
+    test(
+      'a partial package file alone is not accepted as a ready stage',
+      () async {
+        final root = Directory.systemTemp.createTempSync('relay-part-');
+        addTearDown(() => root.deleteSync(recursive: true));
+        Directory('${root.path}/v1.1.0').createSync();
+        File(
+          '${root.path}/v1.1.0/package.zip.part',
+        ).writeAsBytesSync([1, 2, 3]);
+        final storage = MemoryUpdateStorage(
+          const UpdateSettings(readyTag: 'v1.1.0'),
+        );
+        final client = FakeReleaseClient()..release = release();
+        final container = makeContainer(
+          storage: storage,
+          client: client,
+          paths: FakePaths(root),
+        );
+        addTearDown(container.dispose);
+        await container.read(updateStatusProvider.notifier).check(manual: true);
+        expect(
+          container.read(updateStatusProvider).phase,
+          UpdatePhase.available,
+        );
+      },
+    );
+
+    test('a deferred check never touches a disposed controller', () async {
+      final root = Directory.systemTemp.createTempSync('relay-disp-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final downloader = FakeDownloader()..gate = Completer<void>();
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(
+        client: client,
+        downloader: downloader,
+        paths: FakePaths(root),
+      );
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      final downloading = notifier.download();
+      // The mutex held by the in-flight download defers this auto-check
+      // — disposing must cancel the pending Timer or it would throw
+      // 'Cannot use Ref after disposed' asynchronously and fail here.
+      unawaited(notifier.check());
+      downloader.gate!.complete();
+      await downloading;
+      container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+    });
+
     test('skipped version silences auto but not manual check', () async {
       final storage = MemoryUpdateStorage(
         const UpdateSettings(skippedVersion: '1.1.0'),
@@ -1046,15 +1096,25 @@ void main() {
 
     test('file-sourced params pass containment and freshness checks', () {
       expect(script, contains('now - mtime)) -gt 600'));
-      expect(script, contains('*[!0-9]*|"") exit 0'));
-      expect(script, contains('*/updates/?*) ;; *) exit 0'));
-      expect(script, contains('"\$ROOT"/*) ;; *) exit 0'));
-      expect(script, contains('*.app) ;; *) exit 0'));
+      // Validation failures retract the request file and exit — a bad
+      // handoff must never linger for a later helper to consume.
+      expect(script, contains('*[!0-9]*|"") BAD=1'));
+      expect(script, contains('*/updates/?*) ;; *) BAD=1'));
+      expect(script, contains('"\$ROOT"/*) ;; *) BAD=1'));
+      expect(script, contains('*.app) ;; *) BAD=1'));
+      // Planted-but-nonexistent payload paths die too.
+      expect(script, contains('[ -d "\$STAGED" ] || BAD=1'));
+      expect(script, contains('[ -f "\$ARCHIVE" ] || BAD=1'));
       // The checks gate the marker write too — a planted handoff must not
       // even fake a started helper.
       expect(
-        lineOf('*.app) ;; *) exit 0'),
+        lineOf('[ "\$BAD" = 1 ]; then'),
         lessThan(lineOf('touch "\$MARKER"')),
+      );
+      // cleanup() retracts the selected handoff on EVERY exit path.
+      expect(
+        script,
+        contains('[ -n "\$HANDOFF_FILE" ] && rm -f "\$HANDOFF_FILE"'),
       );
     });
 
@@ -1089,6 +1149,25 @@ void main() {
         lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', delete),
         greaterThan(delete),
       );
+    });
+
+    test('the arbitration dir itself is owned by pid, never evicted by '
+        'age alone', () {
+      // The review repro: an arbiter paused >60s kept its ARB anyway —
+      // age was enough to evict and two helpers entered ditto together.
+      // ARB must record its owner and reuse the lock's liveness rules.
+      final arb = lineOf('mkdir "\$ARB"');
+      expect(
+        script,
+        contains('APID="\$(cat "\$ARB/pid" 2>/dev/null || true)"'),
+      );
+      expect(script, contains('kill -0 "\$APID" 2>/dev/null'));
+      expect(script, contains('echo \$\$ > "\$ARB/pid"'));
+      // A live arbiter waits; only a dead/reused/undeterminable owner is
+      // evicted — never a timestamp alone.
+      expect(script, isNot(contains('-gt 60 ]')));
+      final pidWrite = lineOf('echo \$\$ > "\$ARB/pid"', arb);
+      expect(pidWrite, greaterThan(arb));
     });
 
     test('the lock is shared per install target, not per version', () {
