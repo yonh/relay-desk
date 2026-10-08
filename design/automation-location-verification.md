@@ -30,16 +30,16 @@
 |---|---|---|---|---|---|
 | T1 | R2 | 双身份同屏+真实页面 | Http-A/Http-B 双面板，截屏约 12:15 | `panels`：A `nativeViewId 0 windowId 83 url …/a.html`；B `nativeViewId 1 windowId 83 url …/b.html`；截图 A→`PAGE-ALPHA`（蓝）、B→`PAGE-BETA`（粉） | 通过 |
 | T2 | R2 | state 关联窗口 | `state`，capturedAt `12:15:03Z` | `window.identityIds=[98205caa,7f78ffc9]`、`selectedIdentityId=98205caa`、`focusedIdentityId=null`、`selectionConsistent=true`，与截图对应 | 通过 |
-| T3a | R1 | 选中≠焦点 | 点击 Verify-B 的 WebView | `selectedIdentityId=6d683554`（A）、`focusedIdentityId=b494a75b`（B） | 通过 |
-| T3b | R2 | 同上（恢复布局后） | 点击 Http-B 的 WebView，capturedAt `12:27:51Z` | 本次 `selectedIdentityId=7f78ffc9`、`focusedIdentityId=7f78ffc9`、`hasKeyboardFocus=true`——点击 WebView 同时选中并聚焦，未发生身份错配 | 通过（行为差异如实记录） |
+| T3a | R1+R2 | 选中≠焦点 | 先点 A 头（选中不聚焦 WebView），再点 B 的 WebView | R1：`selected=6d683554`(A)、`focused=b494a75b`(B)；R2 复现 capturedAt `12:32:46Z`：`selected=98205caa`(A)、`focused=7f78ffc9`(B) | 通过 |
+| T3b | R2 | 直接点击未选中面板的 WebView | 点击 Http-B 的 WebView，capturedAt `12:27:51Z` | `selected=7f78ffc9`、`focused=7f78ffc9`、`hasKeyboardFocus=true`——该路径下点击同时选中并聚焦，未发生身份错配 | 通过（行为差异如实记录） |
 | T4 | R2 | 地址栏焦点 | 点入 Http-B URL 输入框（光标可见），capturedAt `12:28:13Z` | `focusedIdentityId=null`、panel `hasKeyboardFocus=false`、selected 仍 `7f78ffc9` | 通过 |
-| T5 | R1 | 嵌入→独立→重嵌 | Verify-B detach→`windows`/`panel`→关独立窗 | detach：B `state=detached windowId=78`、窗口 `Relay Desk — b494a75b` `identityIds=[b494a75b]`、views `viewId 1→win78`；重嵌：B 回 `windowId=67 state=embedded nativeViewId=2`（视图重建），窗口 78 消失 | 通过 |
-| T6 | R1+R2 | 项目切换 | R1：UpgradeE2E→VerifyP2；R2：VerifyHTTP→VerifyP2 | 两批一致：`project=P2`、`identity/panel=null`、旧 `selectedIdentityId` 残留但 `selectionConsistent=false`、`window.identityIds=[]`、后台项目面板 `windowId=null` | 通过 |
-| T7 | R2 | 工作区归属 | VerifyHTTP 存 `Ws-HTTP` → `workspaces --project` | `Ws-HTTP`（`06f45e6b`）仅属 VerifyHTTP 且含双面板布局；另两项目返回空；切 P2 后 `workspaceId=null`、`workspace` op `null` | 通过 |
-| T8 | R1 | 应用失活→激活 | 激活 Finder→重新激活 | 失活：`currentWindowId=null`（无 mainWindow 回退）、`focused=null`、`state.window=null`；激活：`currentWindowId=67 isKey=true` | 通过 |
+| T5 | R1+R2 | 嵌入→独立→重嵌 | B detach→`windows`/`panel`→关独立窗 | R1（Verify-B，时间未单独记录）：detached→`windowId=78`、views `viewId 1→win78`、重嵌回 `windowId=67 nativeViewId=2`；R2（Http-B）：`12:33:01Z` detached→`windowId=99` `Relay Desk — 7f78ffc9`、`12:33:10Z` 重嵌回 `windowId=83 nativeViewId=6`，窗口 99 消失 | 通过 |
+| T6 | R1+R2 | 项目切换 | R1：UpgradeE2E→VerifyP2（capturedAt `11:41:26Z`）；R2：VerifyHTTP→VerifyP2（capturedAt `12:15:55Z`） | R1：`windowId=67`、残留 `selected=6d683554`；R2：`windowId=83`、残留 `selected=98205caa`；两批 `identity/panel=null`、`selectionConsistent=false`、`window.identityIds=[]`、后台项目面板 `windowId=null` | 通过 |
+| T7 | R2 | 工作区归属 | VerifyHTTP 存 `Ws-HTTP` → `workspaces --project`（复取 `12:38:05Z`） | `Ws-HTTP`（`06f45e6b`）仅属 VerifyHTTP 且含双面板布局；另两项目返回空；切 P2 后 `workspaceId=null`、`workspace` op `null` | 通过 |
+| T8 | R1+R2 | 应用失活→激活 | 激活 Finder→重新激活 | R1：`currentWindowId=null`→激活回 `67`；R2 复现：`12:33:18Z` `currentWindowId=null` `mainWindowId=null`、窗口 83/88 `isKey=false`；`12:33:29Z` `currentWindowId=83 isKey=true` | 通过 |
 | T9 | R2 | 合法无选择 | 关闭全部面板（"No Panels"），capturedAt `12:16:24Z` | `selectedIdentityId=null`、`identity/panel/workspaceId=null`、`panels=[]`、`selectionConsistent=true`；P2 中 `identity`/`panel`/`workspace` 返回 null 不报错 | 通过 |
-| T10 | R1 | 未知 ID | `--identity`/`--window`/`panel --identity` 给不存在值 | 三处 `{"code":"not_found"}`，不猜其他目标；`window` 无参数返回 keyWindow | 通过 |
-| T11 | R1 | 面板关闭 | Verify-B Close panel | `panels` 仅剩 A；`panel --identity b494a75b`→`not_found`；views 与 `identityIds` 只含 A；旧 `nativeViewId` 不复用 | 通过 |
+| T10 | R1+R2 | 未知 ID | `--identity`/`--window`/`panel --identity` 给不存在值 | R1 三处 `not_found`；R2 复现 `12:33:29Z`：identity/window/panel 三个 selector 各返回 `{"code":"not_found"}`，不猜其他目标；`window` 无参数返回 keyWindow | 通过 |
+| T11 | R1+R2 | 面板关闭 | Close panel（□✕ 图标，`removePanel`） | R1（Verify-B）：panels 仅剩 A、旧 `nativeViewId` 不复用；R2（Http-B，`12:37:39Z`）：`panels` 仅剩 A(`nativeViewId=5`)、`panel --identity 7f78ffc9`→`not_found`、views/`identityIds` 只含 A | 通过 |
 
 ## 观察记录（如实记录，非缺陷结论）
 
@@ -87,31 +87,51 @@
  "panel":{"identityId":"7f78ffc9-…","hasKeyboardFocus":false}}
 ```
 
-### T5 `relayctl --session $S windows`（R1，Verify-B detach 后）
+### T3a `relayctl --session $S state`（R2 复现，先选 A 后点 B WebView，终端时间 `12:32:46`，capturedAt `2026-10-08T12:32:46.174241Z`）
 
 ```json
-{"windows":[{"windowId":67,"title":"relay_desk","isKey":true,"identityIds":["6d683554-…"]},
-  {"windowId":72,"title":"","isVisible":false,"identityIds":[]},
-  {"windowId":78,"title":"Relay Desk — b494a75b","isVisible":true,"identityIds":["b494a75b-…"]}],
- "views":[{"viewId":0,"identityId":"6d683554-…","windowId":67},
-  {"viewId":1,"identityId":"b494a75b-…","windowId":78}]}
+{"selectedIdentityId":"98205caa-ac31-46a0-b257-907a4c27702e",
+ "focusedIdentityId":"7f78ffc9-a39f-491e-b886-c9d3491ee503","selectionConsistent":true}
 ```
 
-`relayctl --session $S panel --identity b494a75b-a7f0-4895-8c7d-d36ed9c639be`（同期）：
-`{"panel":{"identityId":"b494a75b-…","state":"detached","nativeViewId":1,"windowId":78}}`
-重嵌后：`{"state":"embedded","nativeViewId":2,"windowId":67}`，windows 清单不再有 78。
+### T5 R2：`relayctl --session $S windows`（Http-B detach 后，终端时间 `12:33:01`）
 
-### T6 `relayctl --session $S state`（切到 VerifyP2 后，R1 12:41Z / R2 12:15:55Z 两次一致）
+```json
+{"currentWindowId":83,"mainWindowId":83,
+ "windows":[{"windowId":83,"title":"relay_desk","isKey":true,"identityIds":["98205caa-…"]},
+  {"windowId":88,"title":"","isVisible":false,"identityIds":[]},
+  {"windowId":99,"title":"Relay Desk — 7f78ffc9","isVisible":true,"identityIds":["7f78ffc9-…"]}]}
+```
+
+`relayctl --session $S panel --identity 7f78ffc9-a39f-491e-b886-c9d3491ee503`（同期）：
+`{"panel":{"identityId":"7f78ffc9-…","state":"detached","nativeViewId":4,"windowId":99}}`
+关独立窗后（`12:33:10`）：`{"state":"embedded","nativeViewId":6,"windowId":83}`，windows 仅剩 83、88。
+
+R1 同路径（Verify-B `b494a75b`，终端时间未单独记录）：detached→`windowId=78`、`views` `viewId 1→win78`、窗口标题 `Relay Desk — b494a75b`；关窗重嵌 `windowId=67 nativeViewId=2`、窗口 78 消失。结果与 R2 一致。
+
+### T6 `relayctl --session $S state`（切到 VerifyP2 后，分两批实际返回）
+
+R1（UpgradeE2E→VerifyP2，capturedAt `2026-10-08T11:41:26Z`，约 `11:41` 终端时间）：
 
 ```json
 {"project":{"id":"983423c5-65a8-4b08-8b17-a11f26c988e8","name":"VerifyP2"},
- "identity":null,"panel":null,"window":{"windowId":<67|83>,"identityIds":[]},
- "selectedIdentityId":"<旧批次选中id>","focusedIdentityId":null,"selectionConsistent":false,"workspaceId":null}
+ "identity":null,"panel":null,"window":{"windowId":67,"identityIds":[]},
+ "selectedIdentityId":"6d683554-17ba-4d19-bb0b-bfbc96223e23","focusedIdentityId":null,
+ "selectionConsistent":false,"workspaceId":null}
 ```
 
-`relayctl --session $S identities --project 4e990d7d-5234-4e87-a397-b58f27898e7c` → `["Verify-A","Verify-B"]`；不带 `--project`（当前 P2）→ `{"identities":[]}`。
+R2（VerifyHTTP→VerifyP2，capturedAt `2026-10-08T12:15:55.909473Z`）：
 
-### T7 `relayctl --session $S workspaces --project bf0a306e-b7db-469d-95fb-7e0e039b4913`（R2）
+```json
+{"project":{"id":"983423c5-65a8-4b08-8b17-a11f26c988e8","name":"VerifyP2"},
+ "identity":null,"panel":null,"window":{"windowId":83,"identityIds":[]},
+ "selectedIdentityId":"98205caa-ac31-46a0-b257-907a4c27702e","focusedIdentityId":null,
+ "selectionConsistent":false,"workspaceId":null}
+```
+
+两批一致：`selectedIdentityId` 残留为切换前选中项（不同值），`selectionConsistent=false` 明示归属已失效，不猜当前项目。`relayctl --session $S identities --project 4e990d7d-5234-4e87-a397-b58f27898e7c` → `["Verify-A","Verify-B"]`；不带 `--project`（当前 P2）→ `{"identities":[]}`。
+
+### T7 `relayctl --session $S workspaces --project bf0a306e-b7db-469d-95fb-7e0e039b4913`（R2，复取终端时间 `12:38:05`）
 
 ```json
 {"workspaces":[{"id":"06f45e6b-9890-4e22-b2f5-d5671c620d3c","projectId":"bf0a306e-…","name":"Ws-HTTP",
@@ -119,16 +139,18 @@
             {"identityId":"98205caa-…","x":0,"y":0,"width":480,"height":360}]}]}
 ```
 
-`--project 4e990d7d…` 与 `--project 983423c5…` → `{"workspaces":[]}`。P2 中 `relayctl --session $S workspace` → `{"workspace":null}`。
+`--project 4e990d7d…` 与 `--project 983423c5…` → `{"workspaces":[]}`。P2 中 `relayctl --session $S workspace` → `{"workspace":null}`（与 T6 同期；本轮 `12:38:05` 复取 workspaces 结果一致）。
 
-### T8 `relayctl --session $S windows`（R1，激活 Finder 后）
+### T8 `relayctl --session $S windows`
+
+R2 复现（激活 Finder 后，终端时间 `12:33:18`）：
 
 ```json
 {"currentWindowId":null,"mainWindowId":null,
- "windows":[{"windowId":67,"isKey":false,"isMain":false},{"windowId":72,"isKey":false}]}
+ "windows":[{"windowId":83,"isKey":false,"isMain":false},{"windowId":88,"isKey":false}]}
 ```
 
-重新激活后：`"currentWindowId":67`、窗口 67 `isKey=true`。
+重新激活后（`12:33:29`）：`"currentWindowId":83`、窗口 83 `isKey=true`。R1 同路径（时间未单独记录）：失活 `currentWindowId=null`，激活回 `67`。
 
 ### T9 `relayctl --session $S state`（R2，capturedAt `2026-10-08T12:16:24.949171Z`）
 
@@ -140,15 +162,19 @@
 
 `relayctl --session $S panels` → `{"panels":[]}`；P2 中 `identity`/`panel`/`workspace` 各 op → `{"identity":null}`/`{"panel":null}`/`{"workspace":null}`。
 
-### T10（R1）
+### T10（R2 复现，终端时间 `12:33:29`）
 
-`relayctl --session $S identity --identity 00000000-0000-0000-0000-000000000000` → `{"error":{"code":"not_found","message":"Requested identity does not exist"}}`
-`relayctl --session $S window --window 9999` → `{"code":"not_found","message":"Requested window does not exist"}`
-`relayctl --session $S panel --identity <不存在id>` → `{"code":"not_found","message":"Requested panel does not exist"}`
+`relayctl --session $S identity --identity 00000000-0000-0000-0000-000000000000` → `{"ok":false,"error":{"code":"not_found","message":"Requested identity does not exist"}}`
+`relayctl --session $S window --window 9999` → `{"ok":false,"error":{"code":"not_found","message":"Requested window does not exist"}}`
+`relayctl --session $S panel --identity 00000000-0000-0000-0000-000000000000` → `{"ok":false,"error":{"code":"not_found","message":"Requested panel does not exist"}}`
 
-### T11（R1，Verify-B 关闭后）
+R1 同路径结果一致（时间未单独记录）。
 
-`panels` → 仅剩 Verify-A；`panel --identity b494a75b-…` → `not_found`；`windows` → `views` 仅 `{"viewId":3,"identityId":"6d683554-…","windowId":67}`；`selectedIdentityId=6d683554` consistent=true。
+### T11（R2，Http-B 关闭后，终端时间 `12:37:39`；state capturedAt `2026-10-08T12:37:39.622294Z`）
+
+`relayctl --session $S panels` → `[{"identityName":"Http-A","nativeViewId":5}]`；`relayctl --session $S panel --identity 7f78ffc9-a39f-491e-b886-c9d3491ee503` → `{"ok":false,"error":{"code":"not_found"}}`；`state`：`selectedIdentityId=98205caa`、`window.identityIds=["98205caa-…"]`、`selectionConsistent=true`。
+
+R1 同路径（Verify-B，时间未单独记录）：`panels` 仅剩 A、`panel --identity b494a75b-…` → `not_found`、views 仅 `{"viewId":3,...,"windowId":67}`。
 
 ## 结论
 
