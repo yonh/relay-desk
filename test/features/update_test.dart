@@ -671,6 +671,43 @@ void main() {
       expect(downloader.calls, 1);
     });
 
+    test('a second download while the staged probe is pending cannot '
+        'double-stage', () async {
+      final downloader = FakeDownloader()..gate = Completer<void>();
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(client: client, downloader: downloader);
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      // The staged-dir probe awaits before `busy` engages — two callers
+      // reaching download() in that window must still serialize on the
+      // operation mutex or both would write the same .part file.
+      final first = notifier.download();
+      unawaited(first);
+      unawaited(notifier.download());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(downloader.calls, 1);
+      downloader.gate!.complete();
+      // Let the winning download finish before the container is disposed.
+      await first;
+    });
+
+    test('a failed re-check clears the stale release candidate', () async {
+      final client = FakeReleaseClient()..release = release();
+      final container = makeContainer(client: client);
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      expect(container.read(updateStatusProvider).release, isNotNull);
+      client.error = const HttpException('boom');
+      await notifier.check(manual: true);
+      final s = container.read(updateStatusProvider);
+      expect(s.phase, UpdatePhase.failed);
+      expect(s.release, isNull);
+      // The installed-version row must survive the reset.
+      expect(s.currentVersion, isNotNull);
+    });
+
     test('skipped version silences auto but not manual check', () async {
       final storage = MemoryUpdateStorage(
         const UpdateSettings(skippedVersion: '1.1.0'),
@@ -982,10 +1019,11 @@ void main() {
       // would evict its live lock; the owner PID lives inside the lock.
       expect(script, contains('echo \$\$ > "\$LOCK/pid"'));
       expect(script, isNot(contains('pgrep -f "\$0"')));
-      final take = lineOf('if ! mkdir "\$LOCK"');
+      final take = lineOf('while ! mkdir "\$LOCK"');
       final read = lineOf('cat "\$LOCK/pid"', take);
       final alive = lineOf('kill -0 "\$LPID"', read);
-      expect(alive, lessThan(lineOf('mv "\$LOCK" "\$CLAIM"', alive)));
+      // Reclaim runs entirely under the $ARB arbitration mutex.
+      expect(alive, lessThan(lineOf('rm -rf "\$LOCK"', alive)));
       // A just-created lock without its pid yet gets a grace window.
       expect(script, contains('LAGE" -lt 10 ]'));
       // A live pid only counts when the process is actually a helper —
@@ -1023,31 +1061,42 @@ void main() {
     test('handoff candidates are freshness-checked inside the loop', () {
       // A stale file at the sandboxed path must not shadow a live handoff
       // the non-sandboxed build wrote — freshness runs per candidate, and
-      // among valid candidates the FRESHEST wins (an older-but-valid file
-      // must not win over the params written for this run).
-      final loop = lineOf('for c in');
+      // request-scoped names make the NEWEST request win even when two
+      // land in the same stat-resolution second.
+      final loop = lineOf('handoff-*.params');
       final fresh = lineOf('-gt 600 ] && continue', loop);
-      final best = lineOf('-le "\$best" ] && continue', fresh);
+      final best = lineOf('"\$base" > "\$bestname"', fresh);
       expect(best, lessThan(lineOf('HANDOFF_FILE="\$c"', best)));
+      // Legacy fixed-name handoff is only a fallback.
+      expect(
+        lineOf('if [ -z "\$HANDOFF_FILE" ]', best),
+        lessThan(lineOf('handoff.params"', best)),
+      );
     });
 
-    test(
-      'an orphaned lock is reclaimed atomically, never by a live holder',
-      () {
-        // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
-        // helper must reclaim an orphan (dead owner pid, then an atomic
-        // rename — never rm+mkdir, which a concurrent helper could turn
-        // against the lock we just created).
-        final take = lineOf('if ! mkdir "\$LOCK"');
-        final claim = lineOf('mv "\$LOCK" "\$CLAIM"', take);
-        expect(claim, lessThan(lineOf('rm -rf "\$CLAIM"', claim)));
-        // And only after the reclaim may the backup-rescue run.
-        expect(
-          lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', claim),
-          greaterThan(claim),
-        );
-      },
-    );
+    test('an orphaned lock is reclaimed under one arbitration mutex', () {
+      // SIGKILL skips the EXIT trap — its lock dir outlives it. Reclaim
+      // runs staleness-check + delete under $ARB so a racing helper can
+      // never replace the fresh lock we just created (the old
+      // mv-to-CLAIM dance was exactly that race).
+      final take = lineOf('while ! mkdir "\$LOCK"');
+      final arb = lineOf('mkdir "\$ARB"', take);
+      final read = lineOf('cat "\$LOCK/pid"', arb);
+      final delete = lineOf('rm -rf "\$LOCK"', read);
+      expect(delete, lessThan(lineOf('rm -rf "\$ARB"', delete)));
+      // And only after the reclaim may the backup-rescue run.
+      expect(
+        lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', delete),
+        greaterThan(delete),
+      );
+    });
+
+    test('the lock is shared per install target, not per version', () {
+      // Two versions stage under different roots but replace the same
+      // bundle — a per-ROOT lock would let them swap it concurrently.
+      expect(script, contains('LOCK="\$TARGET.update-lock"'));
+      expect(script, isNot(contains('LOCK="\$ROOT/')));
+    });
   });
 
   group('UpdateSettingsSection', () {

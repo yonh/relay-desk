@@ -73,10 +73,15 @@ class MacOSUpdateInstaller implements UpdateInstaller {
   /// late-starting helper to stand down instead of swapping.
   static const abortFileName = 'helper.abort';
 
-  /// Handoff file written into `update.root`'s PARENT directory (the shared
-  /// `<Application Support>/updates/` root the helper resolves from HOME).
-  /// Key=value lines, one per field — bash reads it without quoting pitfalls.
-  static const handoffFileName = 'handoff.params';
+  /// Handoff files live in `update.root`'s PARENT directory (the shared
+  /// `<Application Support>/updates/` root the helper resolves from HOME)
+  /// and carry a per-request name — `handoff-<epoch_ms>-<pid>.params` — so
+  /// two install attempts in the same second still order unambiguously and
+  /// a helper only ever deletes the file it actually consumed. Older
+  /// builds wrote a fixed `handoff.params`; the helper still accepts it
+  /// as a fallback. Key=value lines, one per field — bash reads it
+  /// without quoting pitfalls.
+  static const handoffFilePrefix = 'handoff-';
 
   @override
   Future<bool> installAndRelaunch(StagedUpdate update) async {
@@ -94,18 +99,17 @@ class MacOSUpdateInstaller implements UpdateInstaller {
     }
 
     // The handoff lives one level above the tag staging dir: the helper
-    // finds `<updatesRoot>/handoff.params` without needing argv. Key=value
-    // lines are sourced verbatim — no quoting, spaces in paths are fine.
+    // globs `<updatesRoot>/handoff-*.params` without needing argv. The
+    // name is per-request (`<epoch_ms>-<pid>`) so the newest request
+    // always wins even inside the same second. Key=value lines are
+    // sourced verbatim — no quoting, spaces in paths are fine.
     try {
-      final handoff = File(p.join(update.root.parent.path, handoffFileName));
+      final name =
+          '$handoffFilePrefix'
+          '${DateTime.now().millisecondsSinceEpoch}-$pid.params';
+      final handoff = File(p.join(update.root.parent.path, name));
       await handoff.writeAsString(
-        '${[
-          'PARENT=$pid',
-          'ROOT=${update.root.path}',
-          'STAGED=${stagedApp.path}',
-          'TARGET=${target.path}',
-          'ARCHIVE=${update.archive.path}',
-        ].join('\n')}\n',
+        '${['PARENT=$pid', 'ROOT=${update.root.path}', 'STAGED=${stagedApp.path}', 'TARGET=${target.path}', 'ARCHIVE=${update.archive.path}'].join('\n')}\n',
       );
     } catch (_) {
       return false;

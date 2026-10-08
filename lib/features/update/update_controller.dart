@@ -175,7 +175,13 @@ class UpdateController extends Notifier<UpdateStatus> {
             checkThrottle.inMilliseconds) {
       return;
     }
-    state = state.copyWith(phase: UpdatePhase.checking, clearError: true);
+    // Drop any stale release candidate up front — a failed re-check must
+    // never leave an old asset operable behind an up-to-date banner.
+    state = state.copyWith(
+      phase: UpdatePhase.checking,
+      clearError: true,
+      clearRelease: true,
+    );
     try {
       final release = await ref.read(releaseClientProvider).latestRelease();
       // Throttle consumes only on a completed fetch — a failed auto-check
@@ -253,37 +259,47 @@ class UpdateController extends Notifier<UpdateStatus> {
     final release = state.release;
     final asset = state.asset;
     if (release == null || asset == null || _locked) return;
-    if (_settings.readyTag == release.tag &&
-        await _stagedAppExists(release.tag)) {
-      state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
-      return;
-    }
-    state = state.copyWith(phase: UpdatePhase.downloading, progress: 0);
+    // The op lock covers the WHOLE method — the staged-dir probe below
+    // awaits before `busy` engages, so without it two downloads could both
+    // decide a re-fetch is needed and write the same `.part` file, and a
+    // skip could interleave and let the download write back the skipped
+    // version afterward.
+    _opBusy = true;
     try {
-      final dir = await ref.read(updatePathsProvider).stageDir(release.tag);
-      await ref
-          .read(updateDownloaderProvider)
-          .fetchAndStage(
-            asset,
-            dir,
-            onProgress: (v) {
-              if (state.phase == UpdatePhase.downloading) {
-                state = state.copyWith(progress: v);
-              }
-            },
-          );
-      state = state.copyWith(phase: UpdatePhase.verifying);
-      await _settingsCtl.setReadyTag(release.tag);
-      state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
-    } on DownloadCancelled {
-      // Back to "available" — the user can start the download again.
-      state = state.copyWith(phase: UpdatePhase.available, progress: 0);
-    } catch (e) {
-      state = state.copyWith(
-        phase: UpdatePhase.failed,
-        stage: UpdateStage.download,
-        error: e.toString(),
-      );
+      if (_settings.readyTag == release.tag &&
+          await _stagedAppExists(release.tag)) {
+        state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
+        return;
+      }
+      state = state.copyWith(phase: UpdatePhase.downloading, progress: 0);
+      try {
+        final dir = await ref.read(updatePathsProvider).stageDir(release.tag);
+        await ref
+            .read(updateDownloaderProvider)
+            .fetchAndStage(
+              asset,
+              dir,
+              onProgress: (v) {
+                if (state.phase == UpdatePhase.downloading) {
+                  state = state.copyWith(progress: v);
+                }
+              },
+            );
+        state = state.copyWith(phase: UpdatePhase.verifying);
+        await _settingsCtl.setReadyTag(release.tag);
+        state = state.copyWith(phase: UpdatePhase.ready, progress: 1);
+      } on DownloadCancelled {
+        // Back to "available" — the user can start the download again.
+        state = state.copyWith(phase: UpdatePhase.available, progress: 0);
+      } catch (e) {
+        state = state.copyWith(
+          phase: UpdatePhase.failed,
+          stage: UpdateStage.download,
+          error: e.toString(),
+        );
+      }
+    } finally {
+      _opBusy = false;
     }
   }
 
@@ -299,33 +315,45 @@ class UpdateController extends Notifier<UpdateStatus> {
     state = state.copyWith(phase: UpdatePhase.installing);
     try {
       final dir = await ref.read(updatePathsProvider).stageDir(release.tag);
-      // Locate the extracted .app rather than assuming its name.
+      // Locate the extracted .app rather than assuming its name. Only
+      // macOS stages a payload — Windows/Linux stage only the archive.
       Directory? appBundle;
       final payload = Directory(p.join(dir.path, 'payload'));
-      await for (final entity in payload.list(recursive: true)) {
-        if (entity is Directory && entity.path.endsWith('.app')) {
-          appBundle = entity;
+      if (await payload.exists()) {
+        await for (final entity in payload.list(recursive: true)) {
+          if (entity is Directory && entity.path.endsWith('.app')) {
+            appBundle = entity;
+            break;
+          }
+        }
+      }
+      // The archive name follows the downloaded asset (.zip or .tar.gz),
+      // not a hardcoded package.zip — find what actually landed.
+      var archive = File(p.join(dir.path, 'package.zip'));
+      await for (final entity in dir.list()) {
+        if (entity is File && p.basename(entity.path).startsWith('package.')) {
+          archive = entity;
           break;
         }
       }
-      final staged = StagedUpdate(
-        root: dir,
-        archive: File(p.join(dir.path, 'package.zip')),
-        app: appBundle,
-      );
-      final handed = await ref
-          .read(updateInstallerProvider)
-          .installAndRelaunch(staged);
-      if (handed) {
-        await _settingsCtl.setReadyTag(null);
-        ref.read(quitAppProvider)();
-        return;
+      final staged = StagedUpdate(root: dir, archive: archive, app: appBundle);
+      if (appBundle != null) {
+        final handed = await ref
+            .read(updateInstallerProvider)
+            .installAndRelaunch(staged);
+        if (handed) {
+          await _settingsCtl.setReadyTag(null);
+          ref.read(quitAppProvider)();
+          return;
+        }
       }
+      // No staged bundle (Windows/Linux, or a zip without one) — the
+      // manual path: reveal the real archive in the file manager.
       await revealStagedUpdate(staged);
       state = state.copyWith(
         phase: UpdatePhase.failed,
         stage: UpdateStage.install,
-        error: 'helper did not start',
+        error: 'manual install required — archive revealed',
       );
     } catch (e) {
       state = state.copyWith(
@@ -442,23 +470,32 @@ class UpdateController extends Notifier<UpdateStatus> {
     try {
       final root = await ref.read(updatePathsProvider).updatesRoot();
       if (!await root.exists()) return;
-      final ready = _settings.readyTag;
       final current = await _currentVersion();
       await for (final entity in root.list()) {
         if (entity is! Directory) continue;
-        // An in-flight download stages under its tag dir with no readyTag
-        // yet — bailing here beats deleting live state mid-write.
-        if (state.busy) return;
-        final tag = p.basename(entity.path);
-        final consumed =
-            tag == ready &&
-            current != null &&
-            (versionFromTag(tag) ?? Version(0, 0, 0)) <= current;
-        if (tag != ready || consumed) {
+        // Each delete takes the shared op mutex briefly and RE-VALIDATES
+        // under it — reading readyTag before a long await and deleting on
+        // that stale snapshot can wipe a freshly staged dir. Between
+        // entries we hold nothing, so a real operation can always slip in
+        // and we stand down instead of blocking it.
+        if (_locked) return;
+        _opBusy = true;
+        try {
+          if (state.busy) return;
+          final ready = _settings.readyTag;
+          final tag = p.basename(entity.path);
+          final consumed =
+              tag == ready &&
+              current != null &&
+              (versionFromTag(tag) ?? Version(0, 0, 0)) <= current;
+          // The live ready payload is kept; everything else goes.
+          if (tag == ready && !consumed) continue;
           if (consumed) await _settingsCtl.setReadyTag(null);
           try {
             await entity.delete(recursive: true);
           } catch (_) {}
+        } finally {
+          _opBusy = false;
         }
       }
     } catch (_) {}

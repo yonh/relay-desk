@@ -126,7 +126,11 @@ class HttpUpdateDownloader implements UpdateDownloader {
       HttpClientResponse? response;
       var current = uri;
       for (var hops = 0; hops <= 5 && response == null; hops++) {
-        final request = await client.getUrl(current);
+        // Bound the CONNECT phase too — getUrl resolves DNS and opens the
+        // socket, which a stalled network can hold open indefinitely.
+        final request = await client
+            .getUrl(current)
+            .timeout(const Duration(seconds: 30));
         request.followRedirects = false;
         request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
         final hop = await request.close().timeout(const Duration(seconds: 30));
@@ -139,16 +143,13 @@ class HttpUpdateDownloader implements UpdateDownloader {
         // download or bypass the origin check on the next hop.
         final location = hop.headers.value(HttpHeaders.locationHeader);
         if (location == null) {
-          await hop.drain<void>();
+          await _drainBounded(hop, const Duration(seconds: 10));
           throw HttpException('redirect without location', uri: current);
         }
         current = current.resolve(location);
         _checkAssetUri(current);
         // Bound the courtesy drain — the connection is not reused anyway.
-        await hop.drain<void>().timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {},
-        );
+        await _drainBounded(hop, const Duration(seconds: 10));
       }
       if (response == null) {
         throw HttpException('too many redirects', uri: uri);

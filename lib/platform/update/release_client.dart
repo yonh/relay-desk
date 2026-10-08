@@ -74,7 +74,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final body = await response.transform(utf8.decoder).join().timeout(timeout);
+    final body = await _bodyBounded(response);
     final decoded = jsonDecode(body);
     if (decoded is! Map<String, dynamic>) return null;
     return GithubRelease.fromJson(decoded);
@@ -132,7 +132,7 @@ class GithubReleaseClient implements ReleaseClient {
         uri: request.uri,
       );
     }
-    final html = await response.transform(utf8.decoder).join().timeout(timeout);
+    final html = await _bodyBounded(response);
     final assets = parseAssetsFromExpandedHtml(
       html: html,
       owner: owner,
@@ -173,6 +173,20 @@ class GithubReleaseClient implements ReleaseClient {
         return asset;
       }),
     );
+  }
+
+  /// Reads a response body with a hard bound that actually cancels the
+  /// subscription on timeout — `.join().timeout()` would stop waiting but
+  /// leave the socket streaming in the background.
+  Future<String> _bodyBounded(HttpClientResponse response) async {
+    final chunks = <int>[];
+    final sub = response.listen(chunks.addAll);
+    try {
+      await sub.asFuture<void>().timeout(timeout);
+      return utf8.decode(chunks);
+    } finally {
+      await sub.cancel();
+    }
   }
 
   /// Courtesy-drains a response body with a hard bound. Plain

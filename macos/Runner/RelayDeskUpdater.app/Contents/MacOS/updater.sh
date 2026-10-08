@@ -7,8 +7,11 @@
 # sandboxed process (verified on macOS 26: the stub receives only argv[0]),
 # so runtime values arrive in a handoff file the app writes next to the
 # tag staging dir:
-#   <Application Support>/updates/handoff.params
+#   <Application Support>/updates/handoff-<epoch_ms>-<pid>.params
 # one `KEY=value` line per parameter — parsed field-by-field, never eval'd.
+# The per-request filename binds each handoff to one install attempt: two
+# requests written in the same second still order correctly, and a helper
+# only ever deletes the file it actually consumed.
 # argv remains accepted as a fallback for manual runs:
 #   $1  parent PID (the running Relay Desk process)
 #   $2  update staging root  (<Application Support>/updates/<tag>)
@@ -28,21 +31,42 @@ if [ -z "$PARENT" ]; then
   # Freshness is checked PER candidate inside the loop — a stale file in
   # one location must not shadow a live handoff the other build wrote.
   now=$(date +%s)
-  best=0
-  for c in \
-    "$HOME/Library/Containers/com.example.relayDesk/Data/Library/Application Support/com.example.relayDesk/updates/handoff.params" \
-    "$HOME/Library/Application Support/com.example.relayDesk/updates/handoff.params"; do
-    [ -f "$c" ] || continue
-    # Stale handoff: only trust a file written in the last 10 minutes — a
-    # replayed/planted params file must not drive destructive swaps later.
-    # And take the FRESHEST qualifying candidate: an older-but-valid file
-    # at one location must not win over the handoff written for this run.
-    mtime=$(stat -f %m "$c" 2>/dev/null || echo 0)
-    [ $((now - mtime)) -gt 600 ] && continue
-    [ "$mtime" -le "$best" ] && continue
-    best=$mtime
-    HANDOFF_FILE="$c"
+  bestname=""
+  bestmt=0
+  for d in \
+    "$HOME/Library/Containers/com.example.relayDesk/Data/Library/Application Support/com.example.relayDesk/updates" \
+    "$HOME/Library/Application Support/com.example.relayDesk/updates"; do
+    [ -d "$d" ] || continue
+    for c in "$d"/handoff-*.params; do
+      [ -f "$c" ] || continue
+      # Stale handoff: only trust a file written in the last 10 minutes —
+      # a replayed/planted params file must not drive destructive swaps.
+      mtime=$(stat -f %m "$c" 2>/dev/null || echo 0)
+      [ $((now - mtime)) -gt 600 ] && continue
+      # Names are handoff-<epoch_ms>-<pid>.params: lexicographic order IS
+      # chronological order, so the largest name is the newest request —
+      # even when two land in the same stat-resolution second.
+      base=${c##*/}
+      if [[ "$base" > "$bestname" ]]; then
+        bestname=$base
+        HANDOFF_FILE="$c"
+      fi
+    done
   done
+  # Legacy single-name handoff written by older builds — only when no
+  # request-scoped file qualified; freshest of the two locations wins.
+  if [ -z "$HANDOFF_FILE" ]; then
+    for c in \
+      "$HOME/Library/Containers/com.example.relayDesk/Data/Library/Application Support/com.example.relayDesk/updates/handoff.params" \
+      "$HOME/Library/Application Support/com.example.relayDesk/updates/handoff.params"; do
+      [ -f "$c" ] || continue
+      mtime=$(stat -f %m "$c" 2>/dev/null || echo 0)
+      [ $((now - mtime)) -gt 600 ] && continue
+      [ "$mtime" -le "$bestmt" ] && continue
+      bestmt=$mtime
+      HANDOFF_FILE="$c"
+    done
+  fi
   if [ -n "$HANDOFF_FILE" ]; then
     # `|| [ -n "$line" ]` keeps a final line that has no trailing newline —
     # plain `read` would drop it and the last param would come out empty.
@@ -71,7 +95,10 @@ case "$TARGET" in *.app) ;; *) exit 0;; esac
 MARKER="$ROOT/helper.started"
 ABORT="$ROOT/helper.abort"
 ABORTED="$ROOT/helper.aborted"
-LOCK="$ROOT/helper.lock"
+# The lock is shared BY TARGET, not by staging dir: two different
+# versions stage under different roots yet replace the same installed
+# bundle — a per-root lock would let them swap it concurrently.
+LOCK="$TARGET.update-lock"
 PAYLOAD="$ROOT/payload"
 BACKUP="$TARGET.relay-backup"
 OWN_LOCK=0
@@ -115,44 +142,55 @@ fi
 # (both saw a dead parent; only one may mutate the target). Ownership is
 # recorded by PID inside the lock — matching a live helper by script path
 # was wrong: two different installs have different paths and would evict
-# each other's LIVE lock. A lock whose recorded owner is dead (or missing
-# past a grace window for a just-created lock) is a crash leftover —
-# evict it and take over, otherwise a SIGKILLed helper wedges updates.
-if ! mkdir "$LOCK" 2>/dev/null; then
+# each other's LIVE lock. Stale-lock reclamation is serialized through
+# $ARB: staleness is RE-READ and the delete happens under the same mkdir
+# mutex, so nobody can ever replace (rather than inspect) the fresh lock
+# a concurrent helper just created.
+ARB="$LOCK.arb"
+while ! mkdir "$LOCK" 2>/dev/null; do
+  # A wedged helper can orphan the arbitration dir too — it is held for
+  # microseconds, so an aged one is definitively stale.
+  if ! mkdir "$ARB" 2>/dev/null; then
+    if [ $(( $(date +%s) - $(stat -f %m "$ARB" 2>/dev/null || echo 0) )) -gt 60 ]; then
+      rm -rf "$ARB"
+    else
+      sleep 0.1
+    fi
+    continue
+  fi
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
   LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+  LIVE=0
   case "$LPID" in
     ''|*[!0-9]*)
       # No recorded owner: a fresh lock is still being initialized by its
       # creator — only an aged one counts as orphaned.
-      [ "$LAGE" -lt 10 ] && exit 0
+      [ "$LAGE" -lt 10 ] && LIVE=1
       ;;
     *)
       if kill -0 "$LPID" 2>/dev/null; then
         # A live owner is only believed while it is actually a helper —
         # pid reuse could otherwise keep an orphan lock looking alive
         # forever. The pattern is install-agnostic (any RelayDeskUpdater /
-        # updater.sh path), NOT "$0" — two different installs must not
-        # evict each other. When the command can't be read, fall back to
-        # the lock's age: only a still-fresh lock is trusted, since a swap
-        # never outlasts the 120s parent wait plus copy time.
+        # updater.sh path), NOT "$0". When the command can't be read,
+        # fall back to the lock's age: only a still-fresh lock is trusted,
+        # since a swap never outlasts the 120s parent wait plus copy time.
         LCMD="$(ps -p "$LPID" -o command= 2>/dev/null || true)"
         case "$LCMD" in
-          *RelayDeskUpdater*|*updater.sh*) exit 0 ;;
-          "") [ "$LAGE" -lt 600 ] && exit 0 ;;
-          *) ;; # pid reused by a non-helper — fall through and reclaim
+          *RelayDeskUpdater*|*updater.sh*) LIVE=1 ;;
+          "") [ "$LAGE" -lt 600 ] && LIVE=1 ;;
+          *) ;; # pid reused by a non-helper — reclaim below
         esac
       fi
       ;;
   esac
-  # Reclaim the orphan atomically: park it under a per-process name, then
-  # rebuild — a plain rm+mkdir would let a concurrent helper delete the
-  # lock we just created and slip into the swap with us.
-  CLAIM="$LOCK.stale.$$"
-  mv "$LOCK" "$CLAIM" 2>/dev/null || exit 0
-  rm -rf "$CLAIM"
-  mkdir "$LOCK" 2>/dev/null || exit 0
-fi
+  if [ "$LIVE" = 1 ]; then
+    rm -rf "$ARB"
+    exit 0
+  fi
+  rm -rf "$LOCK"
+  rm -rf "$ARB"
+done
 echo $$ > "$LOCK/pid"
 OWN_LOCK=1
 # Crash recovery FIRST: a previous helper killed after parking the old
