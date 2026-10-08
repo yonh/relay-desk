@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/icon_settings.dart';
 import '../../app/localization.dart';
 import '../../l10n/app_localizations.dart';
+import '../update/update_ui.dart';
 
 extension AppIconLabel on AppIconChoice {
   String label(AppLocalizations l10n) => switch (this) {
@@ -168,6 +169,10 @@ class SettingsDialog extends ConsumerWidget {
                 l10n.appIconPlatformNote,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: 20),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+              const UpdateSettingsSection(),
             ],
           ),
         ),

@@ -524,6 +524,18 @@ abstract class AppLocalizations {
   /// **'Copy link'**
   String get copyLink;
 
+  /// No description provided for @qrCodeLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Link QR code'**
+  String get qrCodeLink;
+
+  /// No description provided for @qrLinkField.
+  ///
+  /// In en, this message translates to:
+  /// **'Link'**
+  String get qrLinkField;
+
   /// No description provided for @muteMedia.
   ///
   /// In en, this message translates to:
@@ -761,7 +773,7 @@ abstract class AppLocalizations {
   /// No description provided for @reloadTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Reload'**
+  /// **'Reload (⌘R)'**
   String get reloadTooltip;
 
   /// No description provided for @closeTooltip.
@@ -877,6 +889,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Switch Icon'**
   String get dockIconMenu;
+
+  /// No description provided for @updateSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates'**
+  String get updateSectionTitle;
+
+  /// No description provided for @updateCurrentVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Current version: v{version}'**
+  String updateCurrentVersion(String version);
+
+  /// No description provided for @updateSizeUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Size unknown'**
+  String get updateSizeUnknown;
+
+  /// No description provided for @updateAutoCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates automatically'**
+  String get updateAutoCheck;
+
+  /// No description provided for @updateAutoDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download updates automatically'**
+  String get updateAutoDownload;
+
+  /// No description provided for @updateCheckNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Check now'**
+  String get updateCheckNow;
+
+  /// No description provided for @updateChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get updateChecking;
+
+  /// No description provided for @updateUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay Desk is up to date'**
+  String get updateUpToDate;
+
+  /// No description provided for @updateAvailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update available: v{version}'**
+  String updateAvailableTitle(String version);
+
+  /// No description provided for @updateDownloadedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update ready: v{version}'**
+  String updateDownloadedTitle(String version);
+
+  /// No description provided for @updateVersionTransition.
+  ///
+  /// In en, this message translates to:
+  /// **'{current} → v{latest}'**
+  String updateVersionTransition(String current, String latest);
+
+  /// No description provided for @updateWhatsNew.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s new'**
+  String get updateWhatsNew;
+
+  /// No description provided for @updateDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download update'**
+  String get updateDownload;
+
+  /// No description provided for @updateDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading… {percent}%'**
+  String updateDownloading(String percent);
+
+  /// No description provided for @updateVerifying.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying download…'**
+  String get updateVerifying;
+
+  /// No description provided for @updateInstalling.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing…'**
+  String get updateInstalling;
+
+  /// No description provided for @updateReadyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The update has been downloaded. Relay Desk quits and relaunches to finish installing.'**
+  String get updateReadyHint;
+
+  /// No description provided for @updateInstallRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Install & relaunch'**
+  String get updateInstallRestart;
+
+  /// No description provided for @updateLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get updateLater;
+
+  /// No description provided for @updateSkipVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip this version'**
+  String get updateSkipVersion;
+
+  /// No description provided for @updateSkippedVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped version {version}'**
+  String updateSkippedVersion(String version);
+
+  /// No description provided for @updateClearSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get updateClearSkip;
+
+  /// No description provided for @updateCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel download'**
+  String get updateCancel;
+
+  /// No description provided for @updateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed: {error}'**
+  String updateFailed(String error);
+
+  /// No description provided for @updateRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get updateRetry;
+
+  /// No description provided for @updateOpenReleasePage.
+  ///
+  /// In en, this message translates to:
+  /// **'Open download page'**
+  String get updateOpenReleasePage;
+
+  /// No description provided for @updateNoAsset.
+  ///
+  /// In en, this message translates to:
+  /// **'No installable package for this platform.'**
+  String get updateNoAsset;
+
+  /// No description provided for @updateViewPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get updateViewPrompt;
 }
 
 class _AppLocalizationsDelegate

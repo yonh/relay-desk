@@ -17,6 +17,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/localization.dart';
 import '../../app/providers.dart';
@@ -637,12 +638,36 @@ class _WorkspaceBodyState extends ConsumerState<_WorkspaceBody> {
         // routed to the active panel (selectedPanelId) in every layout mode.
         // Deliberately placed here instead of inside _TagDock (currently
         // unmounted, and its hover area would be too small to be useful).
+        //
+        // Browser key equivalents for focus living in Flutter chrome (panels'
+        // toolbars, the URL field, empty canvas): Cmd+R reloads the active
+        // panel, Cmd+[/Cmd+] navigate back/forward. When a page's WKWebView
+        // holds the window's first responder, ProfiledWebView consumes these
+        // natively and the key event never reaches the framework.
         Expanded(
-          child: Listener(
-            key: const ValueKey('workspace-side-button-listener'),
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (event) => _handleMouseSideButton(ref, event),
-            child: Stack(children: [_layoutFor(ws)]),
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () =>
+                  ref
+                      .read(workspaceControllerProvider.notifier)
+                      .reloadActive(),
+              const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
+                  () => ref
+                      .read(workspaceControllerProvider.notifier)
+                      .backActive(),
+              const SingleActivator(
+                LogicalKeyboardKey.bracketRight,
+                meta: true,
+              ): () => ref
+                  .read(workspaceControllerProvider.notifier)
+                  .forwardActive(),
+            },
+            child: Listener(
+              key: const ValueKey('workspace-side-button-listener'),
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (event) => _handleMouseSideButton(ref, event),
+              child: Stack(children: [_layoutFor(ws)]),
+            ),
           ),
         ),
       ],
@@ -1610,8 +1635,8 @@ class _PanelNavToolbar extends ConsumerStatefulWidget {
 /// minimum, which overflows narrow grid/focus panels (8 buttons + URL field).
 /// shrinkWrap removes the tap-target floor so the toolbar fits ~300px cells.
 const ButtonStyle _navButtonStyle = ButtonStyle(
-  minimumSize: WidgetStatePropertyAll(Size(24, 24)),
-  fixedSize: WidgetStatePropertyAll(Size(24, 24)),
+  minimumSize: WidgetStatePropertyAll(Size(22, 22)),
+  fixedSize: WidgetStatePropertyAll(Size(22, 22)),
   padding: WidgetStatePropertyAll(EdgeInsets.zero),
   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
@@ -1641,6 +1666,13 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
     super.dispose();
   }
 
+  void _showQrDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _QrLinkDialog(initialUrl: _urlCtrl.text),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -1650,7 +1682,7 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
     final devtoolsEnabled =
         ref.watch(capabilitiesProvider).asData?.value.devtools ?? false;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: Row(
         children: [
@@ -1684,7 +1716,7 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 2),
               child: TextField(
                 controller: _urlCtrl,
                 style: const TextStyle(fontSize: 11),
@@ -1734,6 +1766,13 @@ class _PanelNavToolbarState extends ConsumerState<_PanelNavToolbar> {
             icon: const Icon(Icons.content_copy),
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: _urlCtrl.text)),
+          ),
+          IconButton(
+            tooltip: l10n.qrCodeLink,
+            iconSize: 16,
+            style: _navButtonStyle,
+            icon: const Icon(Icons.qr_code_2),
+            onPressed: _showQrDialog,
           ),
           IconButton(
             tooltip: _mediaMuted ? l10n.unmuteMedia : l10n.muteMedia,
@@ -2369,6 +2408,77 @@ class _PanelBody extends ConsumerWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           ),
+      ],
+    );
+  }
+}
+/// QR-code dialog for a panel link. The link is editable and the QR image
+/// regenerates on every change, so the encoded URL can be tweaked or
+/// parameterized before hand-off.
+class _QrLinkDialog extends StatefulWidget {
+  const _QrLinkDialog({required this.initialUrl});
+
+  final String initialUrl;
+
+  @override
+  State<_QrLinkDialog> createState() => _QrLinkDialogState();
+}
+
+class _QrLinkDialogState extends State<_QrLinkDialog> {
+  late final TextEditingController _linkCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _linkCtrl = TextEditingController(text: widget.initialUrl);
+    _linkCtrl.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    _linkCtrl.dispose();
+    super.dispose();
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final url = _linkCtrl.text.trim();
+    return AlertDialog(
+      title: Text(l10n.qrCodeLink),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: QrImageView(
+                data: url.isEmpty ? ' ' : url,
+                size: 200,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _linkCtrl,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                isDense: true,
+                labelText: l10n.qrLinkField,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.closeTooltip),
+        ),
       ],
     );
   }

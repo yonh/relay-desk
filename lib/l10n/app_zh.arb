@@ -113,6 +113,8 @@
   "devtoolsOpened": "Web 检查器已启用",
   "devtoolsUnavailable": "开发者工具仅在调试构建中可用",
   "copyLink": "复制链接",
+  "qrCodeLink": "链接二维码",
+  "qrLinkField": "链接",
   "muteMedia": "静音媒体",
   "unmuteMedia": "取消静音",
   "measureMode": "测量模式（Esc 退出）",
@@ -197,7 +199,7 @@
     }
   },
   "retry": "重试",
-  "reloadTooltip": "重新加载",
+  "reloadTooltip": "重新加载 (⌘R)",
   "closeTooltip": "关闭",
   "diagnosticsLogTooltip": "复制诊断日志路径",
   "diagnosticsLogCopied": "诊断日志路径已复制：{path}",
@@ -216,5 +218,85 @@
   "settingsDone": "完成",
   "iconSaveFailed": "图标更新失败，请重试。",
   "appIconPlatformNote": "应用内 Logo 和 macOS Dock 图标即时更新；访达使用安装包默认的 B2 图标。",
-  "dockIconMenu": "切换图标"
+  "dockIconMenu": "切换图标",
+  "updateSectionTitle": "更新",
+  "updateCurrentVersion": "当前版本：v{version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSizeUnknown": "大小未知",
+  "updateAutoCheck": "自动检查更新",
+  "updateAutoDownload": "自动下载更新包",
+  "updateCheckNow": "检查更新",
+  "updateChecking": "正在检查…",
+  "updateUpToDate": "已是最新版本",
+  "updateAvailableTitle": "发现新版本 v{version}",
+  "@updateAvailableTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateDownloadedTitle": "更新已就绪 v{version}",
+  "@updateDownloadedTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateVersionTransition": "当前 {current} → v{latest}",
+  "@updateVersionTransition": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "updateWhatsNew": "更新内容",
+  "updateDownload": "下载更新",
+  "updateDownloading": "正在下载… {percent}%",
+  "@updateDownloading": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "updateVerifying": "正在校验更新包…",
+  "updateInstalling": "正在安装…",
+  "updateReadyHint": "更新包已下载完成。Relay Desk 将退出并重启以完成安装。",
+  "updateInstallRestart": "安装并重启",
+  "updateLater": "稍后",
+  "updateSkipVersion": "跳过此版本",
+  "updateSkippedVersion": "已跳过版本 {version}",
+  "@updateSkippedVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateClearSkip": "清除",
+  "updateCancel": "取消下载",
+  "updateFailed": "更新失败：{error}",
+  "@updateFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "updateRetry": "重试",
+  "updateOpenReleasePage": "打开下载页面",
+  "updateNoAsset": "没有适配当前平台的安装包。",
+  "updateViewPrompt": "查看"
 }

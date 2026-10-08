@@ -119,6 +119,8 @@
   "devtoolsOpened": "Web Inspector enabled",
   "devtoolsUnavailable": "DevTools are only available in debug builds",
   "copyLink": "Copy link",
+  "qrCodeLink": "Link QR code",
+  "qrLinkField": "Link",
   "muteMedia": "Mute media",
   "unmuteMedia": "Unmute media",
   "measureMode": "Measure mode (Esc to exit)",
@@ -203,7 +205,7 @@
     }
   },
   "retry": "Retry",
-  "reloadTooltip": "Reload",
+  "reloadTooltip": "Reload (⌘R)",
   "closeTooltip": "Close",
   "diagnosticsLogTooltip": "Copy diagnostics log path",
   "diagnosticsLogCopied": "Diagnostics log path copied: {path}",
@@ -229,5 +231,85 @@
   "settingsDone": "Done",
   "iconSaveFailed": "Could not update the icon. Please try again.",
   "appIconPlatformNote": "The app logo and macOS Dock icon update immediately. Finder uses the bundled B2 icon.",
-  "dockIconMenu": "Switch Icon"
+  "dockIconMenu": "Switch Icon",
+  "updateSectionTitle": "Updates",
+  "updateCurrentVersion": "Current version: v{version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSizeUnknown": "Size unknown",
+  "updateAutoCheck": "Check for updates automatically",
+  "updateAutoDownload": "Download updates automatically",
+  "updateCheckNow": "Check now",
+  "updateChecking": "Checking…",
+  "updateUpToDate": "Relay Desk is up to date",
+  "updateAvailableTitle": "Update available: v{version}",
+  "@updateAvailableTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateDownloadedTitle": "Update ready: v{version}",
+  "@updateDownloadedTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateVersionTransition": "{current} → v{latest}",
+  "@updateVersionTransition": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "updateWhatsNew": "What's new",
+  "updateDownload": "Download update",
+  "updateDownloading": "Downloading… {percent}%",
+  "@updateDownloading": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "updateVerifying": "Verifying download…",
+  "updateInstalling": "Installing…",
+  "updateReadyHint": "The update has been downloaded. Relay Desk quits and relaunches to finish installing.",
+  "updateInstallRestart": "Install & relaunch",
+  "updateLater": "Later",
+  "updateSkipVersion": "Skip this version",
+  "updateSkippedVersion": "Skipped version {version}",
+  "@updateSkippedVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateClearSkip": "Clear",
+  "updateCancel": "Cancel download",
+  "updateFailed": "Update failed: {error}",
+  "@updateFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "updateRetry": "Retry",
+  "updateOpenReleasePage": "Open download page",
+  "updateNoAsset": "No installable package for this platform.",
+  "updateViewPrompt": "View"
 }
