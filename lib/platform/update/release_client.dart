@@ -182,17 +182,28 @@ class GithubReleaseClient implements ReleaseClient {
     const limit = 4 * 1024 * 1024;
     final chunks = <int>[];
     var total = 0;
+    final done = Completer<void>();
     late StreamSubscription<List<int>> sub;
-    sub = response.listen((chunk) {
-      total += chunk.length;
-      if (total > limit) {
-        sub.cancel();
-        return;
-      }
-      chunks.addAll(chunk);
-    });
+    sub = response.listen(
+      (chunk) {
+        total += chunk.length;
+        if (total > limit) {
+          // cancel() may take a moment to tear the socket down — complete
+          // the wait NOW so a giant response fails fast instead of
+          // sitting out the read timeout.
+          if (!done.isCompleted) done.complete();
+          sub.cancel();
+          return;
+        }
+        chunks.addAll(chunk);
+      },
+      onError: done.completeError,
+      onDone: () {
+        if (!done.isCompleted) done.complete();
+      },
+    );
     try {
-      await sub.asFuture<void>().timeout(timeout);
+      await done.future.timeout(timeout);
       if (total > limit) {
         throw const HttpException('release response too large');
       }
