@@ -84,6 +84,16 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Rejection reasons are type-tagged (`[object Object]`), never serialized payloads; frame `url` and entry `source` are URL-sanitized like all transport fields.
 - The drain is read-only and does not clear the buffer — repeat calls on the same document return the same entries; compare `bufferId`+`count` for increments.
 
+## DOM summary
+
+`relayctl dom --identity <uuid>` (issue #20) walks the page with a fixed read-only probe — never caller-supplied JavaScript. It returns `documentId` (per-probe nonce — every call produces a fresh one, even for an unchanged page), `title`, sanitized `url`, and a `frames[]` walk:
+
+- Each frame reports `label` (`main`, `f0`, …), `depth`, `title`, `text` (bounded visible text), `elementCount`, and an `elements[]` list of semantic nodes: `ref`, `tag`, `role`, `label`, sanitized `href`.
+- A `ref` is `<frameIndex>.<document position>` — the element's `querySelectorAll('*')` preorder slot within its own frame's document. It is stable within that probe result; it **means nothing across calls or after DOM changes** — re-probe instead of assuming stability.
+- Same-origin iframes are recursed into; unreachable frames report `reachable:false` — "cannot observe", never "empty frame". A loading page legitimately returns empty frames — that is the honest loading state, not an error.
+- Budgets (depth 8, 16 frames, 300 elements/frame, 80-char labels, 2000-node scan) truncate oversized documents; top-level `truncated`/`skipped` flag what was cut — never read a truncated result as complete.
+- The probe never returns scripts, input values, or password fields — it is a summary for locating elements, not a DOM dump.
+
 ## DOM element find
 
 `relayctl dom_find --identity <uuid> --text|--role|--selector <v>` (issue #21) searches the rendered page with a fixed native probe — the criteria travel as JSON data, never as caller JavaScript:
@@ -104,8 +114,18 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Unknown projectId → `not_found`; a concurrent activation → `panel_busy` (409), retry after it finishes — never read a busy as the other project's state.
 - After activation, `state`/`panels`/`screenshot`/`media`/`errors` address the new project's identities as usual.
 
+## Panel open (write op)
+
+`relayctl open_panel --identity <uuid>` (issue #32) opens (or re-surfaces) the panel of an existing identity — the same `WorkspaceController.ensurePanel` the workspace sync calls, never a second WebView lifecycle:
+
+- `--identity` is required and must belong to the **currently activated** project: an identity of another project is `project_not_active` (409) — activate that project first, open_panel never switches implicitly.
+- Idempotent: re-opening an already-resident panel returns `alreadyOpen: true` without disturbing it.
+- Opening is asynchronous: the response reports `alreadyOpen`, `nativeViewId`, `windowId`, and `viewReady`. `viewReady: false` means the platform view registered but the state hasn't transitioned yet — re-query `state`/`panel`, don't retry the open.
+- Unknown identityId → `not_found`; a concurrent open on the same identity → `panel_busy` (409).
+- After it returns, `screenshot`/`media`/`errors`/`dom` can address the panel's view as usual.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, and DOM summary/find, plus the write operation `activate_project`; they expose no script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project` and `open_panel`; they expose no element inspect, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
