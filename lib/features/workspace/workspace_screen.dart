@@ -2168,6 +2168,12 @@ Map<String, Object?> panelCreationParams(
     'viewportHeight': preset?.emulatedViewport == true
         ? preset!.viewportHeight
         : (follows ? runtime.layout.height.round() : null),
+    // Installs the page-side JS error buffer the automation `errors` op
+    // reads. Only builds compiled with RELAY_DESK_AUTOMATION get it — the
+    // const define must be baked at build time, so panels in any other
+    // build never carry the listeners or the buffer.
+    'automationErrorCapture':
+        const bool.fromEnvironment('RELAY_DESK_AUTOMATION'),
     'viewportFollowsSurface': follows,
   };
 }

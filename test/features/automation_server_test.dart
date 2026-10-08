@@ -295,6 +295,7 @@ void main() {
         'panel',
         'screenshot',
         'media',
+        'errors',
         'windows',
         'window',
         'workspaces',

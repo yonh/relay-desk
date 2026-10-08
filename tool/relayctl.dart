@@ -6,14 +6,15 @@
 /// dart:io are imported: no `package:` imports, no pubspec dependency, no
 /// Python execution and no Flutter at runtime.
 ///
-/// Scope is P0 protocol v1 (design/automation-roadmap.md): fourteen read-only
+/// Scope is P0 protocol v1 (design/automation-roadmap.md): fifteen read-only
 /// operations plus the local `sessions` listing. No mutable operation is
 /// exposed. An absent selector defers to the backend's current selection —
 /// this CLI never guesses a project, identity, window or workspace and never
-/// inspects AppKit. `screenshot` and `media` are the exceptions to the
-/// absent-selector rule: each requires an explicit --identity (screenshot
-/// also a local --output path), because a page-level read without a named
-/// target would silently sample whatever happens to be selected.
+/// inspects AppKit. `screenshot`, `media` and `errors` are the exceptions
+/// to the absent-selector rule: each requires an explicit --identity
+/// (screenshot also a local --output path), because a page-level read
+/// without a named target would silently sample whatever happens to be
+/// selected.
 ///
 /// Session descriptors are credentials. Only `file`, `pid` and `endpoint` are
 /// ever printed; the bearer token is neither logged nor included in errors.
@@ -174,6 +175,11 @@ const List<_Command> _commands = <_Command>[
   _Command(
     'media',
     'Media-element state of one identity panel; --identity required',
+    <_Selector>[_requiredIdentitySelector],
+  ),
+  _Command(
+    'errors',
+    'Buffered page JS errors of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],
   ),
 ];

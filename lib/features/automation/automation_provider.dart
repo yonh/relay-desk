@@ -34,6 +34,7 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     readNativeWindows: adapter.windowInventory,
     captureScreenshot: adapter.takeSnapshot,
     sampleMedia: adapter.sampleMedia,
+    drainJsErrors: adapter.drainJsErrors,
   );
   if (!ref.mounted) return null;
 

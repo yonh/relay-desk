@@ -453,6 +453,76 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         )
     }
 
+    /// Installs the bounded in-page error buffer the automation `errors` op
+    /// reads (issue #17). A `WKUserScript` at document start in every frame —
+    /// same-origin iframes get their own buffer, which the drain script then
+    /// reads frame-by-frame; cross-origin frames stay unreachable and are
+    /// reported as such.
+    ///
+    /// The buffer lives inside the page document: it starts recording at
+    /// injection time (honest `collectedAt` — no history before that exists),
+    /// dies with the document on navigation or panel teardown, and a fresh
+    /// `bufferId` per document marks the navigation batch. Capped at 200
+    /// entries with an overflow counter; message/stack are truncated, and a
+    /// rejection's non-Error `reason` is reduced to its type tag — arbitrary
+    /// payloads are never serialized. Listeners only observe; they neither
+    /// swallow errors nor alter propagation.
+    private func addErrorCaptureScript(to configuration: WKWebViewConfiguration) {
+        let source = """
+        (function () {
+          try {
+            if (window.__relayErrors) return;
+            var MAX = 200;
+            var buf = {
+              v: 1,
+              bufferId: 'b' + Math.random().toString(36).slice(2) + '-' + Date.now(),
+              startedAt: new Date().toISOString(),
+              overflow: 0,
+              entries: []
+            };
+            function clip(s, n) {
+              if (s === null || s === undefined) return null;
+              s = String(s);
+              return s.length > n ? s.slice(0, n) + '\\u2026[' + (s.length - n) + ' chars]' : s;
+            }
+            function push(kind, message, source, line, col, stack) {
+              if (buf.entries.length >= MAX) { buf.overflow++; return; }
+              buf.entries.push({
+                t: new Date().toISOString(), kind: kind,
+                message: clip(message, 1024), source: clip(source, 512),
+                line: line || null, col: col || null, stack: clip(stack, 4096)
+              });
+            }
+            Object.defineProperty(window, '__relayErrors', {
+              configurable: true, enumerable: false, writable: false, value: buf
+            });
+            window.addEventListener('error', function (e) {
+              try {
+                push('error', e.message, e.filename, e.lineno, e.colno,
+                     e.error && e.error.stack);
+              } catch (_) {}
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+              try {
+                var r = e.reason, msg, stack = null;
+                if (r instanceof Error) { msg = r.message; stack = r.stack; }
+                else { msg = (typeof r === 'object' && r !== null)
+                  ? Object.prototype.toString.call(r) : String(r); }
+                push('unhandledrejection', msg, null, null, null, stack);
+              } catch (_) {}
+            });
+          } catch (_) {}
+        })();
+        """
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: source,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+    }
+
     private func removeInAppFullscreenBridge(for viewId: Int64, webView: WKWebView) {
         let handlerName = "relayDeskFullscreen_\(viewId)"
         fullscreenHandlerIdentities.removeValue(forKey: handlerName)
@@ -981,6 +1051,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             takeSnapshot(args, result: result)
         case "sampleMedia":
             sampleMedia(args, result: result)
+        case "drainJsErrors":
+            drainJsErrors(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1419,6 +1491,112 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
     }
 
+    /// Fixed read-only drain for the in-page error buffer (issue #17). Reads
+    /// the main document's buffer plus every reachable same-origin iframe's;
+    /// unreachable frames are marked `reachable:false`. `installed:false`
+    /// distinguishes a view created without the capture flag from a genuine
+    /// empty buffer — "no errors recorded" is never conflated with "cannot
+    /// observe". The drain is read-only: entries persist for later samples.
+    private static let errorsDrainScript = """
+    (function () {
+      var frames = [];
+      function read(doc, label, url) {
+        var b = (doc.defaultView || window).__relayErrors || null;
+        var f = { index: frames.length, label: label, url: url,
+                  reachable: true, installed: !!b, errors: [] };
+        if (b) {
+          f.bufferId = b.bufferId; f.collectedAt = b.startedAt;
+          f.overflow = b.overflow; f.count = b.entries.length;
+          f.errors = b.entries.slice();
+        }
+        frames.push(f);
+      }
+      read(document, 'main', location.href);
+      var iframes = document.querySelectorAll('iframe');
+      for (var k = 0; k < iframes.length; k++) {
+        var el = iframes[k];
+        try {
+          var idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+          if (!idoc) { throw new Error('unavailable'); }
+          read(idoc, 'iframe' + k,
+               (idoc.location && idoc.location.href) || el.src || null);
+        } catch (e) {
+          frames.push({ index: frames.length, label: 'iframe' + k,
+                        url: el.src || null, reachable: false,
+                        reason: 'unavailable', installed: false, errors: [] });
+        }
+      }
+      return JSON.stringify({ frames: frames });
+    })()
+    """
+
+    /// Read-only drain of the page error buffer bound to [args]' target.
+    /// Same binding, gate and deadline discipline as `sampleMedia` — drift
+    /// mid-eval fails `target_changed`, never mixes buffers across targets.
+    private func drainJsErrors(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "errors_timeout",
+                    message: "Error drain did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        webView.evaluateJavaScript(Self.errorsDrainScript) { [weak self, weak webView] value, error in
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "errors_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "errors_failed", message: "Error drain returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during error drain", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
     /// Bumps the provisional-navigation generation for [webView]'s view.
     /// Called from didStartProvisionalNavigation so in-flight snapshots see
     /// the target as changed once a page navigation actually begins.
@@ -1508,7 +1686,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         touchEmulation: Bool = false,
         viewportWidth: Double? = nil,
         viewportHeight: Double? = nil,
-        viewportFollowsSurface: Bool = false
+        viewportFollowsSurface: Bool = false,
+        automationErrorCapture: Bool = false
     ) -> NSView {
         let requestedKind = Self.storeKind(for: isolationMode)
         let reusable = identityStoreKinds[identityId] == requestedKind
@@ -1523,6 +1702,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "fingerprint": fingerprint,
             "hasUserAgent": userAgent != nil,
             "touchEmulation": touchEmulation,
+            "automationErrorCapture": automationErrorCapture,
         ])
 
         // If a detached window exists for this identity, reattach the existing
@@ -1625,6 +1805,9 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         addMeasureModeBridge(to: config, viewId: viewId, identityId: identityId)
         if touchEmulation {
             addTouchEmulationScript(to: config)
+        }
+        if automationErrorCapture {
+            addErrorCaptureScript(to: config)
         }
         // Emulated CSS viewport (mobile width-clamp and fixed window-size
         // presets, plus the `custom` seed): remembered for detach so the
@@ -2546,6 +2729,10 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
         let viewportWidth = (dict["viewportWidth"] as? NSNumber)?.doubleValue
         let viewportHeight = (dict["viewportHeight"] as? NSNumber)?.doubleValue
         let viewportFollowsSurface = dict["viewportFollowsSurface"] as? Bool ?? false
+        // Installs the bounded in-page error buffer (issue #17); absent/false
+        // leaves the page JS environment untouched, as in non-automation
+        // builds.
+        let automationErrorCapture = dict["automationErrorCapture"] as? Bool ?? false
         return plugin.registerWebView(
             viewId: viewId,
             identityId: identityId,
@@ -2556,7 +2743,8 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
             touchEmulation: touchEmulation,
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight,
-            viewportFollowsSurface: viewportFollowsSurface
+            viewportFollowsSurface: viewportFollowsSurface,
+            automationErrorCapture: automationErrorCapture
         )
     }
 

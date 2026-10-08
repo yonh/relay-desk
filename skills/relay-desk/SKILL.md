@@ -75,8 +75,17 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - `sampledAt` marks when the single probe pass finished; media fields move while sampling, so two samples differ naturally. Compare positions with the business's own tolerance, never float equality.
 - Fields prove **player state only** — they cannot prove effective watch time, gift eligibility, or which business account is logged in.
 
+## Page error buffer
+
+`relayctl errors --identity <uuid>` drains the page-side buffer of `error` and `unhandledrejection` events in that identity's panel (issue #17). Views created in an automation build carry the listeners from document start; the buffer lives inside each document, so:
+
+- `collectedAt` marks when recording started — nothing before that exists; `bufferId` changes per navigation and per frame, `count`/`overflow` flag entries and drops (cap 200, bounded fields).
+- `installed:false` means the page was created without the capture flag — "cannot observe", never "no errors". Same-origin iframes get their own buffer; cross-origin frames are `reachable:false`.
+- Rejection reasons are type-tagged (`[object Object]`), never serialized payloads; frame `url` and entry `source` are URL-sanitized like all transport fields.
+- The drain is read-only and does not clear the buffer — repeat calls on the same document return the same entries; compare `bufferId`+`count` for increments.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata and media-state sampling; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling and the page error buffer; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.

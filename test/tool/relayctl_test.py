@@ -29,6 +29,7 @@ SELECTOR_CASES = (
     ('workspaces', '--project', 'proj-7', 'projectId', 'proj-7'),
     ('workspace', '--workspace', 'ws-9', 'workspaceId', 'ws-9'),
     ('media', '--identity', 'ident-3', 'identityId', 'ident-3'),
+    ('errors', '--identity', 'ident-3', 'identityId', 'ident-3'),
 )
 SELECTION_CASES = ('capabilities', 'state', 'projects', 'identities', 'identity',
                    'panels', 'panel', 'windows', 'window', 'workspaces', 'workspace')
@@ -267,6 +268,12 @@ class RelayCtlTest(unittest.TestCase):
 
     def test_media_requires_an_explicit_identity(self):
         done = self.run_cli('media')
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(self.server.seen(), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_errors_requires_an_explicit_identity(self):
+        done = self.run_cli('errors')
         self.assertEqual(done.returncode, 2)
         self.assertEqual(self.server.seen(), [])
         self.assertNoCredentialLeak(done)

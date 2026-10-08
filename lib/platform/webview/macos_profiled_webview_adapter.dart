@@ -787,6 +787,35 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Read-only drain of the in-page JS error buffer of the view bound to
+  /// [viewId] (issue #17). Same binding and deadline discipline as
+  /// [sampleMedia]; the buffer only exists on pages created with the
+  /// automation error-capture flag — `installed:false` frames tell that
+  /// apart from a genuinely empty buffer.
+  Future<Map<String, dynamic>> drainJsErrors(
+    int viewId,
+    String expectedIdentityId,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('drainJsErrors', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'errors_timeout',
+          message: 'Native error drain did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'errors_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
