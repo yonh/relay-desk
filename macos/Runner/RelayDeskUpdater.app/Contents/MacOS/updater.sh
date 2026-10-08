@@ -104,12 +104,18 @@ fi
 # (both saw a dead parent; only one may mutate the target). A lock whose
 # holder is no longer alive is a crash leftover — evict it and take over,
 # otherwise a SIGKILLed helper wedges every future update behind the
-# orphan and the crash-recovery below can never run.
+# orphan and the crash-recovery below can never run. A second helper
+# losing the rename above exits quietly — exactly one swapper proceeds.
 if ! mkdir "$LOCK" 2>/dev/null; then
   if pgrep -f "$0" | grep -vx "$$" | grep -q .; then
     exit 0
   fi
-  rm -rf "$LOCK"
+  # Reclaim the orphan atomically: park it under a per-process name, then
+  # rebuild — a plain rm+mkdir would let a concurrent helper delete the
+  # lock we just created and slip into the swap with us.
+  CLAIM="$LOCK.stale.$$"
+  mv "$LOCK" "$CLAIM" 2>/dev/null || exit 0
+  rm -rf "$CLAIM"
   mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 OWN_LOCK=1

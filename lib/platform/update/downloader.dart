@@ -134,13 +134,21 @@ class HttpUpdateDownloader implements UpdateDownloader {
           response = hop;
           break;
         }
+        // Read and validate the target BEFORE consuming the body — a
+        // hostile hop streaming an endless redirect body must not pin the
+        // download or bypass the origin check on the next hop.
         final location = hop.headers.value(HttpHeaders.locationHeader);
-        await hop.drain<void>();
         if (location == null) {
+          await hop.drain<void>();
           throw HttpException('redirect without location', uri: current);
         }
         current = current.resolve(location);
         _checkAssetUri(current);
+        // Bound the courtesy drain — the connection is not reused anyway.
+        await hop.drain<void>().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {},
+        );
       }
       if (response == null) {
         throw HttpException('too many redirects', uri: uri);

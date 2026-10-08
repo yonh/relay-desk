@@ -883,21 +883,25 @@ void main() {
       );
     });
 
-    test('an orphaned lock is evicted only when no live helper holds it', () {
-      // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
-      // helper must evict an orphan lock (liveness check, not age) instead
-      // of quietly exiting forever.
-      final take = lineOf('if ! mkdir "\$LOCK"');
-      expect(
-        lineOf('pgrep -f "\$0" | grep -vx "\$\$"', take),
-        lessThan(lineOf('rm -rf "\$LOCK"', take)),
-      );
-      // And only after eviction may the backup-rescue run.
-      expect(
-        lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', take),
-        greaterThan(lineOf('rm -rf "\$LOCK"', take)),
-      );
-    });
+    test(
+      'an orphaned lock is reclaimed atomically, never by a live holder',
+      () {
+        // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
+        // helper must reclaim an orphan (liveness check, then an atomic
+        // rename — never rm+mkdir, which a concurrent helper could turn
+        // against the lock we just created).
+        final take = lineOf('if ! mkdir "\$LOCK"');
+        final check = lineOf('pgrep -f "\$0" | grep -vx "\$\$"', take);
+        final claim = lineOf('mv "\$LOCK" "\$CLAIM"', check);
+        expect(check, lessThan(claim));
+        expect(claim, lessThan(lineOf('rm -rf "\$CLAIM"', claim)));
+        // And only after the reclaim may the backup-rescue run.
+        expect(
+          lineOf('[ ! -d "\$TARGET" ] && [ -d "\$BACKUP" ]', claim),
+          greaterThan(claim),
+        );
+      },
+    );
   });
 
   group('UpdateSettingsSection', () {
