@@ -121,6 +121,12 @@ void main() {
       String expectedIdentityId,
     )?
     domProber,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+      String query,
+    )?
+    domFinder,
     void Function(String projectId)? selectProject,
     void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
@@ -144,6 +150,9 @@ void main() {
     probeDom:
         domProber ??
         (viewId, identityId) async => throw UnimplementedError(),
+    domFind:
+        domFinder ??
+        (viewId, identityId, query) async => throw UnimplementedError(),
     // Mimic what the real wiring does: the provider selection flips
     // immediately and the workspace marker catches up inside the same
     // settle window. Tests that want a permanently-lagging workspace
@@ -1509,6 +1518,174 @@ void main() {
       expect(
         queries.dispatch({'op': 'dom', 'identityId': 'id-a1'}),
         failure('dom_failed', 500),
+      );
+    });
+  });
+
+  group('dom_find', () {
+    void wireView() {
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires identityId and exactly one criterion', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'dom_find'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({'op': 'dom_find', 'identityId': 'id-a1'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'text': 'x',
+          'selector': 'div',
+        }),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'text': 'x',
+          'match': 'regex',
+        }),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('forwards validated criteria as JSON and returns matches', () async {
+      wireView();
+      String? sent;
+      queries = buildQueries(
+        domFinder: (viewId, identityId, query) async {
+          sent = query;
+          return {
+            'json': jsonEncode({
+              'documentId': 'doc9',
+              'count': 2,
+              'truncated': false,
+              'matches': [
+                {
+                  'ref': '0.12',
+                  'frame': 'main',
+                  'tag': 'button',
+                  'role': 'button',
+                  'label': 'Save',
+                  'visible': true,
+                  'disabled': false,
+                },
+                {
+                  'ref': '1.3',
+                  'frame': 'f0',
+                  'tag': 'button',
+                  'role': 'button',
+                  'label': 'Save draft',
+                  'visible': true,
+                  'disabled': true,
+                },
+              ],
+            }),
+            'url': 'http://127.0.0.1:8901/p?t=1',
+            'windowId': 83,
+          };
+        },
+      );
+      final data = await run({
+        'op': 'dom_find',
+        'identityId': 'id-a1',
+        'role': 'button',
+        'name': 'Save',
+        'frame': 'f0',
+      });
+      final sentQuery = jsonDecode(sent!) as Map;
+      expect(sentQuery['kind'], 'role');
+      expect(sentQuery['role'], 'button');
+      expect(sentQuery['name'], 'Save');
+      expect(sentQuery['frame'], 'f0');
+      expect(sentQuery['match'], 'contains');
+      expect(data['matchCount'], 2);
+      expect(data['documentId'], 'doc9');
+      expect(data['url'], 'http://127.0.0.1:8901/p');
+      final matches = (data['matches'] as List).cast<Map>();
+      expect(matches.length, 2);
+      expect(matches[0]['ref'], '0.12');
+      expect(matches[1]['disabled'], true);
+      // Multi-match is a list — never an auto-picked first.
+    });
+
+    test('zero matches is not_found', () async {
+      wireView();
+      queries = buildQueries(
+        domFinder: (viewId, identityId, query) async => {
+          'json': jsonEncode({'documentId': 'd', 'count': 0, 'matches': []}),
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'text': 'nothing',
+        }),
+        failure('not_found', 404),
+      );
+    });
+
+    test('invalid_selector and frame_unreachable map distinctly', () async {
+      wireView();
+      queries = buildQueries(
+        domFinder: (viewId, identityId, query) async => {
+          'json': jsonEncode({'error': 'invalid_selector', 'message': 'bad'}),
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'selector': '[[[',
+        }),
+        failure('invalid_selector', 400),
+      );
+      queries = buildQueries(
+        domFinder: (viewId, identityId, query) async => {
+          'json': jsonEncode({'error': 'frame_unreachable', 'message': 'xo'}),
+          'url': null,
+          'windowId': 83,
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'text': 'x',
+          'frame': 'f1',
+        }),
+        failure('frame_unreachable', 409),
+      );
+    });
+
+    test('drift mid-find is target_changed', () async {
+      wireView();
+      queries = buildQueries(
+        domFinder: (viewId, identityId, query) async =>
+            throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'dom_find',
+          'identityId': 'id-a1',
+          'text': 'x',
+        }),
+        failure('target_changed', 409),
       );
     });
   });

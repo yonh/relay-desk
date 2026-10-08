@@ -28,6 +28,7 @@ const automationReadOperations = <String>{
   'media',
   'errors',
   'dom',
+  'dom_find',
 };
 
 /// Write operations admitted by this transport (issue #31). Each one mutates

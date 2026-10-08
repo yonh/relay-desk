@@ -1055,6 +1055,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             drainJsErrors(args, result: result)
         case "probeDom":
             probeDom(args, result: result)
+        case "domFind":
+            domFind(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1797,6 +1799,266 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 liveWindowNumber: liveView?.window?.windowNumber
             ), let webView else {
                 result(FlutterError(code: "target_changed", message: "Target changed during DOM probe", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Fixed DOM element search (issue #21). The caller supplies only JSON
+    /// criteria (`query` — never evaluated as code; it is embedded as a data
+    /// literal ahead of this fixed template). Exactly one criterion:
+    /// `{kind:'text', text, match:'exact'|'contains'}`,
+    /// `{kind:'role', role, name?}` or `{kind:'selector', selector}`.
+    /// Optional `{frame:'main'|'f0'|...}` restricts the walk to one frame
+    /// label; absent means every reachable frame.
+    ///
+    /// Returns `matchCount` plus a bounded `matches` list (50): each entry
+    /// `ref` (`<frameIndex>.<position>`, the canonical querySelectorAll('*')
+    /// ordering shared with the dom probe), `frame`, `tag`, `role`, a short
+    /// `label`, `visible`, `disabled`. Text matching keeps only the deepest
+    /// matches — an ancestor that matches only through matched descendants
+    /// is dropped. Zero matches are reported `count:0` (the query layer
+    /// maps that to `not_found`); multi-match is a list, never an auto-pick.
+    /// `error:'invalid_selector'` / `'frame_unreachable'` are distinguishable
+    /// failure payloads. Read-only: no click, no input, no attribute writes.
+    private static let domFindScriptTail = """
+      var MAX_SCAN = 2000, MAX_MATCH = 50, MAX_CAND = 400;
+      var MAX_DEPTH = 8, MAX_FRAMES = 16;
+      var docNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      var Q = __rdQuery;
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      var ROLE_MAP = { A: 'link', BUTTON: 'button', SELECT: 'combobox',
+                       TEXTAREA: 'textbox', SUMMARY: 'button',
+                       H1: 'heading', H2: 'heading', H3: 'heading', H4: 'heading',
+                       UL: 'list', OL: 'list', LI: 'listitem', TABLE: 'table',
+                       FORM: 'form', NAV: 'navigation', MAIN: 'main',
+                       IMG: 'img', INPUT: 'textbox' };
+      var INPUT_ROLES = { checkbox: 'checkbox', radio: 'radio', range: 'slider',
+                          button: 'button', submit: 'button', reset: 'button' };
+      function roleOf(el) {
+        var r = el.getAttribute && el.getAttribute('role');
+        if (r) return String(r).split(/\\s+/)[0];
+        var tag = el.tagName;
+        if (tag === 'INPUT') return INPUT_ROLES[(el.type || '').toLowerCase()] || 'textbox';
+        return ROLE_MAP[tag] || null;
+      }
+      function isHiddenDeep(el) {
+        return !!(el.closest && el.closest('[hidden],[aria-hidden="true"]'));
+      }
+      function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
+      function labelOf(el) {
+        var l = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+                norm(el.innerText) || norm(el.textContent);
+        return l.length > 80 ? l.slice(0, 80) : l;
+      }
+      function visibleOf(el) {
+        return !!(el.offsetWidth || el.offsetHeight ||
+                  (el.getClientRects && el.getClientRects().length));
+      }
+      // Same DFS frame order as the dom summary probe — frame indices in
+      // `ref` match what `dom` reported for the unchanged document.
+      function frameDocs() {
+        var out = [];
+        function collect(doc, label, url, depth) {
+          if (out.length >= MAX_FRAMES) return;
+          var cur = { doc: doc, label: label, url: url, depth: depth,
+                      index: out.length, reachable: true };
+          out.push(cur);
+          if (depth >= MAX_DEPTH) return;
+          var iframes = doc.querySelectorAll('iframe');
+          for (var k = 0; k < iframes.length; k++) {
+            var el = iframes[k];
+            var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            var idoc = null, reachable = true;
+            try {
+              idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+              if (!idoc) reachable = false;
+            } catch (e) { reachable = false; }
+            if (reachable) {
+              collect(idoc, childLabel,
+                      (idoc.location && idoc.location.href) || el.src || null,
+                      depth + 1);
+            } else {
+              if (out.length >= MAX_FRAMES) continue;
+              out.push({ doc: null, label: childLabel, url: el.src || null,
+                         depth: depth + 1, index: out.length,
+                         reachable: false });
+            }
+          }
+        }
+        collect(document, 'main', location.href, 0);
+        return out;
+      }
+      var frames = frameDocs();
+      if (Q.frame && Q.frame !== 'all') {
+        var hit = null;
+        for (var fi = 0; fi < frames.length; fi++) {
+          if (frames[fi].label === Q.frame) { hit = frames[fi]; break; }
+        }
+        if (!hit) {
+          return __rdResult({ error: 'not_found',
+                              message: 'No frame matches the given label' });
+        }
+        if (hit.reachable === false) {
+          return __rdResult({ error: 'frame_unreachable',
+                              message: 'Frame is not reachable (cross-origin)' });
+        }
+        frames = [hit];
+      }
+      var candidates = [];
+      var matchCount = 0, truncated = false;
+      var wants = Q.kind;
+      for (var fi2 = 0; fi2 < frames.length; fi2++) {
+        var fr = frames[fi2];
+        if (fr.reachable === false) continue;
+        var all = fr.doc.querySelectorAll('*');
+        var indexOf = new Map();
+        var scanned = Math.min(all.length, MAX_SCAN);
+        for (var ii = 0; ii < scanned; ii++) indexOf.set(all[ii], ii);
+        var matched = [];
+        if (wants === 'selector') {
+          var found;
+          try { found = fr.doc.querySelectorAll(Q.selector); }
+          catch (e) {
+            return __rdResult({ error: 'invalid_selector',
+                                message: 'Selector is not a valid CSS selector' });
+          }
+          for (var si = 0; si < found.length && matched.length < MAX_CAND; si++) {
+            var mel = found[si];
+            if (!indexOf.has(mel)) continue; // beyond scan bound
+            if (SKIP[mel.tagName]) continue;
+            matched.push(mel);
+          }
+        } else {
+          for (var ii2 = 0; ii2 < scanned; ii2++) {
+            var el2 = all[ii2];
+            if (SKIP[el2.tagName] || isHiddenDeep(el2)) continue;
+            if (wants === 'text') {
+              var t = norm(el2.innerText || el2.textContent);
+              if (!t || t.length > 400) continue;
+              var ok = Q.match === 'exact' ? t === Q.text : t.indexOf(Q.text) >= 0;
+              if (!ok) continue;
+              matched.push(el2);
+              if (matched.length >= MAX_CAND) break;
+            } else if (wants === 'role') {
+              if (roleOf(el2) !== Q.role) continue;
+              if (Q.name) {
+                var ln = labelOf(el2);
+                if (Q.match === 'exact' ? ln !== Q.name : ln.indexOf(Q.name) < 0) continue;
+              }
+              matched.push(el2);
+              if (matched.length >= MAX_CAND) break;
+            }
+          }
+        }
+        // Deepest-match filter for text: drop an element when a descendant
+        // also matched — the ancestor only contains the text through it.
+        if (wants === 'text') {
+          var set = new Set(matched);
+          matched = matched.filter(function (el3) {
+            for (var oi = 0; oi < matched.length; oi++) {
+              var other = matched[oi];
+              if (other !== el3 && el3.contains(other)) return false;
+            }
+            return true;
+          });
+        }
+        for (var mi = 0; mi < matched.length; mi++) {
+          matchCount++;
+          if (candidates.length < MAX_MATCH) {
+            var mel2 = matched[mi];
+            candidates.push({
+              ref: fr.index + '.' + indexOf.get(mel2),
+              frame: fr.label,
+              tag: mel2.tagName.toLowerCase(),
+              role: roleOf(mel2),
+              label: labelOf(mel2),
+              visible: visibleOf(mel2),
+              disabled: !!mel2.disabled,
+            });
+          } else { truncated = true; }
+        }
+      }
+      return __rdResult({
+        documentId: docNonce,
+        count: matchCount,
+        truncated: truncated || matchCount > candidates.length,
+        matches: candidates
+      });
+    """
+
+    /// Element search bound to [args]' target. `query` arrives as a JSON
+    /// string and is embedded ahead of the fixed script as a data literal
+    /// (`var __rdQuery = <json>; var __rdResult = function(o){ return JSON.stringify(o); };`),
+    /// so caller input is never executable code. Same binding, gate and
+    /// deadline discipline as `probeDom`.
+    private func domFind(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String,
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId, expectedIdentityId and query are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_find_timeout",
+                    message: "DOM find did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        // The query is embedded as a JSON data literal — it cannot break
+        // out of the data position or run code. The fixed tail runs inside
+        // an IIFE so early `return __rdResult(...)` exits are possible.
+        let script = "var __rdQuery = \(query);\n" +
+            "var __rdResult = function (o) { return JSON.stringify(o); };\n" +
+            "(function () {\n" + Self.domFindScriptTail + "\n})()"
+        webView.evaluateJavaScript(script) { [weak self, weak webView] value, error in
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "dom_find_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_find_failed", message: "DOM find returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during DOM find", details: nil))
                 return
             }
             result([

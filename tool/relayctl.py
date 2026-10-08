@@ -61,6 +61,15 @@ COMMANDS = {
     'dom': (
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
     ),
+    'dom_find': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--text', 'text', None, 'Visible text to find'),
+        ('--role', 'role', None, 'ARIA role to find'),
+        ('--name', 'name', None, 'Accessible name filter for --role'),
+        ('--selector', 'selector', None, 'CSS selector to find'),
+        ('--match', 'match', None, 'exact or contains (default contains)'),
+        ('--frame', 'frame', None, 'Frame label to search'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -87,6 +96,7 @@ SELECTOR_HELP = {
     'activate_project': 'Switch the app to an existing project; --project required',
     'open_panel': 'Open the panel of an existing identity; --identity required',
     'dom': 'Bounded DOM summary of one identity panel; --identity required',
+    'dom_find': 'Find elements by text/role/selector; --identity plus one criterion',
 }
 
 

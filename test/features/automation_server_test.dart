@@ -297,6 +297,7 @@ void main() {
         'media',
         'errors',
         'dom',
+        'dom_find',
         'windows',
         'window',
         'workspaces',
