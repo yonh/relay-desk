@@ -293,6 +293,7 @@ void main() {
         'identity',
         'panels',
         'panel',
+        'screenshot',
         'windows',
         'window',
         'workspaces',
@@ -354,7 +355,6 @@ void main() {
         'navigate',
         'reload',
         'click',
-        'screenshot',
         'console',
         'network',
         'capabilities ',
@@ -663,6 +663,36 @@ void main() {
       });
       expect(released.status, 200);
       expect(dispatches, 3);
+    });
+
+    test('a failed dispatch releases the target lock for retries', () async {
+      // The native snapshot deadline reports snapshot_timeout: after that
+      // error the same identity must be queryable again, not stuck on
+      // panel_busy until the app restarts.
+      var dispatches = 0;
+      final transport = await _Transport.start(
+        dispatch: (command) async {
+          dispatches++;
+          if (dispatches == 1) {
+            throw const AutomationFailure(
+              'snapshot_timeout',
+              'Snapshot did not complete within the deadline',
+              status: 500,
+            );
+          }
+          return 'retry works';
+        },
+      );
+
+      const target = {'op': 'screenshot', 'identityId': 'id-a1'};
+      final failed = await transport.command(target);
+      expect(failed.status, 500);
+      expect(failed.code, 'snapshot_timeout');
+
+      final retry = await transport.command(target);
+      expect(retry.status, 200);
+      expect(retry.json['data'], 'retry works');
+      expect(dispatches, 2);
     });
 
     test('a restart locks independently of the session it replaced', () async {

@@ -6,11 +6,14 @@
 /// dart:io are imported: no `package:` imports, no pubspec dependency, no
 /// Python execution and no Flutter at runtime.
 ///
-/// Scope is P0 protocol v1 (design/automation-roadmap.md) and it matches the
-/// reference implementation tool/relayctl.py: twelve read-only operations plus
-/// the local `sessions` listing. No mutable operation is exposed. An absent
-/// selector defers to the backend's current selection — this CLI never guesses
-/// a project, identity, window or workspace and never inspects AppKit.
+/// Scope is P0 protocol v1 (design/automation-roadmap.md): thirteen read-only
+/// operations plus the local `sessions` listing. No mutable operation is
+/// exposed. An absent selector defers to the backend's current selection —
+/// this CLI never guesses a project, identity, window or workspace and never
+/// inspects AppKit. `screenshot` is the single exception to the absent-
+/// selector rule: it requires an explicit --identity and a local --output
+/// path, because a screenshot without a named target would silently pick
+/// whatever happens to be selected.
 ///
 /// Session descriptors are credentials. Only `file`, `pid` and `endpoint` are
 /// ever printed; the bearer token is neither logged nor included in errors.
@@ -39,7 +42,14 @@ const String _sessionsOp = 'sessions';
 const JsonEncoder _prettyEncoder = JsonEncoder.withIndent('  ');
 
 class _Selector {
-  const _Selector(this.flag, this.field, this.help, {this.integer = false});
+  const _Selector(
+    this.flag,
+    this.field,
+    this.help, {
+    this.integer = false,
+    this.local = false,
+    this.required = false,
+  });
 
   /// Command-line flag, for example `--project`.
   final String flag;
@@ -51,6 +61,14 @@ class _Selector {
 
   /// Whether the raw value must parse as an integer before dispatch.
   final bool integer;
+
+  /// Local CLI argument consumed by the client itself (e.g. `--output`):
+  /// validated here but never forwarded into the command JSON, so the server
+  /// never receives a local filesystem path to write to.
+  final bool local;
+
+  /// Whether omitting the flag is a usage error.
+  final bool required;
 }
 
 class _Command {
@@ -81,6 +99,19 @@ const _workspaceSelector = _Selector(
   '--workspace',
   'workspaceId',
   'Exact workspaceId; omit for the current workspace',
+);
+const _outputSelector = _Selector(
+  '--output',
+  'outputPath',
+  'Local file path for the PNG; required, never sent to the app',
+  local: true,
+  required: true,
+);
+const _requiredIdentitySelector = _Selector(
+  '--identity',
+  'identityId',
+  'Exact identityId; required, no selection fallback',
+  required: true,
 );
 
 /// The read-only P0 surface. Insertion order is the help listing order.
@@ -134,6 +165,11 @@ const List<_Command> _commands = <_Command>[
     'workspace',
     'One saved layout, or the current named layout',
     <_Selector>[_workspaceSelector],
+  ),
+  _Command(
+    'screenshot',
+    'Viewport PNG of one identity panel; --identity and --output required',
+    <_Selector>[_requiredIdentitySelector, _outputSelector],
   ),
 ];
 
@@ -254,10 +290,75 @@ Future<int> _execute(
   }
   final session = await _resolveSession(invocation.session, env);
   final response = await _sendCommand(session, _buildCommand(invocation));
+  if (invocation.command.op == _screenshotOp && response['ok'] == true) {
+    await _writeScreenshot(response, invocation, out);
+    return 0;
+  }
   // Server envelopes are passed through verbatim, error envelopes included;
   // the exit code is the only thing this CLI decides.
   out.writeln(_prettyEncoder.convert(response));
   return response['ok'] == true ? 0 : 1;
+}
+
+const String _screenshotOp = 'screenshot';
+
+/// The PNG magic bytes every PNG file starts with. A payload that fails this
+/// check is not an image and is never written to --output.
+const List<int> _pngMagic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+/// Writes a screenshot response: decode the base64 payload, prove it is a
+/// PNG, then write --output. The decoded bytes are validated before any file
+/// is touched, so a malformed or oversized reply never leaves a corrupt file
+/// behind; on a filesystem failure the partial file is removed.
+Future<void> _writeScreenshot(
+  Map<String, dynamic> response,
+  _Invocation invocation,
+  StringSink out,
+) async {
+  final data = response['data'];
+  final output = invocation.selectors[_outputSelector.flag];
+  if (data is! Map<String, dynamic> || output == null) {
+    throw const _ClientError(_unexpectedResponseMessage);
+  }
+  final encoded = data['pngBase64'];
+  if (encoded is! String || encoded.isEmpty) {
+    throw const _ClientError(_unexpectedResponseMessage);
+  }
+  final List<int> bytes;
+  try {
+    bytes = base64Decode(encoded);
+  } on FormatException {
+    throw const _ClientError(_unexpectedResponseMessage);
+  }
+  if (bytes.length < _pngMagic.length ||
+      !_pngMagic.asMap().entries.every((e) => bytes[e.key] == e.value)) {
+    throw const _ClientError(
+      'The automation endpoint returned a non-PNG screenshot',
+    );
+  }
+  final file = File(output);
+  // Write to a unique sibling temp file first, then atomically rename onto
+  // the target: a failed write can never truncate or delete an existing
+  // capture — cleanup only ever touches the temp file this run created.
+  final tmp = File(
+    '${file.absolute.path}.relayctl-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
+  );
+  try {
+    await tmp.writeAsBytes(bytes, flush: true);
+    await tmp.rename(output);
+  } catch (_) {
+    try {
+      await tmp.delete();
+    } catch (_) {}
+    rethrow;
+  }
+  final reported = Map<String, Object?>.from(data)
+    ..remove('pngBase64')
+    ..['outputPath'] = await file.resolveSymbolicLinks()
+    ..['byteLength'] = bytes.length;
+  out.writeln(
+    _prettyEncoder.convert(<String, Object?>{'ok': true, 'data': reported}),
+  );
 }
 
 /// Accepts the global `--session` before or after the operation, per-command
@@ -333,6 +434,13 @@ _Invocation _parse(List<String> args) {
   if (resolved == null) {
     throw const _UsageError('a command is required');
   }
+  for (final selector in resolved.selectors) {
+    if (selector.required && !selectors.containsKey(selector.flag)) {
+      throw _UsageError(
+        "option '${selector.flag}' is required for '${resolved.op}'",
+      );
+    }
+  }
   return _Invocation(
     resolved,
     Map<String, String>.unmodifiable(selectors),
@@ -381,6 +489,10 @@ String _optionValue(String value, String flag) {
 Map<String, Object?> _buildCommand(_Invocation invocation) {
   final command = <String, Object?>{'op': invocation.command.op};
   for (final selector in invocation.command.selectors) {
+    if (selector.local) {
+      // Local options steer the CLI only; the server never sees them.
+      continue;
+    }
     final raw = invocation.selectors[selector.flag];
     if (raw == null) {
       continue;

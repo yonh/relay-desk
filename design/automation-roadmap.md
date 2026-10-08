@@ -70,12 +70,19 @@ UI 选择与原生焦点分别返回。切换项目时如果选中面板仍属�
 | window | windowId 可选，整数 | window 对象或 null | keyWindow；不回退为 mainWindow |
 | workspaces | projectId 可选 | projectId, workspaces 数组 | 当前 UI 项目 |
 | workspace | workspaceId 可选 | workspace 对象或 null | 当前命名工作区 |
+| screenshot | identityId **必填** | identityId, projectId, nativeViewId, windowId, capturedAt, format, width, height, url, pngBase64 | 无回退；不以名称/选中/焦点代替 |
 
 没有当前选择是合法状态：单项返回 null，列表返回空数组。显式指定不存在的 ID 返回 not_found/404。
 单项值保留名称包装，例如 `data: {"project": null}`、`data: {"window": {"windowId": 1}}`；`state` 内字段直接嵌入对象。
 当前窗口严格使用原生采样的 currentWindowId；应用未激活时为 null，即使 AppKit 窗口仍保留 isKey 标记。
 参数类型错误返回 invalid_argument/400；不支持的 op 返回 unsupported_operation/400。
 P0 whitelist 在 transport 与 query 层均限制读取操作；eval、navigate、reload、click 等请求不能进入执行路径。
+
+screenshot 是唯一的二进制读操作：服务端在原生侧将采样绑定到 (viewId, identityId, WebView 实例, 导航代次)，
+异步快照完成后复核四项全部未变；任一变化返回 target_changed/409。解码 PNG 超过 16 MiB 拒绝
+（snapshot_too_large/500）。身份无活动原生视图返回 no_native_view/409；未知身份 not_found/404；
+缺 identityId 是 invalid_argument/400。CLI 的 `--output` 为本地参数，从不发送给应用；CLI 解码
+base64 校验 PNG 魔数后才写文件，写失败不留半文件。url 与其他字段一样经 _stripUrl 脱敏。
 
 返回对象：
 
@@ -121,6 +128,7 @@ cd build/relayctl/macos-arm64
 ./relayctl panel --identity IDENTITY_ID
 ./relayctl windows
 ./relayctl window --window WINDOW_ID
+./relayctl screenshot --identity IDENTITY_ID --output /tmp/panel.png
 ```
 
 Intel Mac 使用 `macos-x64` 目录；解包后的运行方式相同。Python 旧入口暂时保留用于历史对照。
@@ -193,8 +201,9 @@ Intel Mac 使用 `macos-x64` 目录；解包后的运行方式相同。Python �
 ### 顺序
 
 1. **定位验收**：先在本地 macOS 独立调试实例核对已有查询，记录实际身份、面板和原生窗口的对应关系。未实际运行的项目标记待验收。
-   已执行实机验收（2026-10-08，Issue #10，PR #11）：矩阵场景全部实机取证并记录，待审查；证据见 `design/automation-location-verification.md`。
+   已验收并合入（2026-10-08，Issue #10，PR #11 已合并）：矩阵场景实机取证；证据见 `design/automation-location-verification.md`。
 2. **看到页面**：线上实现指定 identityId 的面板截图，沿用当前 CLI → 应用接口 → 原生 WebView 的链路。返回图片与采样时目标映射、时间、尺寸；目标销毁或页面切换导致证据不一致时明确失败，不能返回其他身份的图片。
+   已实现并实机复核（2026-10-08，Issue #12，PR #14 待审）：嵌入/独立窗口截图、无选择回退；采样中连续导航命中 target_changed（e.html 60 连拍 22 中），pending→commit 跨越为构造性绑定、未实机复现；像素上限未实机触发。证据见 `design/automation-screenshot-verification.md`。
 3. **按需文字采样**：截图不足以回答真实调试问题时，再追加最小 DOM 摘要，限定可见文字和所需控件状态，不提供任意脚本执行接口。
 4. **实际案例验收并停止**：用一个可复现页面问题走通定位、取证、分析、修复和前后对照；能力足够后停止扩展，不自动进入下一阶段。
 

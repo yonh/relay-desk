@@ -37,14 +37,19 @@ const _eventChannelName = 'profiled_webview_events';
 
 /// Concrete WebviewAdapter for macOS 14+ using the in-repo thin native adapter.
 class MacosProfiledWebviewAdapter implements WebviewAdapter {
-  MacosProfiledWebviewAdapter()
-    : _channel = const MethodChannel(_methodChannelName),
+  MacosProfiledWebviewAdapter({Duration? snapshotTimeout})
+    : _snapshotTimeout = snapshotTimeout ?? const Duration(seconds: 9),
+      _channel = const MethodChannel(_methodChannelName),
       _eventChannel = const EventChannel(_eventChannelName) {
     _startEventListener();
     _channel.setMethodCallHandler(_handleNativeMethodCall);
   }
 
   final MethodChannel _channel;
+  // App-layer bound for one snapshot request: the native side answers inside
+  // 8 s, so a wedged callback still lets this Future complete instead of
+  // holding the caller's per-target busy marker forever.
+  final Duration _snapshotTimeout;
   final EventChannel _eventChannel;
   StreamSubscription<dynamic>? _eventSub;
 
@@ -713,6 +718,41 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Read-only viewport snapshot of the web view bound to [viewId].
+  ///
+  /// The native side binds the request to [expectedIdentityId] and re-verifies
+  /// the view instance, identity mapping, window and navigation generation
+  /// when the async capture completes; any drift surfaces as a
+  /// `target_changed` [PlatformException]. The returned map carries `png`
+  /// (Uint8List), `width`, `height`, `url` and `windowId`.
+  Future<Map<String, dynamic>> takeSnapshot(
+    int viewId,
+    String expectedIdentityId,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('takeSnapshot', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        // The channel call may still resolve after the deadline (a wedged
+        // WebKit callback): stop listening so its late result — success or
+        // error — is discarded instead of completing twice or surfacing as
+        // an unhandled zone error.
+        pending.ignore();
+        throw PlatformException(
+          code: 'snapshot_timeout',
+          message: 'Native snapshot did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'snapshot_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
@@ -722,6 +762,9 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
       for (final entry in map.entries)
         entry.key.toString(): _jsonCompatible(entry.value),
     },
+    // A typed-data payload (e.g. snapshot PNG bytes) is a List but must not
+    // be walked element-by-element into a List<Object?>.
+    Uint8List bytes => bytes,
     List list => [for (final item in list) _jsonCompatible(item)],
     _ => value,
   };

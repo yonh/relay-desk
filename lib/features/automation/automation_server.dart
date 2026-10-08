@@ -26,6 +26,7 @@ const automationReadOperations = <String>{
   'window',
   'workspaces',
   'workspace',
+  'screenshot',
 };
 
 class AutomationFailure implements Exception {

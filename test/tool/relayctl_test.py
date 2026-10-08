@@ -35,8 +35,13 @@ REMOVED_CASES = (
     ('eval', ['--identity', 'ident-3', '--file', 'x.js']),
     ('navigate', ['--identity', 'ident-3', '--url', 'https://example.com']),
     ('reload', ['--identity', 'ident-3']),
-    ('screenshot', ['--identity', 'ident-3', '--out', 'shot.png']),
     ('snapshot', ['--identity', 'ident-3']),
+)
+
+# A complete 1x1 transparent PNG (67 bytes), the smallest real capture.
+TINY_PNG = bytes.fromhex(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489'
+    '0000000d4944415478da63fcffff3f030005fe02fea72d99400000000049454e44ae426082'
 )
 
 
@@ -229,6 +234,120 @@ class RelayCtlTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIsNone(json.loads(done.stdout)['data']['currentWindowId'])
 
+    # --- screenshot -----------------------------------------------------
+
+    def _screenshot_payload(self, png):
+        import base64
+        return {'ok': True, 'data': {
+            'identityId': 'ident-3', 'projectId': 'proj-7',
+            'nativeViewId': 9, 'windowId': 83,
+            'capturedAt': '2026-10-08T00:00:00Z', 'format': 'png',
+            'width': 1, 'height': 1, 'url': 'https://a.example.com/',
+            'pngBase64': base64.b64encode(png).decode(),
+        }}
+
+    def test_screenshot_writes_the_validated_png_and_reports_metadata(self):
+        output = Path(self.home.name) / 'shot.png'
+        self.server.respond(self._screenshot_payload(TINY_PNG))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(output.read_bytes(), TINY_PNG)
+        reply = json.loads(done.stdout)
+        self.assertTrue(reply['ok'])
+        self.assertEqual(reply['data']['byteLength'], len(TINY_PNG))
+        self.assertEqual(reply['data']['outputPath'], str(output.resolve()))
+        self.assertNotIn('pngBase64', reply['data'])
+        request = self.server.seen()[0]
+        # --output is CLI-local: the wire carries only the explicit identity.
+        self.assertEqual(json.loads(request['body']),
+                         {'op': 'screenshot', 'identityId': 'ident-3'})
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_requires_an_explicit_identity(self):
+        done = self.run_cli('screenshot', '--output',
+                            str(Path(self.home.name) / 'x.png'))
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(self.server.seen(), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_requires_an_output_path(self):
+        done = self.run_cli('screenshot', '--identity', 'ident-3')
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(self.server.seen(), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_refuses_a_non_png_payload_without_writing(self):
+        output = Path(self.home.name) / 'shot.png'
+        self.server.respond(self._screenshot_payload(b'not-a-png-at-all'))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertFalse(output.exists())
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_error_envelope_passes_through(self):
+        self.server.respond(
+            {'ok': False, 'error': {'code': 'target_changed',
+                                    'message': 'Target changed during capture'}},
+            status=409)
+        output = Path(self.home.name) / 'shot.png'
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(json.loads(done.stdout)['error']['code'], 'target_changed')
+        self.assertFalse(output.exists())
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_refuses_the_removed_out_flag(self):
+        # `--out` was the pre-release flag name; an unknown option must not
+        # silently select a different spelling or fire a request.
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--out', str(Path(self.home.name) / 'x.png'))
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(self.server.seen(), [])
+        self.assertNoCredentialLeak(done)
+
+    def _tmp_litter(self, output):
+        # Temp files from the atomic-write path must never survive the run.
+        return list(Path(output).parent.glob(output.name + '.relayctl-*'))
+
+    def test_screenshot_replaces_an_existing_output_file(self):
+        output = Path(self.home.name) / 'shot.png'
+        output.write_bytes(b'SENTINEL-OLD-CAPTURE')
+        self.server.respond(self._screenshot_payload(TINY_PNG))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(output.read_bytes(), TINY_PNG)
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_rejected_payload_preserves_an_existing_output(self):
+        output = Path(self.home.name) / 'shot.png'
+        output.write_bytes(b'SENTINEL-OLD-CAPTURE')
+        self.server.respond(self._screenshot_payload(b'not-a-png-at-all'))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(output.read_bytes(), b'SENTINEL-OLD-CAPTURE')
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
+    def test_screenshot_write_failure_preserves_an_existing_output(self):
+        # A write-phase failure (rename onto an existing directory) must
+        # leave the pre-existing target untouched — the direct-write path
+        # used to truncate it, then delete it in cleanup.
+        output = Path(self.home.name) / 'shot.png'
+        output.mkdir()
+        self.server.respond(self._screenshot_payload(TINY_PNG))
+        done = self.run_cli('screenshot', '--identity', 'ident-3',
+                            '--output', str(output))
+        self.assertEqual(done.returncode, 1)
+        self.assertTrue(output.is_dir())
+        self.assertEqual(self._tmp_litter(output), [])
+        self.assertNoCredentialLeak(done)
+
     # --- unsupported actions -------------------------------------------
 
     def test_removed_actions_are_rejected_without_a_request(self):
@@ -308,7 +427,8 @@ class RelayCtlTest(unittest.TestCase):
         done = self.run_cli('--help', descriptor=False)
         self.assertEqual(done.returncode, 0)
         for op in ('sessions', 'capabilities', 'state', 'projects', 'project', 'identities',
-                   'identity', 'panels', 'panel', 'windows', 'window', 'workspaces', 'workspace'):
+                   'identity', 'panels', 'panel', 'windows', 'window', 'workspaces', 'workspace',
+                   'screenshot'):
             self.assertIn(op, done.stdout)
 
 

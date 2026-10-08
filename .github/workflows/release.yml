@@ -37,6 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: bash test/fixtures/updater/run_fixtures.sh
+      # Pure-Swift snapshot policy fixture: compiles the production file and
+      # exercises it directly (swiftc only, no Flutter SDK or Xcode build).
+      - run: bash test/fixtures/snapshot/run.sh
 
   build:
     needs: [test, updater-fixtures]
