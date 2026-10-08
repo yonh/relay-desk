@@ -1169,8 +1169,11 @@ void main() {
       expect(contend, greaterThan(lineOf('mkdir "\$ARB"')));
       expect(
         script,
-        contains('delete that dir manually to unblock future installs'),
+        contains('dir manually to unblock future installs'),
       );
+      // Deleting by hand is only safe once no helper is running — the
+      // message must say so or a user could remove a live mutex.
+      expect(script, contains('quit all running'));
       // The only ARB removals release OUR OWN mutex after reclaim —
       // rm ARB always follows rm LOCK inside the arb-holding branch.
       final ownRelease = lineOf('rm -rf "\$ARB"', lineOf('rm -rf "\$LOCK"'));
