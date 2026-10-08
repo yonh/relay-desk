@@ -988,6 +988,9 @@ void main() {
       expect(alive, lessThan(lineOf('mv "\$LOCK" "\$CLAIM"', alive)));
       // A just-created lock without its pid yet gets a grace window.
       expect(script, contains('LAGE" -lt 10 ]'));
+      // A "live" pid is only believed while the lock is fresh — a reused
+      // pid on an aged orphan must not stall updates forever.
+      expect(script, contains('LAGE" -lt 600 ]'));
     });
 
     test('a leftover backup is restored before it can be deleted', () {
@@ -1017,10 +1020,13 @@ void main() {
 
     test('handoff candidates are freshness-checked inside the loop', () {
       // A stale file at the sandboxed path must not shadow a live handoff
-      // the non-sandboxed build wrote — freshness runs per candidate.
+      // the non-sandboxed build wrote — freshness runs per candidate, and
+      // among valid candidates the FRESHEST wins (an older-but-valid file
+      // must not win over the params written for this run).
       final loop = lineOf('for c in');
       final fresh = lineOf('-gt 600 ] && continue', loop);
-      expect(fresh, lessThan(lineOf('HANDOFF_FILE="\$c" && break', fresh)));
+      final best = lineOf('-le "\$best" ] && continue', fresh);
+      expect(best, lessThan(lineOf('HANDOFF_FILE="\$c"', best)));
     });
 
     test(

@@ -68,7 +68,7 @@ class GithubReleaseClient implements ReleaseClient {
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
     if (response.statusCode != 200) {
-      await response.drain<void>().timeout(timeout, onTimeout: () {});
+      await _drainBounded(response);
       throw HttpException(
         'release check failed (${response.statusCode})',
         uri: request.uri,
@@ -91,7 +91,7 @@ class GithubReleaseClient implements ReleaseClient {
     final response = await request.close().timeout(timeout);
     // Only the redirect chain matters — but the drain still needs a bound
     // or a never-ending body wedges the whole check in `busy` forever.
-    await response.drain<void>().timeout(timeout, onTimeout: () {});
+    await _drainBounded(response);
     if (response.statusCode != 200) {
       throw HttpException(
         'release check failed (${response.statusCode})',
@@ -126,7 +126,7 @@ class GithubReleaseClient implements ReleaseClient {
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
     if (response.statusCode != 200) {
-      await response.drain<void>().timeout(timeout, onTimeout: () {});
+      await _drainBounded(response);
       throw HttpException(
         'asset listing failed (${response.statusCode})',
         uri: request.uri,
@@ -160,7 +160,7 @@ class GithubReleaseClient implements ReleaseClient {
             'relay-desk-updater',
           );
           final head = await request.close().timeout(timeout);
-          await head.drain<void>().timeout(timeout, onTimeout: () {});
+          await _drainBounded(head);
           if (head.statusCode == 200 && head.contentLength > 0) {
             return ReleaseAsset(
               name: asset.name,
@@ -173,6 +173,21 @@ class GithubReleaseClient implements ReleaseClient {
         return asset;
       }),
     );
+  }
+
+  /// Courtesy-drains a response body with a hard bound. Plain
+  /// `.drain().timeout()` only stops WAITING — the subscription (and its
+  /// socket) keeps running; cancelling it here actually frees the
+  /// connection on the shared client.
+  Future<void> _drainBounded(HttpClientResponse response) async {
+    final sub = response.listen((_) {}, onError: (_) {});
+    try {
+      await sub.asFuture<void>().timeout(timeout);
+    } catch (_) {
+      // Timeout or stream error — either way stop reading.
+    } finally {
+      await sub.cancel();
+    }
   }
 
   /// Extracts `v1.2.3` from a `/releases/tag/v1.2.3` URL (path or absolute).

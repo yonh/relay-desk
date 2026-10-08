@@ -28,15 +28,20 @@ if [ -z "$PARENT" ]; then
   # Freshness is checked PER candidate inside the loop — a stale file in
   # one location must not shadow a live handoff the other build wrote.
   now=$(date +%s)
+  best=0
   for c in \
     "$HOME/Library/Containers/com.example.relayDesk/Data/Library/Application Support/com.example.relayDesk/updates/handoff.params" \
     "$HOME/Library/Application Support/com.example.relayDesk/updates/handoff.params"; do
     [ -f "$c" ] || continue
     # Stale handoff: only trust a file written in the last 10 minutes — a
     # replayed/planted params file must not drive destructive swaps later.
+    # And take the FRESHEST qualifying candidate: an older-but-valid file
+    # at one location must not win over the handoff written for this run.
     mtime=$(stat -f %m "$c" 2>/dev/null || echo 0)
     [ $((now - mtime)) -gt 600 ] && continue
-    HANDOFF_FILE="$c" && break
+    [ "$mtime" -le "$best" ] && continue
+    best=$mtime
+    HANDOFF_FILE="$c"
   done
   if [ -n "$HANDOFF_FILE" ]; then
     # `|| [ -n "$line" ]` keeps a final line that has no trailing newline —
@@ -115,15 +120,22 @@ fi
 # evict it and take over, otherwise a SIGKILLed helper wedges updates.
 if ! mkdir "$LOCK" 2>/dev/null; then
   LPID="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
   case "$LPID" in
     ''|*[!0-9]*)
       # No recorded owner: a fresh lock is still being initialized by its
       # creator — only an aged one counts as orphaned.
-      LAGE=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
       [ "$LAGE" -lt 10 ] && exit 0
       ;;
     *)
-      kill -0 "$LPID" 2>/dev/null && exit 0
+      # A live owner is only believed while the lock is still fresh — a
+      # swap never outlasts the 120s parent wait plus copy time, so an
+      # aged lock with a "live" pid means the pid was REUSED by another
+      # process (or the holder is wedged): reclaim it rather than giving
+      # up on this and every later update.
+      if kill -0 "$LPID" 2>/dev/null && [ "$LAGE" -lt 600 ]; then
+        exit 0
+      fi
       ;;
   esac
   # Reclaim the orphan atomically: park it under a per-process name, then
