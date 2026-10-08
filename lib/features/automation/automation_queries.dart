@@ -504,6 +504,10 @@ class AutomationQueries {
       'sampledAt': DateTime.now().toUtc().toIso8601String(),
       'url': _stripUrl(sample['url'] as String? ?? ''),
       'frames': frames,
+      // Probe budgets: a truncated walk is surfaced, never read as "no media".
+      'truncated': payload['truncated'] == true,
+      'skippedFrames': payload['skippedFrames'] ?? 0,
+      'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
     };
   }
 
@@ -740,8 +744,14 @@ class AutomationQueries {
       final port = uri.hasPort ? ':${uri.port}' : '';
       return '${uri.scheme}://$safeHost$port${uri.path}';
     }
-    // No authority: only the path survives. Empty means nothing but query or
-    // fragment, so there is no safe remainder to return.
+    // Opaque absolute URI (`scheme:` with no authority): the path is payload,
+    // not a locator — `data:text/html,<markup>` and `javascript:…` would ship
+    // page content or code verbatim. Only the scheme marker survives, e.g.
+    // `data:`, so the URL stays identifiable without its body.
+    if (uri.scheme.isNotEmpty) return '${uri.scheme}:';
+    // Relative reference (identity startPath, `page.html`, `dir/x`): only the
+    // path survives. Empty means nothing but query or fragment, so there is
+    // no safe remainder to return.
     return uri.path;
   }
 }

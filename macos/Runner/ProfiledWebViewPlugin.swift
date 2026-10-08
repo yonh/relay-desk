@@ -1255,9 +1255,20 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// or non-finite (live streams) is reported as `duration: null` with a
     /// `durationKind` marker so JSON output never carries an invalid number.
     /// The caller cannot inject script: this literal is the only thing run.
+    /// Budgets: 4 levels deep, 32 frames and 32 media elements per frame cap
+    /// the work before the result is built — a pathological document can
+    /// never make the probe enumerate or serialize unboundedly. Anything cut
+    /// is reported via `truncated`/`skippedFrames`/`depthLimitSkipped`/
+    /// `mediaSkipped`, so a truncated walk is never mistaken for "no media".
+    /// Nested same-origin iframes are recursed into with hierarchical labels
+    /// (`main`, `f0`, `f0.f1`); an unreachable frame at any depth is listed
+    /// `reachable:false` and its own subtree is marked unexplored, never
+    /// probed across the boundary.
     private static let mediaProbeScript = """
     (function () {
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_MEDIA = 32;
       var frames = [];
+      var skippedFrames = 0, depthLimitSkipped = 0;
       function seekableRanges(m) {
         var ranges = [];
         try {
@@ -1284,33 +1295,53 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           error: m.error ? { code: m.error.code } : null
         };
       }
-      function collect(doc, label, url) {
+      function collect(doc, label, url, depth) {
+        if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
         var frame = { index: frames.length, label: label, url: url,
-                      reachable: true, media: [] };
+                      depth: depth, reachable: true, media: [], mediaSkipped: 0 };
         var els = doc.querySelectorAll('video, audio');
         for (var i = 0; i < els.length; i++) {
-          frame.media.push(mediaEntry(els[i], i));
+          if (frame.media.length < MAX_MEDIA) {
+            frame.media.push(mediaEntry(els[i], i));
+          } else {
+            frame.mediaSkipped++;
+          }
         }
-        frame.mediaCount = frame.media.length;
+        frame.mediaCount = els.length;
         frames.push(frame);
-      }
-      collect(document, 'main', location.href);
-      var iframes = document.querySelectorAll('iframe');
-      for (var k = 0; k < iframes.length; k++) {
-        var el = iframes[k];
-        try {
-          var idoc = el.contentDocument ||
-                     (el.contentWindow && el.contentWindow.document);
-          if (!idoc) { throw new Error('unavailable'); }
-          collect(idoc, 'iframe' + k,
-                  (idoc.location && idoc.location.href) || el.src || null);
-        } catch (e) {
-          frames.push({ index: frames.length, label: 'iframe' + k,
-                        url: el.src || null, reachable: false,
-                        reason: 'unavailable', media: [], mediaCount: 0 });
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) {
+          // Subtrees beyond the depth budget are reported as unexplored,
+          // not as absent.
+          if (iframes.length) { depthLimitSkipped += iframes.length; }
+          return;
+        }
+        for (var k = 0; k < iframes.length; k++) {
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            collect(idoc, childLabel,
+                    (idoc.location && idoc.location.href) || el.src || null,
+                    depth + 1);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: el.src || null, depth: depth + 1,
+                          reachable: false, reason: 'unavailable',
+                          media: [], mediaCount: 0 });
+          }
         }
       }
-      return JSON.stringify({ frames: frames });
+      collect(document, 'main', location.href, 0);
+      return JSON.stringify({
+        frames: frames,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0,
+        skippedFrames: skippedFrames,
+        depthLimitSkipped: depthLimitSkipped
+      });
     })()
     """
 

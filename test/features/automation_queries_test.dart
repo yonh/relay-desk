@@ -1018,6 +1018,38 @@ void main() {
       expect((frames[0]['media'] as List), hasLength(1));
       expect(frames[1]['reachable'], isFalse);
       expect(frames[1]['url'], 'https://ads.example.net/embed');
+      expect(data['truncated'], isFalse);
+      expect(data['skippedFrames'], 0);
+    });
+
+    test('redacts opaque-scheme frame URLs without their payload', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+      const probeJson = '''
+      {"frames":[
+        {"index":0,"label":"main","url":"http://127.0.0.1/m.html",
+         "reachable":true,"media":[],"mediaCount":0},
+        {"index":1,"label":"f0",
+         "url":"data:text/html,<p>SECRET-PAYLOAD-MARKER</p>",
+         "reachable":false,"reason":"unavailable","media":[],
+         "mediaCount":0},
+        {"index":2,"label":"f1","url":"javascript:alert(1)",
+         "reachable":false,"reason":"unavailable","media":[],
+         "mediaCount":0}
+      ],"truncated":true,"skippedFrames":3,"depthLimitSkipped":0}
+      ''';
+      queries = buildQueries(
+        mediaSampler: (viewId, expected) async => sample(json: probeJson),
+      );
+
+      final data = await run({'op': 'media', 'identityId': 'id-a1'});
+      final frames = (data['frames'] as List).cast<Map<String, dynamic>>();
+      expect(frames[1]['url'], 'data:');
+      expect(frames[2]['url'], 'javascript:');
+      // The payload must not ride through on any field.
+      expect(jsonEncode(data), isNot(contains('SECRET-PAYLOAD-MARKER')));
+      expect(data['truncated'], isTrue);
+      expect(data['skippedFrames'], 3);
     });
 
     test('maps target_changed to a 409 automation failure', () async {
