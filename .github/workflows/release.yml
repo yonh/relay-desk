@@ -30,6 +30,14 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+  # The updater helper is bash + BSD tools — exercise its concurrency
+  # fixtures on a real macOS runner (seconds, no app is touched).
+  updater-fixtures:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash test/fixtures/updater/run_fixtures.sh
+
   build:
     needs: test
     # PRs only need the fast analyze+test gate; the three-platform matrix
