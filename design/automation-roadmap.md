@@ -179,7 +179,14 @@ Intel Mac 使用 `macos-x64` 目录；解包后的运行方式相同。Python �
   测试只连接临时 loopback 服务，不访问真实会话或业务页面。夹具使用实际会话的 `version: 1`，支持 HTTP chunked 请求和 JSON charset。
 - 独立 CLI 编译、ARM64 架构检查、校验文件及仅含三个文件的归档检查通过；最小系统 PATH 下帮助命令可用。
 - `flutter build macos --debug --dart-define=RELAY_DESK_AUTOMATION=true` 编译成功；未启动或替换用户当前应用。
-- 真实 AppKit 焦点、项目切换、独立窗口及业务行为仍待运行态验收；正式签名、公证、发布版开关和包内 CLI 未实现。
+
+### 真实运行态验收（2026-10-08，Devin 线上环境）
+
+- 默认 debug 构建（不带 define）启动：无 `automation/` 目录、无会话文件、接口未监听；默认关闭成立。
+- 显式 `--dart-define=RELAY_DESK_AUTOMATION=true` debug 构建启动：生成 `automation-<port>.json`（chmod 600），会话字段含 endpoint/token/pid。
+- 真实 HTTP 验收（独立调试实例，非业务窗口）：`capabilities`/`projects`/`state` 返回真实数据（含真实 NSWindow 清单与项目记录）；无凭据请求 401；非白名单写操作返回 `unsupported_operation`。
+- 编译产物 `relayctl`（纯 Dart SDK，仅链系统库）在 `env -i` 最小环境下直接查询运行中的应用成功；构建链可依赖 SDK，产物运行不依赖 Python/Dart/Flutter。
+- 仍待验收：真实 AppKit 焦点切换、项目切换、独立窗口及业务行为组合；正式签名、公证、发布版开关和包内 CLI 未实现。
 
 ## 当前任务与审查约束（替代早期扩展路线）
 
