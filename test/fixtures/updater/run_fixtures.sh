@@ -173,7 +173,8 @@ EOS
     && [ "$(ls "$W/Target.app/Contents/MacOS")" = "old.txt" ] \
     && ok "live ARB: exited 1, nothing deleted, message written" \
     || bad "live ARB: E=$E6 ditto=$(dittos) arb=$([ -d "$A" ] && echo yes) lock=$([ -d "$L" ] && echo yes)"
-  kill "$LIVEARB" 2>/dev/null
+  killtree "$LIVEARB"
+  wait "$LIVEARB" 2>/dev/null
   # 4b: ARB orphaned by a dead pid — competitors still must not delete it
   echo 88888 > "$A/pid"; touch -t 202001010000 "$A"
   run x "$W/h7.log"; E7=$?
