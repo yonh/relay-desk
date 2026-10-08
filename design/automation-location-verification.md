@@ -43,7 +43,7 @@
 
 ## 观察记录（如实记录，非缺陷结论）
 
-1. **最小化面板不进入 `panels` 清单**：关闭面板后 UI 显示 "All panels are minimized. Restore one from the toolbar."——控制器保留可恢复的最小化条目，但 `panels` 返回 `[]`、`window.identityIds` 不含其 ID。即"关闭"语义是最小化+销毁原生视图，`panels` 只列活跃目标；按 ID 定位不受影响。经 Ws-HTTP 恢复后同一对身份以新 `nativeViewId`（4）重现。
+1. **关闭面板后条目及原生视图移除**：`Close panel` 调用 `WorkspaceController.removePanel()`（`adapter.close` + `panels.remove(identityId)`），关闭后 `panels` 返回 `[]`、`window.identityIds` 不含其 ID、`panel --identity` 返回 `not_found`。空态文案 "All panels are minimized. Restore one from the toolbar." 不能据此认定面板被最小化保留（文案与实现行为存在出入，仅供 UI 参考）。经 Ws-HTTP 保存布局重建后，同一对身份以新 `nativeViewId` 重现。
 2. **`layout.detached` 为嵌入快照语义**：`state=detached` 时 `layout.detached=false`；`state` 字段权威。
 3. **系统辅助窗口入清单**：`windowId=72`（64×64、不可见、空标题、无 identities），不影响 `currentWindowId` 判定。
 4. **独立窗口标题含 identityId 前缀**：`Relay Desk — b494a75b`。
