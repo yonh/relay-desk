@@ -117,6 +117,7 @@ void main() {
     )?
     errorsDrainer,
     void Function(String projectId)? selectProject,
+    void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
     Duration? settleBudget,
   }) => AutomationQueries(
@@ -147,6 +148,22 @@ void main() {
         },
     awaitFrame: awaitFrame ?? () async {},
     settleBudget: settleBudget ?? const Duration(milliseconds: 100),
+    ensurePanel:
+        ensurePanel ??
+        (identity, project) {
+          // Mimic the controller's ensure: register a runtime whose
+          // state starts at openingEmbedded.
+          final panels = Map<String, PanelRuntime>.from(workspace.panels);
+          panels[identity.id] = makePanel(
+            identity.id,
+            state: WebviewState.openingEmbedded,
+          );
+          workspace = workspace.copyWith(
+            panels: panels,
+            selectedPanelId: workspace.selectedPanelId ?? identity.id,
+            selectedProjectId: project.id,
+          );
+        },
   );
 
   Matcher failure(String code, int status) => throwsA(
@@ -205,7 +222,7 @@ void main() {
     final data = await run({'op': 'capabilities'});
     expect(data['protocolVersion'], 2);
     expect(data['readOnly'], false);
-    expect(data['writeOperations'], ['activate_project']);
+    expect(data['writeOperations'], ['activate_project', 'open_panel']);
     expect(
       (data['limitations'] as Map)['projectActivation'],
       true,
@@ -1358,6 +1375,122 @@ void main() {
       });
       expect(data['projectId'], projectB.id);
     });
+
+  group('open_panel', () {
+    test('requires an explicit identityId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'open_panel'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('unknown identity is not_found', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'open_panel', 'identityId': 'nope'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('identity of an inactive project is project_not_active', () async {
+      selectedProjectId = projectA.id;
+      var calls = 0;
+      queries = buildQueries(ensurePanel: (_, _) => calls++);
+      expect(
+        queries.dispatch({'op': 'open_panel', 'identityId': 'id-b1'}),
+        failure('project_not_active', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      // No implicit switch of project B — nothing was ensured.
+      expect(calls, 0);
+      expect(selectedProjectId, projectA.id);
+    });
+
+    test('already-open panel returns idempotently without ensure', () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1', state: WebviewState.embedded)},
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83, hasKeyboardFocus: true)],
+      );
+      var calls = 0;
+      queries = buildQueries(ensurePanel: (_, _) => calls++);
+      final data = await run({'op': 'open_panel', 'identityId': 'id-a1'});
+      expect(calls, 0);
+      expect(data['alreadyOpen'], true);
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['selected'], true);
+      expect(data['hasKeyboardFocus'], true);
+      expect(data['viewReady'], true);
+      final panel = (data['panel'] as Map).cast<String, dynamic>();
+      expect(panel['state'], 'embedded');
+      expect(jsonEncode(data), isNot(contains('token=abc')));
+    });
+
+    test('closed identity is ensured through the controller entry', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      final calls = <String>[];
+      queries = buildQueries(
+        ensurePanel: (i, p) {
+          calls.add('${i.id}@${p.id}');
+          final panels = Map<String, PanelRuntime>.from(workspace.panels);
+          panels[i.id] = makePanel(i.id, state: WebviewState.openingEmbedded);
+          workspace = workspace.copyWith(
+            panels: panels,
+            selectedProjectId: p.id,
+          );
+        },
+      );
+      final data = await run({'op': 'open_panel', 'identityId': 'id-a1'});
+      expect(calls, ['id-a1@${projectA.id}']);
+      expect(data['alreadyOpen'], false);
+      final panel = (data['panel'] as Map).cast<String, dynamic>();
+      expect(panel['state'], 'openingEmbedded');
+      // No platform view has registered yet — viewReady stays honest.
+      expect(data['viewReady'], false);
+      expect(data['nativeViewId'], isNull);
+    });
+
+    test('ensured panel reports live binding once the view registers',
+        () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+      queries = buildQueries(
+        ensurePanel: (i, p) {
+          final panels = Map<String, PanelRuntime>.from(workspace.panels);
+          panels[i.id] = makePanel(i.id, state: WebviewState.embedded);
+          workspace = workspace.copyWith(
+            panels: panels,
+            selectedPanelId: workspace.selectedPanelId ?? i.id,
+            selectedProjectId: p.id,
+          );
+        },
+      );
+      final data = await run({'op': 'open_panel', 'identityId': 'id-a1'});
+      expect(data['alreadyOpen'], false);
+      expect(data['nativeViewId'], 9);
+      expect(data['viewReady'], true);
+      expect(data['hasKeyboardFocus'], false);
+    });
+
+    test('vanishing panel is panel_not_open, never a silent success', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries(ensurePanel: (_, _) {});
+      expect(
+        queries.dispatch({'op': 'open_panel', 'identityId': 'id-a1'}),
+        failure('panel_not_open', 409),
+      );
+    });
+  });
 
     test('capabilities lists activate_project as a write operation', () async {
       final caps = await run({'op': 'capabilities'});

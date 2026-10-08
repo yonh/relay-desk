@@ -35,6 +35,7 @@ const automationReadOperations = <String>{
 /// before dispatch, so unlisted mutations can never reach an execution path.
 const automationWriteOperations = <String>{
   'activate_project',
+  'open_panel',
 };
 
 /// Every operation the transport serves.

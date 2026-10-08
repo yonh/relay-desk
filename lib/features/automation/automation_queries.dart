@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../../core/platform/domain.dart';
+import '../../core/platform/webview_adapter.dart';
 import '../../data/repositories/project_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
 import '../workspace/workspace_controller.dart';
@@ -44,6 +45,7 @@ class AutomationQueries {
     required this.sampleMedia,
     required this.drainJsErrors,
     required this.selectProject,
+    required this.ensurePanel,
     required this.awaitFrame,
     this.settleBudget = const Duration(seconds: 2),
   });
@@ -93,6 +95,11 @@ class AutomationQueries {
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
   /// to a data-layer shortcut. Injected so tests can observe the call.
   final void Function(String projectId) selectProject;
+
+  /// Opens (or refreshes the runtime of) a panel — wired to the very
+  /// `WorkspaceController.ensurePanel` the workspace sync calls, never to
+  /// a second WebView lifecycle. Injected so tests can observe the call.
+  final void Function(Identity identity, Project project) ensurePanel;
 
   /// Waits for the UI to present the next frame after a mutation. In the
   /// app this is `SchedulerBinding.instance.endOfFrame`; the workspace
@@ -156,6 +163,8 @@ class AutomationQueries {
         return _errors(command);
       case 'activate_project':
         return _activateProject(command);
+      case 'open_panel':
+        return _openPanel(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -709,6 +718,87 @@ class AutomationQueries {
         for (final panel in ui.workspace.panels.values)
           await _panelJson(panel, ui.workspace, views),
       ],
+    };
+  }
+
+  /// Opens (or returns the live) panel of an existing identity (issue #32).
+  ///
+  /// Explicit `identityId` is required; the identity must belong to the
+  /// currently active project — a mismatch is `project_not_active` (409),
+  /// never an implicit switch of another project. The mutation is the
+  /// controller's `ensurePanel` — the same entry point the workspace sync
+  /// uses — so fingerprints, isolation, start-URL and layout rules are the
+  /// UI's own; nothing constructs a second WebView lifecycle here.
+  ///
+  /// Already-open panels return idempotently (`alreadyOpen:true`) without
+  /// a redundant ensure call. The returned binding is honest about
+  /// readiness: `state`/`loading`/`nativeViewId` describe the panel at
+  /// answer time — an `openingEmbedded` panel with `nativeViewId:null`
+  /// means the platform view has not registered yet, never "page ready".
+  Future<Map<String, Object?>> _openPanel(
+    Map<String, dynamic> command,
+  ) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'open_panel requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final activeProjectId = readSelectedProjectId();
+    if (identity.projectId != activeProjectId) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    final project = await projects.getById(identity.projectId);
+    if (project == null) throw _notFound('project');
+    final before = readWorkspace().panels[id];
+    final alreadyOpen =
+        before != null &&
+        before.state != WebviewState.closed &&
+        before.state != WebviewState.closing;
+    if (!alreadyOpen) ensurePanel(identity, project);
+    // Give the widget tree one frame to mount the AppKitView and register
+    // the native view; report whatever binding exists when the budget ends.
+    var frameSeen = true;
+    try {
+      await awaitFrame().timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      frameSeen = false;
+    }
+    final workspace = readWorkspace();
+    final panel = workspace.panels[id];
+    if (panel == null) {
+      // Destroy race: the identity/panel vanished between ensure and read —
+      // distinguishable, never a silent claim of success.
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel was not open after ensure (identity may have been removed)',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'alreadyOpen': alreadyOpen,
+      'openedAt': DateTime.now().toUtc().toIso8601String(),
+      'panel': await _panelJson(panel, workspace, views),
+      'nativeViewId': view?['viewId'],
+      'windowId': view?['windowId'],
+      // Selection is UI state; native focus is a separate signal and may
+      // not follow the panel that was just opened.
+      'selected': workspace.selectedPanelId == id,
+      'hasKeyboardFocus': view?['hasKeyboardFocus'] == true,
+      'viewReady': view?['viewId'] is int && panel.state == WebviewState.embedded,
+      'frameSettled': frameSeen,
     };
   }
 

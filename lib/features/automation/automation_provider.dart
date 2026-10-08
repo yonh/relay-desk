@@ -40,6 +40,11 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     // the UI's own semantics (layout restore, panel sync, selection).
     selectProject: (projectId) =>
         ref.read(selectedProjectIdProvider.notifier).select(projectId),
+    // The same ensurePanel the workspace sync calls — identity entry,
+    // session and display rules are the UI's own.
+    ensurePanel: (identity, project) => ref
+        .read(workspaceControllerProvider.notifier)
+        .ensurePanel(identity, project),
     awaitFrame: () => SchedulerBinding.instance.endOfFrame,
   );
   if (!ref.mounted) return null;
