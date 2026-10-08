@@ -1645,15 +1645,26 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
         return false;
       }
-      function walkEl(el, out, docIndex, depth) {
-        if (nodeBudget <= 0) { skipped.nodes++; return; }
-        if (isHidden(el)) { skipped.hidden++; return; }
-        var tag = el.tagName;
-        if (SKIP[tag]) return;
-        var interest = INTEREST[tag] || el.getAttribute('role');
-        if (interest) {
-          nodeBudget--;
-          var n = { ref: docIndex + '.' + out.length,
+      // Canonical ordering shared by dom/dom_find/dom_inspect: the element's
+      // position in `querySelectorAll('*')` document order. A ref is
+      // `<frameIndex>.<position>` — resolvable by every probe and invalid
+      // once the document changes shape.
+      var MAX_SCAN = 2000;
+      function walkDoc(doc, out, docIndex) {
+        var all = doc.querySelectorAll('*');
+        var scanned = Math.min(all.length, MAX_SCAN);
+        if (all.length > MAX_SCAN) { skipped.nodes += all.length - MAX_SCAN; }
+        for (var i = 0; i < scanned; i++) {
+          var el = all[i];
+          if (isHidden(el) || (el.closest && el.closest('[hidden],[aria-hidden="true"]'))) {
+            skipped.hidden++; continue;
+          }
+          var tag = el.tagName;
+          if (SKIP[tag]) continue;
+          var interest = INTEREST[tag] || el.getAttribute('role');
+          if (!interest) continue;
+          if (out.length >= MAX_NODES) { skipped.nodes++; continue; }
+          var n = { ref: docIndex + '.' + i,
                     tag: tag.toLowerCase() };
           var role = el.getAttribute('role');
           if (role) n.role = role;
@@ -1667,10 +1678,6 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (el.disabled) n.disabled = true;
           if (el.getAttribute('tabindex') !== null) n.tabindex = Number(el.getAttribute('tabindex')) || 0;
           out.push(n);
-        }
-        if (depth >= MAX_DEPTH) { skipped.nodes += el.children.length; return; }
-        for (var i = 0; i < el.children.length; i++) {
-          walkEl(el.children[i], out, docIndex, depth + 1);
         }
       }
       function collect(doc, label, url, depth, frameEl) {
