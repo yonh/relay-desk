@@ -396,6 +396,32 @@ void main() {
       },
     );
 
+    test('a stalled web response body cannot wedge the check', () async {
+      // Bound the drain, not just the headers: a body that never ends must
+      // not pin `latestRelease` (and with it the whole busy flag) forever.
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server!.forEach((req) {
+        seenPaths.add(req.uri.path);
+        if (req.uri.path.startsWith('/repos/')) {
+          req.response.statusCode = 403;
+          req.response.close();
+        } else {
+          // Headers arrive, the body never terminates.
+          req.response.statusCode = 200;
+          req.response.write('<html>partial');
+        }
+      });
+      final client = GithubReleaseClient(
+        apiBase: Uri.http('127.0.0.1:${server!.port}', ''),
+        webBase: Uri.http('127.0.0.1:${server!.port}', ''),
+        timeout: const Duration(milliseconds: 120),
+      );
+      final release = await client.latestRelease().timeout(
+        const Duration(seconds: 5),
+      );
+      expect(release, isNull);
+    });
+
     test('does not touch web pages when the API succeeds', () async {
       server = await serve((req) {
         req.response.statusCode = 200;
@@ -732,8 +758,56 @@ void main() {
       await notifier.check(manual: true);
       await notifier.skipVersion();
       expect(container.read(updateSettingsProvider).skippedVersion, '1.1.0');
+      final status = container.read(updateStatusProvider);
+      expect(status.phase, UpdatePhase.upToDate);
+      // The installed-version row survives the reset.
+      expect(status.currentVersion?.toString(), '1.0.2');
+    });
+
+    test('skipVersion locks out install for its whole async cleanup', () async {
+      // The dialog closes the moment skip is tapped, letting the user
+      // reopen and hit Install while skip is still deleting the staged
+      // payload — the op lock must already be held by then.
+      final storage = MemoryUpdateStorage();
+      final client = FakeReleaseClient()..release = release();
+      final installer = FakeInstaller();
+      final container = makeContainer(
+        storage: storage,
+        client: client,
+        installer: installer,
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(updateStatusProvider.notifier);
+      await notifier.check(manual: true);
+      await notifier.download();
+      expect(container.read(updateStatusProvider).phase, UpdatePhase.ready);
+      // Skip is in flight before its first await — install must no-op.
+      final skipFuture = notifier.skipVersion();
+      await notifier.installAndRelaunch();
+      expect(installer.last, isNull);
+      await skipFuture;
       expect(container.read(updateStatusProvider).phase, UpdatePhase.upToDate);
     });
+
+    test(
+      'dismiss keeps latest and current versions for the settings rows',
+      () async {
+        final client = FakeReleaseClient()..release = release();
+        final container = makeContainer(client: client);
+        addTearDown(container.dispose);
+        final notifier = container.read(updateStatusProvider.notifier);
+        await notifier.check(manual: true);
+        expect(
+          container.read(updateStatusProvider).phase,
+          UpdatePhase.available,
+        );
+        notifier.dismiss();
+        final status = container.read(updateStatusProvider);
+        expect(status.phase, UpdatePhase.idle);
+        expect(status.latestVersion?.toString(), '1.1.0');
+        expect(status.currentVersion?.toString(), '1.0.2');
+      },
+    );
 
     test('failed auto check stays silent, manual check reports', () async {
       final client = FakeReleaseClient()..error = StateError('offline');
@@ -877,6 +951,45 @@ void main() {
       expect(script, contains('[ -d "\$BACKUP" ] && [ ! -d "\$TARGET" ]'));
     });
 
+    test('cleanup mutations require actually holding the lock', () {
+      // A second helper that lost the mkdir race exits through the same
+      // EXIT trap — without the OWN_LOCK gate its cleanup would resurrect
+      // the backup under the lock-holder's ditto and merge old+new files.
+      final own = lineOf('if [ "\$OWN_LOCK" = 1 ]');
+      expect(
+        own,
+        lessThan(lineOf('mv "\$BACKUP" "\$TARGET" 2>/dev/null || echo', own)),
+      );
+      // Every post-acquisition exit that released the lock early is gone:
+      // OWN_LOCK flips back to 0 only after ALL mutations complete.
+      final ditto = lineOf('if ditto');
+      final backupGone = lineOf('open "\$TARGET" && rm -rf "\$BACKUP"', ditto);
+      expect(backupGone, lessThan(lineOf('rm -rf "\$LOCK"', backupGone)));
+      expect(
+        lineOf('rm -rf "\$LOCK"', backupGone),
+        lessThan(lineOf('OWN_LOCK=0', backupGone)),
+      );
+      // Failure path: rollback happens BEFORE the lock is released.
+      final rollback = lineOf(
+        r'rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"',
+        ditto,
+      );
+      expect(rollback, lessThan(lineOf('rm -rf "\$LOCK"', rollback)));
+    });
+
+    test('lock ownership is recorded by PID, not matched by script path', () {
+      // pgrep -f "$0" matched a DIFFERENT install's helper by path and
+      // would evict its live lock; the owner PID lives inside the lock.
+      expect(script, contains('echo \$\$ > "\$LOCK/pid"'));
+      expect(script, isNot(contains('pgrep -f "\$0"')));
+      final take = lineOf('if ! mkdir "\$LOCK"');
+      final read = lineOf('cat "\$LOCK/pid"', take);
+      final alive = lineOf('kill -0 "\$LPID"', read);
+      expect(alive, lessThan(lineOf('mv "\$LOCK" "\$CLAIM"', alive)));
+      // A just-created lock without its pid yet gets a grace window.
+      expect(script, contains('LAGE" -lt 10 ]'));
+    });
+
     test('a leftover backup is restored before it can be deleted', () {
       // A killed helper can leave TARGET missing and BACKUP holding the only
       // working app — the restore must precede `rm -rf "$BACKUP"`.
@@ -902,17 +1015,23 @@ void main() {
       );
     });
 
+    test('handoff candidates are freshness-checked inside the loop', () {
+      // A stale file at the sandboxed path must not shadow a live handoff
+      // the non-sandboxed build wrote — freshness runs per candidate.
+      final loop = lineOf('for c in');
+      final fresh = lineOf('-gt 600 ] && continue', loop);
+      expect(fresh, lessThan(lineOf('HANDOFF_FILE="\$c" && break', fresh)));
+    });
+
     test(
       'an orphaned lock is reclaimed atomically, never by a live holder',
       () {
         // SIGKILL skips the EXIT trap — its lock dir outlives it. The next
-        // helper must reclaim an orphan (liveness check, then an atomic
+        // helper must reclaim an orphan (dead owner pid, then an atomic
         // rename — never rm+mkdir, which a concurrent helper could turn
         // against the lock we just created).
         final take = lineOf('if ! mkdir "\$LOCK"');
-        final check = lineOf('pgrep -f "\$0" | grep -vx "\$\$"', take);
-        final claim = lineOf('mv "\$LOCK" "\$CLAIM"', check);
-        expect(check, lessThan(claim));
+        final claim = lineOf('mv "\$LOCK" "\$CLAIM"', take);
         expect(claim, lessThan(lineOf('rm -rf "\$CLAIM"', claim)));
         // And only after the reclaim may the backup-rescue run.
         expect(

@@ -68,7 +68,7 @@ class GithubReleaseClient implements ReleaseClient {
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
     if (response.statusCode != 200) {
-      await response.drain<void>();
+      await response.drain<void>().timeout(timeout, onTimeout: () {});
       throw HttpException(
         'release check failed (${response.statusCode})',
         uri: request.uri,
@@ -89,7 +89,9 @@ class GithubReleaseClient implements ReleaseClient {
         .timeout(timeout);
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
-    await response.drain<void>(); // only the redirect URL matters
+    // Only the redirect chain matters — but the drain still needs a bound
+    // or a never-ending body wedges the whole check in `busy` forever.
+    await response.drain<void>().timeout(timeout, onTimeout: () {});
     if (response.statusCode != 200) {
       throw HttpException(
         'release check failed (${response.statusCode})',
@@ -124,7 +126,7 @@ class GithubReleaseClient implements ReleaseClient {
     request.headers.set(HttpHeaders.userAgentHeader, 'relay-desk-updater');
     final response = await request.close().timeout(timeout);
     if (response.statusCode != 200) {
-      await response.drain<void>();
+      await response.drain<void>().timeout(timeout, onTimeout: () {});
       throw HttpException(
         'asset listing failed (${response.statusCode})',
         uri: request.uri,
@@ -158,7 +160,7 @@ class GithubReleaseClient implements ReleaseClient {
             'relay-desk-updater',
           );
           final head = await request.close().timeout(timeout);
-          await head.drain<void>();
+          await head.drain<void>().timeout(timeout, onTimeout: () {});
           if (head.statusCode == 200 && head.contentLength > 0) {
             return ReleaseAsset(
               name: asset.name,

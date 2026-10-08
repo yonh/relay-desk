@@ -73,7 +73,7 @@ settings_dialog.dart       设置弹窗追加 UpdateSettingsSection
 - 头：`Accept: application/vnd.github+json`、`User-Agent: relay-desk-updater`
 - 使用字段：`tag_name` · `body` · `html_url` · `draft` · `prerelease` ·
   `assets[].name/browser_download_url/size/digest`
-- `digest` 形如 `sha256:<hex>`，截取后做下载校验；缺失时跳过校验
+- `digest` 形如 `sha256:<hex>`，截取后做下载校验；缺失时**拒绝安装**（fail-closed）
 - 限流：未认证 60 req/h/IP → 自动检查 6h 节流 + 失败静默
 - 资产选择（白名单 token，`selectAsset`）：
   - macOS → 名称含 `macos` 且 `.zip` 结尾（dmg 不自动安装）
@@ -234,7 +234,7 @@ settings_dialog.dart       设置弹窗追加 UpdateSettingsSection
 - **helper 失败**：8s marker 超时 → 写 `helper.abort` + `open -R` 兜底 + failed(install)
 - **替换失败**（无写权限）：helper 回滚 `.relay-backup` + 重启旧版 + payload 移到 `~/Downloads` 展示
 - **Gatekeeper**：HTTP 直连下载无 quarantine；装后仍 `xattr -dr` 双保险
-- **校验缺失**：`digest` 为空 → 跳过校验放行（GitHub 目前总是提供）
+- **校验缺失**：`digest` 为空 → 直接拒绝该资产（GitHub 目前总是提供；web 回退从页面抓取同样字段）
 - **校验强度边界**：sha256 只防下载损坏——digest 与下载包同源自 API 响应，
   若 API 元数据被篡改则 digest 同步被换；真正防伪需发布端签名（列入后续候选），
   spec 不宣称"已签名校验"

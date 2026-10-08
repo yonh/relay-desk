@@ -154,7 +154,10 @@ class HttpUpdateDownloader implements UpdateDownloader {
         throw HttpException('too many redirects', uri: uri);
       }
       if (response.statusCode != 200) {
-        await response.drain<void>();
+        await response.drain<void>().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {},
+        );
         throw HttpException(
           'download failed (${response.statusCode})',
           uri: current,
