@@ -35,6 +35,7 @@ const automationReadOperations = <String>{
 /// before dispatch, so unlisted mutations can never reach an execution path.
 const automationWriteOperations = <String>{
   'activate_project',
+  'open_panel',
 };
 
 /// Every operation the transport serves.
@@ -202,6 +203,12 @@ class AutomationServer {
       // panel_busy rather than an ambiguous double success.
       final key = switch (op) {
         'activate_project' => '_project',
+        // open_panel also mutates the project-scoped workspace (it writes
+        // workspace.selectedProjectId via ensurePanel), so it must share
+        // the project mutex with activate_project rather than locking on
+        // the identity alone — otherwise an activation and a panel open
+        // can interleave and split the UI/workspace project markers.
+        'open_panel' => '_project',
         _ => decoded['identityId']?.toString() ?? '_inventory',
       };
       if (!busy.add(key)) {

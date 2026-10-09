@@ -7,8 +7,8 @@
 /// Python execution and no Flutter at runtime.
 ///
 /// Scope is protocol v2 (design/automation-roadmap.md): the read-only
-/// operations plus the whitelisted write `activate_project` (issue #31) and
-/// the local `sessions` listing. No other mutable operation is exposed. An
+/// operations plus the whitelisted writes `activate_project` (issue #31)
+/// and `open_panel` (issue #32), and the local `sessions` listing. No other mutable operation is exposed. An
 /// absent selector defers to the backend's current selection — this CLI
 /// never guesses a project, identity, window or workspace and never
 /// inspects AppKit. `screenshot`, `media` and `errors` are the exceptions
@@ -195,6 +195,11 @@ const List<_Command> _commands = <_Command>[
     'activate_project',
     'Switch the app to an existing project; --project required',
     <_Selector>[_requiredProjectSelector],
+  ),
+  _Command(
+    'open_panel',
+    'Open the panel of an existing identity; --identity required',
+    <_Selector>[_requiredIdentitySelector],
   ),
 ];
 
