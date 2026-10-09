@@ -453,6 +453,119 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         )
     }
 
+    /// Installs the bounded in-page error buffer the automation `errors` op
+    /// reads (issue #17). A `WKUserScript` at document start in every frame —
+    /// same-origin iframes get their own buffer, which the drain script then
+    /// reads frame-by-frame; cross-origin frames stay unreachable and are
+    /// reported as such.
+    ///
+    /// The buffer lives inside the page document: it starts recording at
+    /// injection time (honest `collectedAt` — no history before that exists),
+    /// dies with the document on navigation or panel teardown, and a fresh
+    /// `bufferId` per document marks the navigation batch. It is a true ring
+    /// buffer: the newest 200 entries are always kept and `overflow` counts
+    /// dropped older ones, so a flood of stale errors can never starve new
+    /// defects out of the sample.
+    ///
+    /// Text sanitization — applied to message AND stack AND primitive
+    /// rejection text before length-clipping (clipping is not redaction):
+    /// URLs are reduced to `origin + pathname` (query, hash and userinfo —
+    /// where tokens and credentials live — never leave the page), opaque
+    /// schemes collapse to `<opaque-url>`, and `key=value` pairs whose key
+    /// looks like token/secret/password/auth are replaced with
+    /// `key=<redacted>`. A rejection's non-Error `reason` is reduced to its
+    /// type tag — arbitrary payloads are never serialized. Listeners only
+    /// observe; they neither swallow errors nor alter propagation.
+    private func addErrorCaptureScript(to configuration: WKWebViewConfiguration) {
+        let source = """
+        (function () {
+          try {
+            if (window.__relayErrors) return;
+            var MAX = 200;
+            var buf = {
+              v: 1,
+              bufferId: 'b' + Math.random().toString(36).slice(2) + '-' + Date.now(),
+              startedAt: new Date().toISOString(),
+              overflow: 0,
+              entries: []
+            };
+            // Sanitize BEFORE length-clipping: embedded URLs keep only
+            // origin+pathname (query/hash/userinfo dropped), opaque
+            // schemes collapse entirely, and credential-looking
+            // key=value pairs are redacted wherever they appear in
+            // free text (messages, stacks, primitive rejections).
+            function scrub(s) {
+              if (s === null || s === undefined) return s;
+              s = String(s);
+              s = s.replace(/\\b(data|blob|javascript|vbscript):[^\\s'")\\]]+/gi,
+                            '<opaque-url>');
+              s = s.replace(/\\b[a-zA-Z][a-zA-Z0-9+.-]*:\\/\\/[^\\s'")\\]]+/g,
+                function (u) {
+                  try {
+                    var p = new URL(u);
+                    return p.origin + p.pathname;
+                  } catch (e) { return '<url>'; }
+                });
+              // HTTP auth scheme values — "Bearer abc.def", "Basic dXNlcg=="
+              s = s.replace(/\\b(bearer|basic)\\s+[A-Za-z0-9._~+\\/=-]{4,}/gi,
+                            '$1 <redacted>');
+              // Quoted pairs — {"token":"v"}, 'secret': 'v', token: "v"
+              // Value length is unbounded in BOTH directions: a
+              // recognized key's value is redacted whole whether it is
+              // empty, 3 chars, or thousands — redaction is never
+              // skipped because of length, before any clipping happens.
+              s = s.replace(/(["']?)(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\\1(\\s*[:=]\\s*)(["'])([^"']*)\\4/gi,
+                            '$1$2$3$4<redacted>$4');
+              // Bare key=value / key: value
+              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\\s*[:=]\\s*([^\\s&'"),}\\]]{4,})/gi,
+                            '$1=<redacted>');
+              return s;
+            }
+            function clip(s, n) {
+              if (s === null || s === undefined) return null;
+              s = scrub(String(s));
+              return s.length > n ? s.slice(0, n) + '\\u2026[' + (s.length - n) + ' chars]' : s;
+            }
+            function push(kind, message, source, line, col, stack) {
+              // Ring buffer: keep the newest MAX entries; `overflow`
+              // counts the older entries pushed out.
+              buf.entries.push({
+                t: new Date().toISOString(), kind: kind,
+                message: clip(message, 1024), source: clip(source, 512),
+                line: line || null, col: col || null, stack: clip(stack, 4096)
+              });
+              if (buf.entries.length > MAX) { buf.entries.shift(); buf.overflow++; }
+            }
+            Object.defineProperty(window, '__relayErrors', {
+              configurable: true, enumerable: false, writable: false, value: buf
+            });
+            window.addEventListener('error', function (e) {
+              try {
+                push('error', e.message, e.filename, e.lineno, e.colno,
+                     e.error && e.error.stack);
+              } catch (_) {}
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+              try {
+                var r = e.reason, msg, stack = null;
+                if (r instanceof Error) { msg = r.message; stack = r.stack; }
+                else { msg = (typeof r === 'object' && r !== null)
+                  ? Object.prototype.toString.call(r) : String(r); }
+                push('unhandledrejection', msg, null, null, null, stack);
+              } catch (_) {}
+            });
+          } catch (_) {}
+        })();
+        """
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: source,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+    }
+
     private func removeInAppFullscreenBridge(for viewId: Int64, webView: WKWebView) {
         let handlerName = "relayDeskFullscreen_\(viewId)"
         fullscreenHandlerIdentities.removeValue(forKey: handlerName)
@@ -981,6 +1094,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             takeSnapshot(args, result: result)
         case "sampleMedia":
             sampleMedia(args, result: result)
+        case "drainJsErrors":
+            drainJsErrors(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1461,6 +1576,166 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
     }
 
+    /// Fixed read-only drain for the in-page error buffer (issue #17). Reads
+    /// the main document's buffer plus every reachable same-origin iframe's;
+    /// unreachable frames are marked `reachable:false`. `installed:false`
+    /// distinguishes a view created without the capture flag from a genuine
+    /// empty buffer — "no errors recorded" is never conflated with "cannot
+    /// observe". Nested same-origin iframes recurse depth-first with
+    /// hierarchical labels (`f0`, `f0.f1`) bounded at 4 levels / 32 frames;
+    /// an unreachable frame's subtree is reported unexplored. URL fields are
+    /// capped and opaque schemes stripped in-page, and a 200 KB byte budget
+    /// drops the OLDEST error entries first so the newest survive
+    /// (`errorsDropped` + `truncated`). The drain is read-only: entries
+    /// persist for later samples. MAX_CHARS counts JS UTF-16 units
+    /// (String.length), not encoded bytes — the cap is a size bound,
+    /// not a wire-byte guarantee.
+    private static let errorsDrainScript = """
+    (function () {
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_CHARS = 200000;
+      var frames = [];
+      var skippedFrames = 0, depthLimitSkipped = 0, errorsDropped = 0;
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function read(doc, label, url, depth) {
+        if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
+        var b = (doc.defaultView || window).__relayErrors || null;
+        var f = { index: frames.length, label: label, url: safeUrl(url),
+                  depth: depth, reachable: true, installed: !!b, errors: [] };
+        if (b) {
+          f.bufferId = b.bufferId; f.collectedAt = b.startedAt;
+          f.overflow = b.overflow; f.count = b.entries.length;
+          f.errors = b.entries.slice();
+        }
+        frames.push(f);
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) {
+          if (iframes.length) { depthLimitSkipped += iframes.length; }
+          return;
+        }
+        for (var k = 0; k < iframes.length; k++) {
+          if (frames.length >= MAX_FRAMES) {
+            skippedFrames += iframes.length - k;
+            break;
+          }
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            read(idoc, childLabel,
+                 (idoc.location && idoc.location.href) || el.src || null,
+                 depth + 1);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: safeUrl(el.src), depth: depth + 1,
+                          reachable: false, reason: 'unavailable',
+                          installed: false, errors: [] });
+          }
+        }
+      }
+      read(document, 'main', location.href, 0);
+      var result = {
+        frames: frames,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0,
+        skippedFrames: skippedFrames,
+        depthLimitSkipped: depthLimitSkipped
+      };
+      var out = JSON.stringify(result);
+      while (out.length > MAX_CHARS) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fe = frames[bi].errors;
+          // Errors are chronological — drop the oldest first so the
+          // newest entries survive any budget trim, matching the
+          // buffer's keep-newest contract.
+          if (fe && fe.length) { fe.shift(); errorsDropped++; dropped = true;
+                                 break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (errorsDropped) {
+        result.errorsDropped = errorsDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
+    })()
+    """
+
+    /// Read-only drain of the page error buffer bound to [args]' target.
+    /// Same binding, gate and deadline discipline as `sampleMedia` — drift
+    /// mid-eval fails `target_changed`, never mixes buffers across targets.
+    private func drainJsErrors(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "errors_timeout",
+                    message: "Error drain did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        webView.evaluateJavaScript(Self.errorsDrainScript) { [weak self, weak webView] value, error in
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "errors_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "errors_failed", message: "Error drain returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during error drain", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
     /// Bumps the provisional-navigation generation for [webView]'s view.
     /// Called from didStartProvisionalNavigation so in-flight snapshots see
     /// the target as changed once a page navigation actually begins.
@@ -1550,7 +1825,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         touchEmulation: Bool = false,
         viewportWidth: Double? = nil,
         viewportHeight: Double? = nil,
-        viewportFollowsSurface: Bool = false
+        viewportFollowsSurface: Bool = false,
+        automationErrorCapture: Bool = false
     ) -> NSView {
         let requestedKind = Self.storeKind(for: isolationMode)
         let reusable = identityStoreKinds[identityId] == requestedKind
@@ -1565,6 +1841,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "fingerprint": fingerprint,
             "hasUserAgent": userAgent != nil,
             "touchEmulation": touchEmulation,
+            "automationErrorCapture": automationErrorCapture,
         ])
 
         // If a detached window exists for this identity, reattach the existing
@@ -1667,6 +1944,9 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         addMeasureModeBridge(to: config, viewId: viewId, identityId: identityId)
         if touchEmulation {
             addTouchEmulationScript(to: config)
+        }
+        if automationErrorCapture {
+            addErrorCaptureScript(to: config)
         }
         // Emulated CSS viewport (mobile width-clamp and fixed window-size
         // presets, plus the `custom` seed): remembered for detach so the
@@ -2588,6 +2868,10 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
         let viewportWidth = (dict["viewportWidth"] as? NSNumber)?.doubleValue
         let viewportHeight = (dict["viewportHeight"] as? NSNumber)?.doubleValue
         let viewportFollowsSurface = dict["viewportFollowsSurface"] as? Bool ?? false
+        // Installs the bounded in-page error buffer (issue #17); absent/false
+        // leaves the page JS environment untouched, as in non-automation
+        // builds.
+        let automationErrorCapture = dict["automationErrorCapture"] as? Bool ?? false
         return plugin.registerWebView(
             viewId: viewId,
             identityId: identityId,
@@ -2598,7 +2882,8 @@ final class ProfiledWebViewFactory: NSObject, FlutterPlatformViewFactory {
             touchEmulation: touchEmulation,
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight,
-            viewportFollowsSurface: viewportFollowsSurface
+            viewportFollowsSurface: viewportFollowsSurface,
+            automationErrorCapture: automationErrorCapture
         )
     }
 

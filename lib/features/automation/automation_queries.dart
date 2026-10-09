@@ -38,6 +38,7 @@ class AutomationQueries {
     required this.readNativeWindows,
     required this.captureScreenshot,
     required this.sampleMedia,
+    required this.drainJsErrors,
   });
 
   final ProjectRepository projects;
@@ -71,6 +72,15 @@ class AutomationQueries {
     String expectedIdentityId,
   )
   sampleMedia;
+
+  /// Read-only drain of the in-page JS error buffer of the view bound to
+  /// `viewId`, re-validated natively the same way. Returns `json`, `url`,
+  /// `windowId`.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+  )
+  drainJsErrors;
 
   /// Decoded PNG size bound for `screenshot`: a full-viewport capture should
   /// stay far below this; anything larger is refused rather than shipped
@@ -120,6 +130,8 @@ class AutomationQueries {
         return _screenshot(command);
       case 'media':
         return _media(command);
+      case 'errors':
+        return _errors(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -138,6 +150,7 @@ class AutomationQueries {
       'dom': false,
       'screenshot': true,
       'media': true,
+      'errors': true,
       'eval': false,
       'actions': false,
       'console': false,
@@ -508,6 +521,98 @@ class AutomationQueries {
       'truncated': payload['truncated'] == true,
       'skippedFrames': payload['skippedFrames'] ?? 0,
       'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
+    };
+  }
+
+  /// Read-only dump of the JS errors captured for an explicit `identityId`
+  /// (issue #17). Same target discipline as `media`: no id is
+  /// `invalid_argument`, unknown id is `not_found`, no live view is
+  /// `no_native_view`, drift mid-read is `target_changed`. The buffer only
+  /// records `error`/`unhandledrejection` events from injection time onward —
+  /// `collectedAt` marks that start, `installed:false` marks a page created
+  /// without the capture flag, and per-document `bufferId` separates
+  /// navigation batches. Rejection reasons and stacks are already bounded
+  /// and reduced by the page-side buffer; every URL (frame `url`, entry
+  /// `source`) is sanitized here the same way as all transport URLs.
+  Future<Map<String, Object?>> _errors(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'errors requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Identity has no live native web view',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> drained;
+    try {
+      drained = await drainJsErrors(viewId, id);
+    } on PlatformException catch (error) {
+      const codes = {'target_changed', 'errors_failed', 'errors_timeout'};
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'JS errors could not be drained',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(drained['json'] is String ? drained['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      throw const AutomationFailure(
+        'errors_failed',
+        'Native error drain returned malformed JSON',
+        status: 500,
+      );
+    }
+    final frames = <Map<String, dynamic>>[
+      for (final f in payload['frames'] is List ? payload['frames'] as List : const [])
+        if (f is Map) Map<String, dynamic>.from(f),
+    ];
+    for (final frame in frames) {
+      frame['url'] = _stripUrl(frame['url'] as String? ?? '');
+      final errors = frame['errors'];
+      if (errors is List) {
+        for (var i = 0; i < errors.length; i++) {
+          final e = errors[i];
+          if (e is Map) {
+            final entry = Map<String, dynamic>.from(e);
+            entry['source'] = _stripUrl(entry['source'] as String? ?? '');
+            errors[i] = entry;
+          }
+        }
+      }
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': drained['windowId'] ?? view?['windowId'],
+      'sampledAt': DateTime.now().toUtc().toIso8601String(),
+      'url': _stripUrl(drained['url'] as String? ?? ''),
+      'frames': frames,
+      // Coverage facts from the drain — a client must be able to tell a
+      // complete error list from a budget-truncated one (issue #17 review).
+      'truncated': payload['truncated'] == true,
+      'skippedFrames': payload['skippedFrames'] ?? 0,
+      'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
+      'errorsDropped': payload['errorsDropped'] ?? 0,
     };
   }
 

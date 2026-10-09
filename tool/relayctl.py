@@ -49,6 +49,9 @@ COMMANDS = {
     'media': (
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
     ),
+    'errors': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -71,6 +74,7 @@ SELECTOR_HELP = {
     'workspace': 'One saved layout, or the current named layout',
     'screenshot': 'Viewport PNG of one identity panel; --identity and --output required',
     'media': 'Media-element state of one identity panel; --identity required',
+    'errors': 'Buffered page JS errors of one identity panel; --identity required',
 }
 
 
@@ -146,7 +150,7 @@ def build_parser():
             # every other selector stays optional and defers to the
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
-                          required=op == 'screenshot' or (op == 'media' and flag == '--identity'))
+                          required=op == 'screenshot' or (op in ('media', 'errors') and flag == '--identity'))
     return parser
 
 

@@ -111,6 +111,11 @@ void main() {
       String expectedIdentityId,
     )?
     mediaSampler,
+    Future<Map<String, dynamic>> Function(
+      int viewId,
+      String expectedIdentityId,
+    )?
+    errorsDrainer,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -123,6 +128,9 @@ void main() {
         (viewId, identityId) async => throw UnimplementedError(),
     sampleMedia:
         mediaSampler ??
+        (viewId, identityId) async => throw UnimplementedError(),
+    drainJsErrors:
+        errorsDrainer ??
         (viewId, identityId) async => throw UnimplementedError(),
   );
 
@@ -1096,6 +1104,123 @@ void main() {
       final caps = await run({'op': 'capabilities'});
       expect((caps['limitations'] as Map)['media'], isTrue);
       expect((caps['operations'] as List).cast<String>(), contains('media'));
+    });
+  });
+
+  group('errors', () {
+    Map<String, dynamic> drained({String json = '{"frames":[]}'}) => {
+      'json': json,
+      'url': 'http://127.0.0.1/e.html',
+      'windowId': 83,
+    };
+
+    test('requires an explicit identityId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'errors'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('unknown identity is not_found', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'errors', 'identityId': 'nope'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('identity without live view is no_native_view', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'errors', 'identityId': 'id-a1'}),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('returns sanitized frames and error entries', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+      const drainedJson = '''
+      {"frames":[
+        {"index":0,"label":"main","url":"http://x.local/e.html?sid=SECRET",
+         "reachable":true,"installed":true,"bufferId":"b1",
+         "collectedAt":"2026-10-08T21:00:00Z","overflow":0,"count":2,
+         "errors":[
+           {"t":"2026-10-08T21:00:01Z","kind":"error",
+            "message":"boom","source":"http://x.local/app.js?k=TOK",
+            "line":3,"col":9,"stack":"Error: boom"},
+           {"t":"2026-10-08T21:00:02Z","kind":"unhandledrejection",
+            "message":"p failed","source":null,"line":null,"col":null,
+            "stack":null}
+         ]},
+        {"index":1,"label":"f0","url":"https://ads.example.net/if",
+         "reachable":false,"reason":"unavailable","installed":false,
+         "errors":[]}
+      ]}
+      ''';
+      queries = buildQueries(
+        errorsDrainer: (viewId, expected) async {
+          expect(viewId, 9);
+          expect(expected, 'id-a1');
+          return drained(json: drainedJson);
+        },
+      );
+      final data = await run({'op': 'errors', 'identityId': 'id-a1'});
+      expect(data['identityId'], 'id-a1');
+      expect(data['windowId'], 83);
+      final frames = (data['frames'] as List).cast<Map<String, dynamic>>();
+      expect(frames[0]['url'], 'http://x.local/e.html');
+      expect(frames[0]['installed'], isTrue);
+      expect(frames[0]['bufferId'], 'b1');
+      final errors = (frames[0]['errors'] as List).cast<Map<String, dynamic>>();
+      expect(errors[0]['kind'], 'error');
+      expect(errors[0]['source'], 'http://x.local/app.js');
+      expect(errors[1]['kind'], 'unhandledrejection');
+      expect(frames[1]['reachable'], isFalse);
+      expect(jsonEncode(data), isNot(contains('SECRET')));
+      expect(jsonEncode(data), isNot(contains('TOK')));
+    });
+
+    test('maps target_changed to 409 and errors_failed/timeout to 500',
+        () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        errorsDrainer: (v, e) async => throw PlatformException(code: 'target_changed'),
+      );
+      expect(
+        queries.dispatch({'op': 'errors', 'identityId': 'id-a1'}),
+        failure('target_changed', 409),
+      );
+      for (final code in ['errors_failed', 'errors_timeout']) {
+        queries = buildQueries(
+          errorsDrainer: (v, e) async => throw PlatformException(code: code),
+        );
+        expect(
+          queries.dispatch({'op': 'errors', 'identityId': 'id-a1'}),
+          failure(code, 500),
+        );
+      }
+    });
+
+    test('reports errors_failed on a malformed drain payload', () async {
+      workspace = WorkspaceState(panels: {'id-a1': makePanel('id-a1')});
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 1)]);
+      queries = buildQueries(
+        errorsDrainer: (v, e) async => drained(json: 'garbage'),
+      );
+      expect(
+        queries.dispatch({'op': 'errors', 'identityId': 'id-a1'}),
+        failure('errors_failed', 500),
+      );
+    });
+
+    test('capabilities advertises the errors operation', () async {
+      final caps = await run({'op': 'capabilities'});
+      expect((caps['limitations'] as Map)['errors'], isTrue);
+      expect((caps['operations'] as List).cast<String>(), contains('errors'));
     });
   });
 
