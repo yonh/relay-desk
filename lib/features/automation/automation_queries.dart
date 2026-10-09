@@ -1350,34 +1350,72 @@ class AutomationQueries {
     }
 
     var armed = false;
+    // A loadStarted for a different URL before ours may be a stale event
+    // carrying the OLD page's address or a genuinely competing navigation
+    // — record it as a supersession candidate but keep waiting for ours
+    // until the budget, instead of cancelling a navigation that may still
+    // commit (Devin Review BUG_0001). A post-arm NavigationBlocked may
+    // likewise belong to the previous navigation's late failure rather
+    // than ours — give a commit a bounded grace to win (BUG_0003).
+    String? supersededBy;
+    Timer? blockedGrace;
     final settled = Completer<WebviewEvent>();
+    void completeOnce(WebviewEvent event) {
+      blockedGrace?.cancel();
+      if (!settled.isCompleted) settled.complete(event);
+    }
+
     final sub = navigationEvents().listen((event) {
       if (settled.isCompleted || event.identityId != id) return;
       if (!armed) {
-        if (event is WebviewLoadStarted) {
-          if (isOurUrl(event.uri.toString())) {
-            armed = true;
-          } else {
-            // A different navigation claimed the view first — ours was
-            // superseded before it ever started.
-            settled.complete(event);
-          }
+        switch (event) {
+          case WebviewLoadStarted(:final uri):
+            if (isOurUrl(uri.toString())) {
+              armed = true;
+            } else {
+              supersededBy ??= uri.toString();
+            }
+          // No loadStarted yet: a dispatch-time failure (dead native view,
+          // refused load) surfaces as a block for OUR url — decisive now,
+          // reporting timeout for a known failure would be a lie
+          // (BUG_0002). A block carrying a DIFFERENT address is a stale
+          // event from an earlier navigation — not ours to report.
+          case WebviewNavigationBlocked(:final uri):
+            if (isOurUrl(uri.toString())) completeOnce(event);
+          case WebviewStateChanged(:final state):
+            if (state == WebviewState.closed ||
+                state == WebviewState.closing ||
+                state == WebviewState.failed) {
+              completeOnce(event);
+            }
+          default:
+            break;
         }
         return;
       }
       switch (event) {
         case WebviewLoadCommitted():
         case WebviewLoadComplete():
+          completeOnce(event);
         case WebviewNavigationBlocked():
-          settled.complete(event);
+          // Grace: a commit can still win over a stale failure event
+          // (BUG_0003) — if none arrives inside the bound, this failure
+          // is ours.
+          blockedGrace?.cancel();
+          // A quarter of the outer budget: long enough for a real commit to
+          // beat a stale failure, short enough to always land inside it.
+          blockedGrace = Timer(
+            navigateWaitBudget ~/ 4,
+            () => completeOnce(event),
+          );
         case WebviewLoadStarted():
           // A different navigation superseded ours mid-flight.
-          if (!isOurUrl(event.uri.toString())) settled.complete(event);
+          if (!isOurUrl(event.uri.toString())) completeOnce(event);
         case WebviewStateChanged():
           if (event.state == WebviewState.closed ||
               event.state == WebviewState.closing ||
               event.state == WebviewState.failed) {
-            settled.complete(event);
+            completeOnce(event);
           }
         default:
           break;
@@ -1399,6 +1437,7 @@ class AutomationQueries {
     } on TimeoutException {
       event = null;
     } finally {
+      blockedGrace?.cancel();
       await sub.cancel();
     }
     final settledAt = event == null ? null : DateTime.now().toUtc();
@@ -1431,7 +1470,16 @@ class AutomationQueries {
         status = 'cancelled';
         error = 'panel state became ${event.state.name}';
       case null:
-        status = 'timeout';
+        // The budget elapsed. If a competing loadStarted was seen while we
+        // waited for ours, this is a supersession, not a silent timeout —
+        // report it as such (BUG_0001).
+        if (supersededBy != null) {
+          status = 'cancelled';
+          error =
+              'superseded by a navigation to ${_stripUrl(supersededBy!)}';
+        } else {
+          status = 'timeout';
+        }
       default:
         status = 'timeout';
     }
@@ -1445,6 +1493,7 @@ class AutomationQueries {
       'dispatchedAt': dispatchedAt.toIso8601String(),
       'settledAt': settledAt?.toIso8601String(),
       'status': status,
+      if (supersededBy != null) 'supersededBy': _stripUrl(supersededBy!),
       'sameUrl': panel.url == normalized,
       'requestedUrl': _stripUrl(normalized),
       'finalUrl': finalUrl,

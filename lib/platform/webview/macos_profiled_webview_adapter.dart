@@ -101,6 +101,20 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return '${uri.scheme}://$host$port${uri.path}';
   }
 
+  static final _embeddedUrl = RegExp(r'https?://[^\s"<>]+');
+
+  /// Free-text fields (platform error messages) can embed URLs that carry
+  /// queries/credentials — replace each embedded locator with its stripped
+  /// `_safeLogUrl` form before it reaches the diagnostic log.
+  static String _safeLogText(Object? raw) {
+    final text = raw?.toString() ?? '';
+    final scrubbed = text.replaceAllMapped(
+      _embeddedUrl,
+      (m) => _safeLogUrl(m.group(0)),
+    );
+    return scrubbed.length <= 500 ? scrubbed : scrubbed.substring(0, 500);
+  }
+
   void _log(String event, [Map<String, Object?> fields = const {}]) {
     if (!Platform.isMacOS || _logFailures >= 3) return;
     unawaited(
@@ -174,7 +188,7 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
       // locator (scheme://host:port/path) belongs in the diagnostic log.
       'url': _safeLogUrl(payload['url'] as String?),
       'state': payload['state'],
-      'error': payload['error'],
+      'error': _safeLogText(payload['error']),
       'code': payload['code'],
       'isLoading': payload['isLoading'],
     });
