@@ -1742,8 +1742,22 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private static let domProbeScript = """
     (function () {
       var MAX_DEPTH = 8, MAX_FRAMES = 16, MAX_NODES = 300, MAX_TEXT = 80;
+      var MAX_URL = 512, MAX_TITLE = 200, MAX_BYTES = 200000;
       var docNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
       var frames = [], nodeBudget = MAX_NODES;
+      // URL fields are capped and opaque schemes stripped in-page, before
+      // the result is built — payload URLs never reach the channel.
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function safeTitle(t) {
+        if (!t) return null;
+        t = String(t);
+        return t.length > MAX_TITLE ? t.slice(0, MAX_TITLE) + '\\u2026' : t;
+      }
       var skipped = { nodes: 0, frames: 0, hidden: 0, textTruncated: 0 };
       var INTEREST = { A: 1, BUTTON: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1,
                        OPTION: 1, SUMMARY: 1, LABEL: 1,
@@ -1757,6 +1771,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       function labelFor(el) {
         var tag = el.tagName;
+        // Privacy boundary: INPUT/TEXTAREA labels come only from
+        // aria-label/placeholder — never textContent/innerText, which for
+        // TEXTAREA is the field's (possibly user-typed or default) content.
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+          var a = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+          a = a.replace(/\\s+/g, ' ').trim();
+          if (a.length > MAX_TEXT) { skipped.textTruncated++; a = a.slice(0, MAX_TEXT); }
+          return a;
+        }
         var l = el.getAttribute('aria-label') || el.innerText || el.textContent || '';
         l = l.replace(/\\s+/g, ' ').trim();
         if (l.length > MAX_TEXT) { skipped.textTruncated++; l = l.slice(0, MAX_TEXT); }
@@ -1765,6 +1788,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       function isHidden(el) {
         if (el.hidden) return true;
         if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+        return false;
+      }
+      // Full hidden-ancestor check: a [hidden]/aria-hidden ancestor hides
+      // the whole subtree, and CSS display:none/visibility:hidden hides it
+      // without any attribute.
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var cs = (win || window).getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden' ||
+              cs.visibility === 'collapse') return true;
+        } catch (e) {}
         return false;
       }
       // Canonical ordering shared by dom/dom_find/dom_inspect: the element's
@@ -1778,7 +1814,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (all.length > MAX_SCAN) { skipped.nodes += all.length - MAX_SCAN; }
         for (var i = 0; i < scanned; i++) {
           var el = all[i];
-          if (isHidden(el) || (el.closest && el.closest('[hidden],[aria-hidden="true"]'))) {
+          if (isHiddenDeep(el, doc.defaultView)) {
             skipped.hidden++; continue;
           }
           var tag = el.tagName;
@@ -1792,7 +1828,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (role) n.role = role;
           var label = labelFor(el);
           if (label) n.label = label;
-          if (tag === 'A' && el.getAttribute('href')) n.href = el.getAttribute('href');
+          if (tag === 'A' && el.getAttribute('href')) n.href = safeUrl(el.getAttribute('href'));
           if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'OPTION') {
             n.inputType = el.type || tag.toLowerCase();
             if (el.name) n.name = String(el.name);
@@ -1804,28 +1840,35 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       function collect(doc, label, url, depth, frameEl) {
         if (frames.length >= MAX_FRAMES) { skipped.frames++; return; }
-        var f = { index: frames.length, label: label, url: url,
+        var f = { index: frames.length, label: label, url: safeUrl(url),
                   documentId: docNonce + ':' + frames.length,
                   depth: depth, reachable: true, elements: [] };
         frames.push(f);
         var texts = [];
         try {
+          var win = doc.defaultView || window;
           var walker = doc.createTreeWalker(doc.body || doc.documentElement,
                                             4 /* SHOW_TEXT */, null);
           var node, gathered = 0;
           while ((node = walker.nextNode()) && gathered < 24 && texts.join(' ').length < 480) {
+            var pe = node.parentElement;
+            var ptag = pe && pe.tagName;
+            // TEXTAREA holds the field's content as a text node — never
+            // collected, same boundary as element labels.
+            if (ptag === 'TEXTAREA') { skipped.hidden++; continue; }
             var s = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
-            if (s && !SKIP[node.parentElement && node.parentElement.tagName] &&
-                !(node.parentElement && isHidden(node.parentElement))) {
+            if (s && !SKIP[ptag] && !(pe && isHiddenDeep(pe, win))) {
               if (s.length > 120) s = s.slice(0, 120);
               texts.push(s); gathered++;
+            } else if (s) {
+              skipped.hidden++;
             }
           }
           if (walker.nextNode()) skipped.textTruncated++;
         } catch (e) {}
         f.text = texts.join(' ').slice(0, 480);
-        f.title = doc.title || null;
-        if (doc.body) walkEl(doc.body, f.elements, f.index, 0);
+        f.title = safeTitle(doc.title);
+        if (doc.body) walkDoc(doc, f.elements, f.index);
         f.elementCount = f.elements.length;
         var iframes = doc.querySelectorAll('iframe');
         if (depth >= MAX_DEPTH) { skipped.frames += iframes.length; return; }
@@ -1842,7 +1885,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           } catch (e) {
             if (frames.length >= MAX_FRAMES) { skipped.frames++; continue; }
             frames.push({ index: frames.length, label: childLabel,
-                          url: el.src || null,
+                          url: safeUrl(el.src),
                           documentId: docNonce + ':' + frames.length,
                           depth: depth + 1, reachable: false,
                           reason: 'unavailable',
@@ -1851,14 +1894,34 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
       }
       collect(document, 'main', location.href, 0, null);
-      return JSON.stringify({
+      var result = {
         documentId: docNonce,
-        title: document.title || null,
-        url: location.href,
+        title: safeTitle(document.title),
+        url: safeUrl(location.href),
         frames: frames,
         truncated: skipped.nodes > 0 || skipped.frames > 0 || skipped.textTruncated > 0,
         skipped: skipped
-      });
+      };
+      // Total response-byte budget: element entries drop from the tail
+      // until the serialized result fits; the drop is reported.
+      var out = JSON.stringify(result);
+      var elementsDropped = 0;
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fe = frames[bi].elements;
+          if (fe && fe.length) { fe.pop(); elementsDropped++; dropped = true;
+                                 frames[bi].elementCount--; break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (elementsDropped) {
+        result.elementsDropped = elementsDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
     })()
     """
 
