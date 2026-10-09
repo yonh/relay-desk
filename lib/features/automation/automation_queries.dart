@@ -1268,10 +1268,11 @@ class AutomationQueries {
     final uri = normalized == null ? null : Uri.tryParse(normalized);
     if (normalized == null ||
         uri == null ||
-        !const {'http', 'https'}.contains(uri.scheme)) {
+        !const {'http', 'https'}.contains(uri.scheme) ||
+        uri.host.isEmpty) {
       throw const AutomationFailure(
         'invalid_url',
-        'URL must normalize to a valid http(s) URL',
+        'URL must normalize to a valid http(s) URL with a host',
       );
     }
     final identity = await identities.getById(id);
@@ -1321,6 +1322,16 @@ class AutomationQueries {
         status: 409,
       );
     }
+    // Second critical section: the native inventory await above is another
+    // suspension point — a project switch landing here would navigate the
+    // OLD project's panel, so the active project is re-verified after it.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the navigation dispatch',
+        status: 409,
+      );
+    }
     if (isNavigating(id)) {
       throw const AutomationFailure(
         'navigation_in_flight',
@@ -1329,14 +1340,39 @@ class AutomationQueries {
       );
     }
     // Subscribe BEFORE the dispatch so a fast commit cannot slip between
-    // the channel call and the subscription.
+    // the channel call and the subscription. The listener is armed only by
+    // THIS navigation's loadStarted — events an earlier navigation left
+    // queued on the broadcast stream must not be attributed to this batch.
+    bool isOurUrl(String raw) {
+      // The platform may append a trailing slash to a bare-authority URL;
+      // that is the one tolerated normalization difference.
+      return raw == normalized || raw == '$normalized/';
+    }
+
+    var armed = false;
     final settled = Completer<WebviewEvent>();
     final sub = navigationEvents().listen((event) {
       if (settled.isCompleted || event.identityId != id) return;
+      if (!armed) {
+        if (event is WebviewLoadStarted) {
+          if (isOurUrl(event.uri.toString())) {
+            armed = true;
+          } else {
+            // A different navigation claimed the view first — ours was
+            // superseded before it ever started.
+            settled.complete(event);
+          }
+        }
+        return;
+      }
       switch (event) {
+        case WebviewLoadCommitted():
         case WebviewLoadComplete():
         case WebviewNavigationBlocked():
           settled.complete(event);
+        case WebviewLoadStarted():
+          // A different navigation superseded ours mid-flight.
+          if (!isOurUrl(event.uri.toString())) settled.complete(event);
         case WebviewStateChanged():
           if (event.state == WebviewState.closed ||
               event.state == WebviewState.closing ||
@@ -1372,6 +1408,11 @@ class AutomationQueries {
     bool? canGoForward;
     String? finalUrl;
     switch (event) {
+      case WebviewLoadCommitted():
+        status = 'committed';
+        finalUrl = _stripUrl(event.uri.toString());
+        canGoBack = event.canGoBack;
+        canGoForward = event.canGoForward;
       case WebviewLoadComplete():
         status = 'committed';
         finalUrl = _stripUrl(event.uri.toString());
@@ -1382,6 +1423,10 @@ class AutomationQueries {
         // Platform error text can embed the URL — scrub credentials/query
         // out of any embedded locator before it leaves the interface.
         error = _scrubUrlsInText(event.reason);
+      case WebviewLoadStarted():
+        status = 'cancelled';
+        error =
+            'superseded by a navigation to ${_stripUrl(event.uri.toString())}';
       case WebviewStateChanged():
         status = 'cancelled';
         error = 'panel state became ${event.state.name}';

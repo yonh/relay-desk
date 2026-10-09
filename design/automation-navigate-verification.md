@@ -26,13 +26,28 @@
 ## 如实边界与说明
 
 - **面板存在性**：激活项目时布局恢复已打开 Http-A/B 双面板，故"无面板"分支未在本机直接命中；`panel_not_open` 由单元测试覆盖（closed/closing/failed 状态均拒绝）。同项目上错误身份→ `not_found`、跨项目身份 → `project_not_active`（单元测试覆盖，路径与 open_panel 一致）。
-- **完成定义**：`committed` = 主文档提交（loadComplete），非"页面加载完/视频可播"；`finalUrl` 为观测事实（重定向后与 `requestedUrl` 可能不同，以 finalUrl 为准）。
+- **完成定义**：`committed` = 主文档提交（WK `didCommitNavigation` → 新 `loadCommitted` 事件，取与 `didFinish` 先到者），非"资源全部加载完"。此前实现误挂在 `didFinish`（整页完成），已纠正——提交后立即返回的长加载页不再报 `timeout`。`finalUrl` 为观测事实（重定向后与 `requestedUrl` 可能不同，以 finalUrl 为准）。
 - **超时语义**：8s 有界预算 < 传输层 10s 命令超时，故慢页回 200 + `status:timeout` 而非 504；底层 WK 加载仍继续，属"可辨识、可恢复"而非静默。
 - **同 URL**：`sameUrl` 仅作标记，导航仍派发（地址栏回车即重载的语义）。
 - **不隐式创建**：navigate 不创建身份/面板/项目，不切换项目；全部前置校验（项目活跃→面板存活→原生视图→在途检测→关键段复核）先于派发。
 - **脱敏**：`requestedUrl`/`finalUrl` 经 `_stripUrl`（剥凭据/query/fragment）；平台错误文本中的内嵌 URL 经 `_scrubUrlsInText` 再 clip 500 字符——带 `?session=` 的真实导航在响应中无凭据字节。
 - **范围外**（按 issue 未实现）：项目激活、面板创建、链接点击、刷新/历史导航（#28/#29/#30 各自独立 ticket）。
 
+## 评审整改（第二轮）
+
+Devin Review 六项 finding 全部属实并已修复：
+
+| Finding | 修复 |
+|---|---|
+| BUG_0001 派发前窗口清单 await 后未复核项目 | `readNativeWindows` 之后、订阅派发之前补第二次关键段复核 |
+| BUG_0002 完成挂 `didFinish` 非主文档提交 | 原生 `didCommit` 新发射 `loadCommitted` 事件（含 URL+history 标志）→ Dart `WebviewLoadCommitted`；结算取先到者 |
+| BUG_0003 前次导航残留事件误归属本批 | 监听器改为武装-结算：只有本次导航的 `loadStarted`（URL 匹配，容忍尾斜线归一）之后才计入结算事件；武装前事件一律忽略 |
+| BUG_0004 `http:/x` 空主机过校验 | 校验补 `uri.host.isNotEmpty` |
+| SEC_0001 `[::ffff:127.0.0.1]` 映射写法绕过私网 | `_isLocalHost` 补 IPv4-mapped IPv6（点分+十六进制两式）、inet_aton 数字写法（整数/十六进制/八进制/短点分 `127.1`）、尾点 |
+| SEC_0002 请求 URL 带凭据写进诊断日志 | Swift `logFields` 的 url 与 Dart adapter 全部 `_log` URL 字段统一脱敏（`scheme://host[:port]/path`），包括每条 `nativeEvent` 日志 |
+
+附带：被取代语义——武装前后出现指向其他 URL 的 `loadStarted` → `status:cancelled` + `superseded`（替代原误判的 timeout/误归属）。
+
 ## 测试
 
-`flutter test` 286 项全绿，其中 navigate 专项 14 例：参数校验（identityId/url/invalid_url）、not_found、project_not_active、private_network_denied 正反、panel_not_open、no_native_view、navigation_in_flight、committed（finalUrl/canGoBack/时间字段/导航 ID）、sameUrl、failed（脱敏错误）、cancelled、timeout。
+`flutter test` 291 项全绿，其中 navigate 专项 19 例：参数校验（identityId/url/invalid_url 含空主机）、not_found、project_not_active、private_network_denied 正反、IPv4 写法变形拒绝（`[::ffff:127.0.0.1]`/`2130706433`/`0x7f000001`/`127.1`）、panel_not_open、no_native_view、navigation_in_flight、committed（finalUrl/canGoBack/时间字段/导航 ID）、主文档提交先于整页完成、同 URL、failed（脱敏错误）、cancelled、superseded、残留事件不误归属、timeout。

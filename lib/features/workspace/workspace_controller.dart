@@ -220,6 +220,19 @@ class WorkspaceController extends Notifier<WorkspaceState> {
           loading: true,
         );
         break;
+      case WebviewLoadCommitted(
+        :final uri,
+        :final canGoBack,
+        :final canGoForward,
+      ):
+        // The main document committed: the URL/history flags are already
+        // real, but the page keeps loading until didFinish/didFail.
+        panels[event.identityId] = existing.copyWith(
+          url: uri.toString(),
+          canGoBack: canGoBack,
+          canGoForward: canGoForward,
+        );
+        break;
       case WebviewLoadComplete(
         :final uri,
         :final canGoBack,

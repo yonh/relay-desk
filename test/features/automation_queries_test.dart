@@ -2138,9 +2138,10 @@ void main() {
       addTearDown(controller.close);
       queries = buildQueries(
         navigationEvents: () => controller.stream,
-        navigatePanel: (id, url) => controller.add(
-          WebviewLoadComplete(id, Uri.parse(url)),
-        ),
+        navigatePanel: (id, url) {
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
+          controller.add(WebviewLoadComplete(id, Uri.parse(url)));
+        },
       );
       final data = await run({
         'op': 'navigate',
@@ -2210,6 +2211,7 @@ void main() {
         navigationEvents: () => controller.stream,
         navigatePanel: (id, url) {
           dispatched.add('$id|$url');
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
           controller.add(
             WebviewLoadComplete(
               id,
@@ -2251,6 +2253,7 @@ void main() {
         navigationEvents: () => controller.stream,
         navigatePanel: (id, url) {
           calls++;
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
           controller.add(WebviewLoadComplete(id, Uri.parse(url)));
         },
       );
@@ -2270,13 +2273,16 @@ void main() {
       addTearDown(controller.close);
       queries = buildQueries(
         navigationEvents: () => controller.stream,
-        navigatePanel: (id, url) => controller.add(
-          WebviewNavigationBlocked(
-            id,
-            Uri.parse(url),
-            'cannot open https://badsite.example.com/p?token=abc — refused',
-          ),
-        ),
+        navigatePanel: (id, url) {
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
+          controller.add(
+            WebviewNavigationBlocked(
+              id,
+              Uri.parse(url),
+              'cannot open https://badsite.example.com/p?token=abc — refused',
+            ),
+          );
+        },
       );
       final data = await run({
         'op': 'navigate',
@@ -2298,9 +2304,10 @@ void main() {
       addTearDown(controller.close);
       queries = buildQueries(
         navigationEvents: () => controller.stream,
-        navigatePanel: (id, url) => controller.add(
-          WebviewStateChanged(id, WebviewState.closing),
-        ),
+        navigatePanel: (id, url) {
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
+          controller.add(WebviewStateChanged(id, WebviewState.closing));
+        },
       );
       final data = await run({
         'op': 'navigate',
@@ -2309,6 +2316,113 @@ void main() {
       });
       expect(data['status'], 'cancelled');
       expect(data['panelQueryable'], true);
+    });
+
+    test(
+      'stale events from an earlier navigation are not attributed',
+      () async {
+        setupTarget();
+        final controller = StreamController<WebviewEvent>();
+        addTearDown(controller.close);
+        queries = buildQueries(
+          navigationEvents: () => controller.stream,
+          navigatePanel: (id, url) {
+            // A leftover failure and a leftover complete from a previous
+            // navigation arrive BEFORE this navigation's loadStarted —
+            // neither may settle this batch.
+            controller.add(
+              WebviewNavigationBlocked(
+                id,
+                Uri.parse('https://old.example.com'),
+                'old failure',
+              ),
+            );
+            controller.add(
+              WebviewLoadComplete(id, Uri.parse('https://old.example.com')),
+            );
+            controller.add(WebviewLoadStarted(id, Uri.parse(url)));
+            controller.add(WebviewLoadComplete(id, Uri.parse(url)));
+          },
+        );
+        final data = await run({
+          'op': 'navigate',
+          'identityId': 'id-a1',
+          'url': 'https://x.example.com',
+        });
+        expect(data['status'], 'committed');
+        expect(data['finalUrl'], 'https://x.example.com');
+      },
+    );
+
+    test('a different loadStarted reports cancelled (superseded)', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) => controller.add(
+          WebviewLoadStarted(id, Uri.parse('https://other.example.com/')),
+        ),
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://x.example.com',
+      });
+      expect(data['status'], 'cancelled');
+      expect(data['error'] as String, contains('superseded'));
+    });
+
+    test('a main-document commit settles before the page finishes', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) {
+          controller.add(WebviewLoadStarted(id, Uri.parse(url)));
+          controller.add(
+            WebviewLoadCommitted(id, Uri.parse(url), canGoBack: true),
+          );
+          // No loadComplete: the page keeps loading resources but the
+          // committed document already counts as navigated.
+        },
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://x.example.com/slow',
+      });
+      expect(data['status'], 'committed');
+      expect(data['canGoBack'], true);
+      expect(data['finalUrl'], 'https://x.example.com/slow');
+    });
+
+    test('an http URL without a host reports invalid_url', () async {
+      setupTarget();
+      await expectLater(
+        run({
+          'op': 'navigate',
+          'identityId': 'id-a1',
+          'url': 'http:/x',
+        }),
+        failure('invalid_url', 400),
+      );
+    });
+
+    test('IPv4 denotation bypasses are still private-network denied', () async {
+      setupTarget();
+      for (final url in [
+        'http://[::ffff:127.0.0.1]/',
+        'http://2130706433/',
+        'http://0x7f000001/',
+        'http://127.1/',
+      ]) {
+        await expectLater(
+          run({'op': 'navigate', 'identityId': 'id-a1', 'url': url}),
+          failure('private_network_denied', 403),
+        );
+      }
     });
 
     test('no settling event within the budget reports timeout', () async {
