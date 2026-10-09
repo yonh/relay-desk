@@ -52,6 +52,7 @@ class AutomationQueries {
     required this.ensurePanel,
     required this.awaitFrame,
     required this.navigatePanel,
+    required this.reloadPanel,
     required this.isNavigating,
     required this.navigationEvents,
     this.settleBudget = const Duration(seconds: 2),
@@ -147,6 +148,10 @@ class AutomationQueries {
   /// URL normalization/panel bookkeeping. Injected so tests observe it.
   final void Function(String identityId, String url) navigatePanel;
 
+  /// `WorkspaceController.reload` — WK `reload()` on the app's own path
+  /// (normal cache semantics). Injected so tests observe it (issue #28).
+  final void Function(String identityId) reloadPanel;
+
   /// Whether a navigation is currently in flight for `identityId` (the
   /// adapter's navInfo `loading` flag). Covers navigations issued outside
   /// this interface (the address bar), which the command lock cannot see.
@@ -232,6 +237,8 @@ class AutomationQueries {
         return _openPanel(command);
       case 'navigate':
         return _navigate(command);
+      case 'reload':
+        return _reload(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1343,12 +1350,188 @@ class AutomationQueries {
     // the channel call and the subscription. The listener is armed only by
     // THIS navigation's loadStarted — events an earlier navigation left
     // queued on the broadcast stream must not be attributed to this batch.
-    bool isOurUrl(String raw) {
-      // The platform may append a trailing slash to a bare-authority URL;
-      // that is the one tolerated normalization difference.
-      return raw == normalized || raw == '$normalized/';
+    final armed = _armNavigation(id, normalized);
+    final navigationId =
+        'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    try {
+      navigatePanel(id, normalized);
+    } catch (_) {
+      await armed.cancel();
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(navigateWaitBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final outcome = _navigationOutcome(event, armed.supersededBy());
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': view['viewId'],
+      'windowId': view['windowId'],
+      'navigationId': navigationId,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'status': outcome.status,
+      if (armed.supersededBy() != null)
+        'supersededBy': _stripUrl(armed.supersededBy()!),
+      'sameUrl': panel.url == normalized,
+      'requestedUrl': _stripUrl(normalized),
+      'finalUrl': outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'error': ?outcome.error,
+      // After any outcome — including timeout — the target stays queryable:
+      // the caller re-reads panels/state/navInfo rather than trusting a
+      // terminal claim baked into this answer.
+      'panelQueryable': true,
+    };
+  }
+
+  /// Reload (Issue #28): re-dispatch the panel's CURRENT URL through the
+  /// app's own reload path (WK `reload()` — normal cache semantics, NOT a
+  /// forced no-cache reload). The new document supersedes every DOM ref and
+  /// document nonce issued for the old one.
+  Future<Map<String, Object?>> _reload(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'reload requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    // Critical section: re-validate the active project immediately before
+    // the mutation — the repository awaits above are suspension points.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the reload dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final currentUrl = panel.url;
+    if (currentUrl.isEmpty) {
+      throw const AutomationFailure(
+        'no_current_url',
+        'Panel has no URL to reload',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    if (view == null) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    // Second critical section: the native inventory await above is another
+    // suspension point — a project switch landing here would reload the
+    // OLD project's panel, so the active project is re-verified after it.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the reload dispatch',
+        status: 409,
+      );
+    }
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
     }
 
+    final armed = _armNavigation(id, currentUrl);
+    final navigationId =
+        'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    try {
+      reloadPanel(id);
+    } catch (_) {
+      await armed.cancel();
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(navigateWaitBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final outcome = _navigationOutcome(event, armed.supersededBy());
+    // The view we bound at dispatch time may have been torn down and rebuilt
+    // (panel close+open) while the reload settled — report the CURRENT
+    // binding, never the stale viewId (Devin Review #43 BUG_0003).
+    final settledNative = await readNativeWindows();
+    final settledView = _viewFor(_nativeList(settledNative, 'views'), id);
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': ?settledView?['viewId'],
+      'windowId': ?settledView?['windowId'],
+      'navigationId': navigationId,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'status': outcome.status,
+      // The committed URL wins when one was observed; otherwise the URL
+      // being reloaded. Either way it is sanitized before it leaves.
+      'url': _stripUrl(outcome.finalUrl ?? currentUrl),
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'error': ?outcome.error,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Armed navigation wait, shared by navigate/reload: the listener ignores
+  /// every event until THIS batch's `loadStarted` arrives (matching
+  /// `expectedUrl`, tolerant of the platform's trailing-slash normalization
+  /// on bare authorities). Events an earlier navigation left queued on the
+  /// broadcast stream can never settle the new batch; a `loadStarted` for a
+  /// different URL is reported as superseded.
+  ({
+    Completer<WebviewEvent> settled,
+    StreamSubscription<WebviewEvent> subscription,
+    String? Function() supersededBy,
+    Future<void> Function() cancel,
+  }) _armNavigation(String identityId, String expectedUrl) {
+    bool isExpected(String raw) =>
+        raw == expectedUrl || raw == '$expectedUrl/';
     var armed = false;
     // A loadStarted for a different URL before ours may be a stale event
     // carrying the OLD page's address or a genuinely competing navigation
@@ -1365,23 +1548,23 @@ class AutomationQueries {
       if (!settled.isCompleted) settled.complete(event);
     }
 
-    final sub = navigationEvents().listen((event) {
-      if (settled.isCompleted || event.identityId != id) return;
+    final subscription = navigationEvents().listen((event) {
+      if (settled.isCompleted || event.identityId != identityId) return;
       if (!armed) {
         switch (event) {
           case WebviewLoadStarted(:final uri):
-            if (isOurUrl(uri.toString())) {
+            if (isExpected(uri.toString())) {
               armed = true;
             } else {
               supersededBy ??= uri.toString();
             }
           // No loadStarted yet: a dispatch-time failure (dead native view,
-          // refused load) surfaces as a block for OUR url — decisive now,
-          // reporting timeout for a known failure would be a lie
-          // (BUG_0002). A block carrying a DIFFERENT address is a stale
-          // event from an earlier navigation — not ours to report.
+          // refused load) surfaces as a block for OUR url — decisive now;
+          // reporting timeout for a known failure would be a lie (BUG_0002).
+          // A block carrying a DIFFERENT address is a stale event from an
+          // earlier navigation — not ours to report.
           case WebviewNavigationBlocked(:final uri):
-            if (isOurUrl(uri.toString())) completeOnce(event);
+            if (isExpected(uri.toString())) completeOnce(event);
           case WebviewStateChanged(:final state):
             if (state == WebviewState.closed ||
                 state == WebviewState.closing ||
@@ -1399,18 +1582,17 @@ class AutomationQueries {
           completeOnce(event);
         case WebviewNavigationBlocked():
           // Grace: a commit can still win over a stale failure event
-          // (BUG_0003) — if none arrives inside the bound, this failure
-          // is ours.
+          // (BUG_0003) — if none arrives inside the bound, the failure is
+          // ours. A quarter of the outer budget keeps it inside the
+          // caller's deadline.
           blockedGrace?.cancel();
-          // A quarter of the outer budget: long enough for a real commit to
-          // beat a stale failure, short enough to always land inside it.
           blockedGrace = Timer(
             navigateWaitBudget ~/ 4,
             () => completeOnce(event),
           );
         case WebviewLoadStarted():
           // A different navigation superseded ours mid-flight.
-          if (!isOurUrl(event.uri.toString())) completeOnce(event);
+          if (!isExpected(event.uri.toString())) completeOnce(event);
         case WebviewStateChanged():
           if (event.state == WebviewState.closed ||
               event.state == WebviewState.closing ||
@@ -1421,90 +1603,101 @@ class AutomationQueries {
           break;
       }
     });
-    final navigationId =
-        'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
-    final requestedAt = DateTime.now().toUtc();
-    try {
-      navigatePanel(id, normalized);
-    } catch (_) {
-      await sub.cancel();
-      rethrow;
-    }
-    final dispatchedAt = DateTime.now().toUtc();
-    WebviewEvent? event;
-    try {
-      event = await settled.future.timeout(navigateWaitBudget);
-    } on TimeoutException {
-      event = null;
-    } finally {
-      blockedGrace?.cancel();
-      await sub.cancel();
-    }
-    final settledAt = event == null ? null : DateTime.now().toUtc();
-    final String status;
-    String? error;
-    bool? canGoBack;
-    bool? canGoForward;
-    String? finalUrl;
+    return (
+      settled: settled,
+      subscription: subscription,
+      supersededBy: () => supersededBy,
+      cancel: () {
+        blockedGrace?.cancel();
+        return subscription.cancel();
+      },
+    );
+  }
+
+  /// Event → response shape shared by navigate and reload: committed /
+  /// failed / cancelled / timeout, with URL-bearing fields already
+  /// sanitized.
+  ({
+    String status,
+    String? error,
+    String? finalUrl,
+    bool? canGoBack,
+    bool? canGoForward,
+  }) _navigationOutcome(WebviewEvent? event, [String? supersededBy]) {
     switch (event) {
-      case WebviewLoadCommitted():
-        status = 'committed';
-        finalUrl = _stripUrl(event.uri.toString());
-        canGoBack = event.canGoBack;
-        canGoForward = event.canGoForward;
-      case WebviewLoadComplete():
-        status = 'committed';
-        finalUrl = _stripUrl(event.uri.toString());
-        canGoBack = event.canGoBack;
-        canGoForward = event.canGoForward;
-      case WebviewNavigationBlocked():
-        status = 'failed';
-        // Platform error text can embed the URL — scrub credentials/query
-        // out of any embedded locator before it leaves the interface.
-        error = _scrubUrlsInText(event.reason);
-      case WebviewLoadStarted():
-        status = 'cancelled';
-        error =
-            'superseded by a navigation to ${_stripUrl(event.uri.toString())}';
-      case WebviewStateChanged():
-        status = 'cancelled';
-        error = 'panel state became ${event.state.name}';
+      case WebviewLoadCommitted(
+            :final uri,
+            :final canGoBack,
+            :final canGoForward,
+          ):
+      case WebviewLoadComplete(
+            :final uri,
+            :final canGoBack,
+            :final canGoForward,
+          ):
+        return (
+          status: 'committed',
+          error: null,
+          finalUrl: _stripUrl(uri.toString()),
+          canGoBack: canGoBack,
+          canGoForward: canGoForward,
+        );
+      case WebviewNavigationBlocked(:final reason):
+        return (
+          status: 'failed',
+          // Platform error text can embed the URL — scrub credentials/query
+          // out of any embedded locator before it leaves the interface.
+          error: _scrubUrlsInText(reason),
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
+      case WebviewLoadStarted(:final uri):
+        return (
+          status: 'cancelled',
+          error: 'superseded by a navigation to ${_stripUrl(uri.toString())}',
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
+      case WebviewStateChanged(:final state):
+        return (
+          status: 'cancelled',
+          error: 'panel state became ${state.name}',
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
       case null:
         // The budget elapsed. If a competing loadStarted was seen while we
         // waited for ours, this is a supersession, not a silent timeout —
         // report it as such (BUG_0001).
         if (supersededBy != null) {
-          status = 'cancelled';
-          error =
-              'superseded by a navigation to ${_stripUrl(supersededBy!)}';
-        } else {
-          status = 'timeout';
+          return (
+            status: 'cancelled',
+            error:
+                'superseded by a navigation to ${_stripUrl(supersededBy)}',
+            finalUrl: null,
+            canGoBack: null,
+            canGoForward: null,
+          );
         }
+        return (
+          status: 'timeout',
+          error: null,
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
       default:
-        status = 'timeout';
+        return (
+          status: 'timeout',
+          error: null,
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
     }
-    return {
-      'identityId': id,
-      'projectId': identity.projectId,
-      'nativeViewId': view['viewId'],
-      'windowId': view['windowId'],
-      'navigationId': navigationId,
-      'requestedAt': requestedAt.toIso8601String(),
-      'dispatchedAt': dispatchedAt.toIso8601String(),
-      'settledAt': settledAt?.toIso8601String(),
-      'status': status,
-      if (supersededBy != null) 'supersededBy': _stripUrl(supersededBy!),
-      'sameUrl': panel.url == normalized,
-      'requestedUrl': _stripUrl(normalized),
-      'finalUrl': finalUrl,
-      'canGoBack': ?canGoBack,
-      'canGoForward': ?canGoForward,
-      'error': ?error,
-      // After any outcome — including timeout — the target stays queryable:
-      // the caller re-reads panels/state/navInfo rather than trusting a
-      // terminal claim baked into this answer.
-      'panelQueryable': true,
-    };
   }
 
   // ---- selection ----
