@@ -313,6 +313,7 @@ void main() {
         'reload',
         'click',
         'input',
+        'key',
       });
     });
 

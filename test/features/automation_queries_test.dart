@@ -140,6 +140,7 @@ void main() {
     void Function(String identityId)? reloadPanel,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domInput,
+    Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domKey,
     bool Function(String identityId)? isNavigating,
     Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
@@ -202,6 +203,7 @@ void main() {
     reloadPanel: reloadPanel ?? (_) {},
     domClick: domClick ?? (_, _, _) async => {'json': '{}'},
     domInput: domInput ?? (_, _, _) async => {'json': '{}'},
+    domKey: domKey ?? (_, _, _) async => {'json': '{}'},
     isNavigating: isNavigating ?? (_) => false,
     navigationEvents:
         navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
@@ -274,6 +276,7 @@ void main() {
       'reload',
       'click',
       'input',
+      'key',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -3259,6 +3262,182 @@ void main() {
         }),
         failure('stale_element', 409),
       );
+    });
+  });
+
+  group('key', () {
+    void setupTarget() {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel(
+            'id-a1',
+            url: 'https://alpha.example.com/form',
+            state: WebviewState.embedded,
+          ),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+    }
+
+    Map<String, dynamic> keyJson(Map<String, dynamic> payload) => {
+      'json': jsonEncode(payload),
+      'windowId': 83,
+      'url': 'https://alpha.example.com/form',
+    };
+
+    Map<String, dynamic> keyCmd(String key) => {
+      'op': 'key',
+      'identityId': 'id-a1',
+      'ref': '0.3',
+      'documentId': 'doc:0',
+      'key': key,
+    };
+
+    test('requires identityId, ref, documentId and key', () async {
+      expect(queries.dispatch({'op': 'key'}), failure('invalid_argument', 400));
+      expect(
+        queries.dispatch(keyCmd('Enter')..remove('key')),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('keys outside the whitelist are invalid_argument', () async {
+      for (final k in ['cmd+q', 'a', 'Ctrl+C', 'F5', ' ', 'enter']) {
+        expect(queries.dispatch(keyCmd(k)), failure('invalid_argument', 400));
+      }
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(queries.dispatch(keyCmd('Enter')), failure('panel_not_open', 409));
+    });
+
+    test('not_interactable refusals map to 409 and do not retry', () async {
+      setupTarget();
+      var calls = 0;
+      for (final reason in ['hidden', 'disabled']) {
+        queries = buildQueries(
+          domKey: (_, _, _) async {
+            calls++;
+            return keyJson({
+              'error': 'not_interactable',
+              'reason': reason,
+              'message': 'Element is $reason',
+            });
+          },
+        );
+        expect(queries.dispatch(keyCmd('Tab')), failure('not_interactable', 409));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 2); // one sequence per call, never replayed
+    });
+
+    test('stale_element maps to 409', () async {
+      setupTarget();
+      queries = buildQueries(
+        domKey: (_, _, _) async => keyJson({
+          'error': 'stale_element',
+          'message': 'Document changed since the ref was issued',
+        }),
+      );
+      expect(queries.dispatch(keyCmd('Enter')), failure('stale_element', 409));
+    });
+
+    test('dispatched key reports the mechanism and events', () async {
+      setupTarget();
+      queries = buildQueries(
+        domKey: (_, _, _) async => keyJson({
+          'ref': '0.3',
+          'frame': 'main',
+          'frameIndex': 0,
+          'tag': 'input',
+          'key': 'Enter',
+          'dispatched': true,
+          'synthetic': true,
+          'eventsFired': ['keydown', 'keypress', 'keyup'],
+          'documentId': 'doc:0',
+        }),
+      );
+      final data = await run(keyCmd('Enter'));
+      expect(data['dispatched'], true);
+      expect(data['mechanism'], 'synthetic_keyboard_events');
+      expect(data['isTrusted'], false);
+      expect(data['key'], 'Enter');
+      expect(data['keyId'] as String, startsWith('key-'));
+      expect(data['eventsFired'], ['keydown', 'keypress', 'keyup']);
+      expect(data['navigationStarted'], false);
+      expect(data['panelQueryable'], true);
+    });
+
+    test('the key value reaches the native query', () async {
+      setupTarget();
+      String? sentQuery;
+      queries = buildQueries(
+        domKey: (_, _, query) async {
+          sentQuery = query;
+          return keyJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'tag': 'input',
+            'key': 'Escape',
+            'dispatched': true,
+            'synthetic': true,
+            'eventsFired': ['keydown', 'keyup'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run(keyCmd('Escape'));
+      expect(data['eventsFired'], ['keydown', 'keyup']);
+      final sent = jsonDecode(sentQuery!) as Map<String, dynamic>;
+      expect(sent['key'], 'Escape');
+      expect(sent['ref'], '0.3');
+      expect(sent['documentId'], 'doc:0');
+    });
+
+    test('a key-started navigation reports the sanitized batch', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        domKey: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted('id-a1', Uri.parse('https://x/s?token=t')),
+          );
+          controller.add(
+            WebviewLoadCommitted('id-a1', Uri.parse('https://x/s?token=t')),
+          );
+          return keyJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'tag': 'input',
+            'key': 'Enter',
+            'dispatched': true,
+            'synthetic': true,
+            'eventsFired': ['keydown', 'keypress', 'keyup'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run(keyCmd('Enter'));
+      expect(data['navigationStarted'], true);
+      expect(data['navStatus'], 'committed');
+      expect(data['finalUrl'], 'https://x/s');
+      expect(jsonEncode(data), isNot(contains('token=t')));
+    });
+
+    test('a native failure maps dom_key_failed to 500', () async {
+      setupTarget();
+      queries = buildQueries(
+        domKey: (_, _, _) async =>
+            throw PlatformException(code: 'dom_key_failed'),
+      );
+      expect(queries.dispatch(keyCmd('Enter')), failure('dom_key_failed', 500));
     });
   });
 
