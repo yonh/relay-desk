@@ -57,6 +57,9 @@ class AutomationQueries {
     required this.awaitFrame,
     required this.navigatePanel,
     required this.reloadPanel,
+    required this.backPanel,
+    required this.canGoBackPanel,
+    required this.pullHistoryState,
     required this.isNavigating,
     required this.navigationEvents,
     this.settleBudget = const Duration(seconds: 2),
@@ -202,6 +205,23 @@ class AutomationQueries {
   /// (normal cache semantics). Injected so tests observe it (issue #28).
   final void Function(String identityId) reloadPanel;
 
+  /// `WorkspaceController.back` — WK `goBack()` on the app's own path
+  /// (backForwardList traversal, BFCache handled natively). Injected so
+  /// tests observe it (issue #29).
+  final void Function(String identityId) backPanel;
+
+  /// Whether the tracked navInfo says the panel can traverse back.
+  /// Checked BEFORE dispatching so an empty history answers `no_history`
+  /// instead of a silent no-op (issue #29).
+  final bool Function(String identityId) canGoBackPanel;
+
+  /// Pull-based history snapshot (url/canGoBack/canGoForward) straight
+  /// from the view — used when a traversal produces no delegate events
+  /// (same-document popstate) so the answer reflects what actually
+  /// happened instead of a false timeout (issue #29).
+  final Future<Map<String, Object?>?> Function(String identityId)
+      pullHistoryState;
+
   /// Whether a navigation is currently in flight for `identityId` (the
   /// adapter's navInfo `loading` flag). Covers navigations issued outside
   /// this interface (the address bar), which the command lock cannot see.
@@ -304,6 +324,8 @@ class AutomationQueries {
         return _key(command);
       case 'scroll':
         return _scroll(command);
+      case 'back':
+        return _back(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1775,6 +1797,175 @@ class AutomationQueries {
       'canGoBack': ?outcome.canGoBack,
       'canGoForward': ?outcome.canGoForward,
       'navError': ?outcome.error,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Back history traversal (issue #29): explicit `identityId`, the
+  /// panel's OWN WK backForwardList — one bounded `goBack()` on the app's
+  /// path (same as toolbar/side-button), observed by the next loadStarted
+  /// + commit on this view. Support layer honestly scoped: same-document
+  /// `popstate`/`history` entries, cross-document navigations and BFCache
+  /// restores all surface as commits; in-app router stacks that never
+  /// touch `history` (e.g. some SPA routers) are NOT covered — no commit
+  /// then, reported as timeout. Post-back every issued documentId/ref is
+  /// stale (the restored or new document mints fresh nonces): callers
+  /// must re-probe. `back` never touches other identities/windows.
+  Future<Map<String, Object?>> _back(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null || id.isEmpty) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'back requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the back dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    if (view == null) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the back dispatch',
+        status: 409,
+      );
+    }
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
+    // History check BEFORE dispatching — a silent no-op goBack() would
+    // otherwise time out looking like a navigation failure.
+    if (!canGoBackPanel(id)) {
+      throw const AutomationFailure(
+        'no_history',
+        'Panel has no back history to traverse',
+        status: 409,
+      );
+    }
+    final armed = _armClickNavigation(id);
+    final backId =
+        'back-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final beforeUrl = panel.url;
+    // Baseline pull BEFORE dispatch: URL-unchanged same-document traversals
+    // (pushState/hash entries) are only detectable via canGoBack/
+    // canGoForward deltas — the URL alone cannot distinguish them.
+    final beforeHistory = await pullHistoryState(id);
+    try {
+      backPanel(id);
+    } catch (_) {
+      await armed.subscription.cancel();
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(navigateWaitBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.subscription.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    var outcome = _navigationOutcome(event);
+    var silentSameDocument = false;
+    var refsInvalid = true;
+    if (event == null && !armed.started()) {
+      // Same-document traversals (popstate/history state entries) traverse
+      // WITHOUT delegate events — a bare timeout can't distinguish
+      // "traversed silently" from "nothing happened". The view's own url is
+      // the ground truth: changed → the traversal really happened (a
+      // cross-document back always emits events, so silence ⇒ same-doc,
+      // document persists, refs stay valid); unchanged → genuinely
+      // unhandled history layer.
+      final pulled = await pullHistoryState(id);
+      final pulledUrl = pulled?['url']?.toString() ?? '';
+      final traversed = pulled != null &&
+          ((pulledUrl.isNotEmpty && pulledUrl != beforeUrl) ||
+              (beforeHistory != null &&
+                  (pulled['canGoBack'] != beforeHistory['canGoBack'] ||
+                      pulled['canGoForward'] !=
+                          beforeHistory['canGoForward'])));
+      if (traversed) {
+        silentSameDocument = true;
+        refsInvalid = false;
+        outcome = (
+          status: 'committed',
+          error: null,
+          finalUrl: _stripUrl(pulledUrl),
+          canGoBack: pulled['canGoBack'] == true,
+          canGoForward: pulled['canGoForward'] == true,
+        );
+      } else {
+        outcome = (
+          status: 'timeout',
+          error:
+              'no traversal observed within budget — the history layer may be'
+              ' unhandled (e.g. in-app router state outside backForwardList)',
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
+      }
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': view['viewId'],
+      'windowId': view['windowId'],
+      'backId': backId,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'status': outcome.status,
+      'navigationStarted': armed.started(),
+      if (silentSameDocument) 'sameDocument': true,
+      if (silentSameDocument) 'silent': true,
+      'finalUrl': ?outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'error': ?outcome.error,
+      // Cross-document traversals (and BFCache restores) supersede the
+      // document — every minted documentId/ref is stale. Same-document
+      // popstate traversals keep the document, so refs stay valid; the flag
+      // tells the caller which case it got.
+      'invalidatedRefs': refsInvalid,
       'panelQueryable': true,
     };
   }

@@ -1085,6 +1085,30 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Pull-based history snapshot for automation `back` (issue #29):
+  /// same-document traversals (popstate) produce NO delegate events, so a
+  /// timed-out arm can't conclude — the view's own url/canGoBack/
+  /// canGoForward are the ground truth. Returns null when the identity has
+  /// no live view or the pull fails.
+  Future<Map<String, Object?>?> pullHistoryState(String identityId) async {
+    final viewId = _viewIdByIdentity[identityId];
+    if (viewId == null) return null;
+    try {
+      final results = await Future.wait<Object?>([
+        _channel.invokeMethod('currentUrl', {'viewId': viewId}),
+        _channel.invokeMethod('canGoBack', {'viewId': viewId}),
+        _channel.invokeMethod('canGoForward', {'viewId': viewId}),
+      ]);
+      return <String, Object?>{
+        'url': results[0]?.toString() ?? '',
+        'canGoBack': results[1] == true,
+        'canGoForward': results[2] == true,
+      };
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and

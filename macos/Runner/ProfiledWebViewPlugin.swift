@@ -65,6 +65,10 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     // viewId -> observation of the browser's current URL. WKNavigationDelegate
     // does not report History API changes made by single-page applications.
     private var urlObservers: [Int64: NSKeyValueObservation] = [:]
+    /// History-flag observers: canGoForward flips on EVERY history-stack
+    /// change, including URL-unchanged pushState traversals that the URL
+    /// observer never sees.
+    private var historyFlagObservers: [Int64: NSKeyValueObservation] = [:]
     // Per-WebView, one-way route reporters injected at document start. These
     // report URLs to the native event stream only; they expose no Flutter
     // method channel or native command surface to business pages.
@@ -251,6 +255,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         urlObservers[viewId] = webView.observe(\.url, options: [.new]) { [weak self, weak webView] _, _ in
             guard let self, let webView, let url = webView.url?.absoluteString,
                   !url.isEmpty else { return }
+            // Same-document traversals (popstate / pushState entries) change
+            // the URL with no navigation callbacks and no isLoading — the
+            // back/forward watchdog would otherwise fire a bogus loadFailed
+            // 75 s later. A real in-flight load keeps isLoading true, so the
+            // watchdog stays armed there.
+            if !webView.isLoading {
+                self.disarmLoadWatchdog(viewId: viewId)
+            }
             self.emit([
                 "event": "urlChanged",
                 "identityId": identityId,
@@ -258,6 +270,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 "canGoBack": webView.canGoBack,
                 "canGoForward": webView.canGoForward,
             ])
+        }
+        historyFlagObservers[viewId] = webView.observe(\.canGoForward, options: [.new]) { [weak self, weak webView] _, _ in
+            guard let self, let webView else { return }
+            // URL-unchanged same-document traversal: no URL KVO, no nav
+            // callbacks — disarm the back/forward watchdog here too.
+            if !webView.isLoading {
+                self.disarmLoadWatchdog(viewId: viewId)
+            }
         }
     }
 
@@ -4000,6 +4020,9 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         } else {
             observeUrl(of: webView, viewId: viewId, identityId: identityId)
         }
+        if let flagObserver = historyFlagObservers.removeValue(forKey: oldViewId) {
+            historyFlagObservers[viewId] = flagObserver
+        }
         if let routeHandlerName = routeHandlerNames.removeValue(forKey: oldViewId) {
             routeHandlerNames[viewId] = routeHandlerName
         }
@@ -4018,6 +4041,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         disarmLoadWatchdog(viewId: viewId)
         webView.stopLoading()
         urlObservers.removeValue(forKey: viewId)
+        historyFlagObservers.removeValue(forKey: viewId)
         removeRouteReporter(for: viewId, webView: webView)
         removeInAppFullscreenBridge(for: viewId, webView: webView)
         removeMeasureModeBridge(for: viewId, webView: webView)
