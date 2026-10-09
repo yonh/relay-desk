@@ -139,6 +139,7 @@ void main() {
     void Function(String identityId, String url)? navigatePanel,
     void Function(String identityId)? reloadPanel,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
+    Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domInput,
     bool Function(String identityId)? isNavigating,
     Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
@@ -200,6 +201,7 @@ void main() {
     navigatePanel: navigatePanel ?? (_, _) {},
     reloadPanel: reloadPanel ?? (_) {},
     domClick: domClick ?? (_, _, _) async => {'json': '{}'},
+    domInput: domInput ?? (_, _, _) async => {'json': '{}'},
     isNavigating: isNavigating ?? (_) => false,
     navigationEvents:
         navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
@@ -271,6 +273,7 @@ void main() {
       'navigate',
       'reload',
       'click',
+      'input',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -2980,6 +2983,281 @@ void main() {
           'documentId': 'doc:0',
         }),
         failure('dom_click_failed', 500),
+      );
+    });
+  });
+
+  group('input', () {
+    void setupTarget({String url = 'https://alpha.example.com/form'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    Map<String, dynamic> inputJson(Map<String, dynamic> payload) => {
+      'json': jsonEncode(payload),
+      'windowId': 83,
+      'url': 'https://alpha.example.com/form',
+    };
+
+    test('requires identityId, ref, documentId and text', () async {
+      expect(
+        queries.dispatch({'op': 'input'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+          'text': 'q',
+          'mode': 'bogus',
+        }),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+          'text': 'q',
+        }),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('payload not_interactable maps to 409 and does not retry', () async {
+      setupTarget();
+      var calls = 0;
+      queries = buildQueries(
+        domInput: (_, _, _) async {
+          calls++;
+          return inputJson({
+            'error': 'not_interactable',
+            'reason': 'readonly',
+            'message': 'Element is readonly',
+          });
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+          'text': 'q',
+        }),
+        failure('not_interactable', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 1); // one write, never replayed
+    });
+
+    test('dispatched input reports mechanism and never echoes text', () async {
+      setupTarget();
+      String? sentQuery;
+      queries = buildQueries(
+        domInput: (_, _, query) async {
+          sentQuery = query;
+          return inputJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'frameIndex': 0,
+            'tag': 'input',
+            'type': 'text',
+            'mode': 'replace',
+            'dispatched': true,
+            'valueLength': 9,
+            'eventsFired': ['input', 'change'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'input',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+        'text': 'secret123',
+      });
+      expect(data['dispatched'], true);
+      expect(data['mechanism'], 'prototype_setter_and_events');
+      expect(data['mode'], 'replace');
+      expect(data['valueLength'], 9);
+      expect(data['eventsFired'], ['input', 'change']);
+      expect(data['navigationStarted'], false);
+      // The submitted text crosses as data to the page and never comes back.
+      expect(jsonEncode(data), isNot(contains('secret123')));
+      final sent = jsonDecode(sentQuery!) as Map<String, dynamic>;
+      expect(sent['text'], 'secret123');
+      expect(sent['ref'], '0.3');
+    });
+
+    test('append mode reaches the native query', () async {
+      setupTarget();
+      String? sentQuery;
+      queries = buildQueries(
+        domInput: (_, _, query) async {
+          sentQuery = query;
+          return inputJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'tag': 'textarea',
+            'type': null,
+            'mode': 'append',
+            'dispatched': true,
+            'valueLength': 12,
+            'eventsFired': ['input', 'change'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'input',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+        'text': '+more',
+        'mode': 'append',
+      });
+      expect(data['mode'], 'append');
+      final sent = jsonDecode(sentQuery!) as Map<String, dynamic>;
+      expect(sent['mode'], 'append');
+      expect(sent['text'], '+more');
+    });
+
+    test('post-write navigation is reported with a sanitized finalUrl', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        domInput: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted('id-a1', Uri.parse('https://x/r?token=s')),
+          );
+          controller.add(
+            WebviewLoadCommitted('id-a1', Uri.parse('https://x/r?token=s')),
+          );
+          return inputJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'tag': 'input',
+            'type': 'text',
+            'mode': 'replace',
+            'dispatched': true,
+            'valueLength': 1,
+            'eventsFired': ['input', 'change'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'input',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+        'text': 'q',
+      });
+      expect(data['navigationStarted'], true);
+      expect(data['navStatus'], 'committed');
+      expect(data['finalUrl'], 'https://x/r');
+      expect(jsonEncode(data), isNot(contains('token')));
+    });
+
+    test('events from another identity are not attributed', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        clickNavObserveBudget: const Duration(milliseconds: 50),
+        domInput: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted('id-a2', Uri.parse('https://x/other')),
+          );
+          return inputJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'tag': 'input',
+            'type': 'text',
+            'mode': 'replace',
+            'dispatched': true,
+            'valueLength': 1,
+            'eventsFired': ['input', 'change'],
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'input',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+        'text': 'q',
+      });
+      expect(data['navigationStarted'], false);
+    });
+
+    test('a native failure maps dom_input_failed to 500', () async {
+      setupTarget();
+      queries = buildQueries(
+        domInput: (_, _, _) async =>
+            throw PlatformException(code: 'dom_input_failed'),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+          'text': 'q',
+        }),
+        failure('dom_input_failed', 500),
+      );
+    });
+
+    test('stale_element maps to 409', () async {
+      setupTarget();
+      queries = buildQueries(
+        domInput: (_, _, _) async => inputJson({
+          'error': 'stale_element',
+          'message': 'Document changed since the ref was issued',
+        }),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'input',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+          'text': 'q',
+        }),
+        failure('stale_element', 409),
       );
     });
   });

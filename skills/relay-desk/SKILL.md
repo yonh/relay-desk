@@ -161,8 +161,17 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Exactly **one** dispatch per call, never replayed on timeout — repeat calls are the caller's choice. The answer reports dispatch facts (`dispatched`, `clickId`, `mechanism`, `isTrusted`), not business success.
 - A click-started navigation is observed for a short window and reported as `navigationStarted` + `navStatus` (`committed`/`failed`/`cancelled`/`timeout`) + `navigationId` + sanitized `finalUrl`; afterwards re-issue `dom`/`dom_find` — the old document's refs are stale. `navigationStarted:false` means none seen within the window (a later one can still occur; re-query `panels`/`state`).
 
+## Input (write op)
+
+`relayctl input --identity <uuid> --ref <ref> --document-id <id> --text <text> [--mode replace|append]` (issue #25) writes text into an editable element issued by `dom`/`dom_find`.
+
+- v1 editable set: text-family `INPUT` types (text/search/url/email/password/tel/number) and `TEXTAREA`; checkbox/radio/file/range/buttons/non-editable → `not_interactable` (`reason:not_editable`). `readonly`/`disabled`/hidden refuse the same way — nothing is written silently to another element.
+- Mechanism, declared (`mechanism:'prototype_setter_and_events'`): the page's own prototype `value` setter plus real bubbling `input` + `change` events — Vue/uni-app/React controlled models update; a bare `.value` assignment would not. `--mode` defaults `replace` (empty `--text ""` clears); `append` concatenates. No form submit, no Enter key, no checkbox agreement — a business submit is a separate explicit action.
+- The submitted text is **never echoed or logged** — the answer carries only `valueLength` + `eventsFired` + `mode`. Same rule for `password` fields; field content does not appear in later `dom`/`dom_inspect` output either.
+- Same ref semantics as `click`: `stale_element` / `not_found` / `frame_unreachable` / `not_interactable`, one dispatch, never replayed; post-write navigation is reported via `navigationStarted`/`navStatus`/`navigationId`.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate`, `reload` and `click` (untrusted synthetic DOM click); they expose no script evaluation, trusted/native input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate`, `reload`, `click` (untrusted synthetic DOM click) and `input` (framework-observable text write); they expose no script evaluation, trusted/native input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
