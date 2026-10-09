@@ -316,6 +316,7 @@ void main() {
         'key',
         'scroll',
         'back',
+        'forward',
       });
     });
 

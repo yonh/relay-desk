@@ -142,6 +142,8 @@ void main() {
     bool Function(String identityId)? canGoBackPanel,
     Future<Map<String, Object?>?> Function(String identityId)?
     pullHistoryState,
+    void Function(String identityId)? forwardPanel,
+    bool Function(String identityId)? canGoForwardPanel,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domInput,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domKey,
@@ -209,6 +211,8 @@ void main() {
     backPanel: backPanel ?? (_) {},
     canGoBackPanel: canGoBackPanel ?? (_) => true,
     pullHistoryState: pullHistoryState ?? (_) async => null,
+    forwardPanel: forwardPanel ?? (_) {},
+    canGoForwardPanel: canGoForwardPanel ?? (_) => true,
     domClick: domClick ?? (_, _, _) async => {'json': '{}'},
     domInput: domInput ?? (_, _, _) async => {'json': '{}'},
     domKey: domKey ?? (_, _, _) async => {'json': '{}'},
@@ -288,6 +292,7 @@ void main() {
       'key',
       'scroll',
       'back',
+      'forward',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -3887,26 +3892,32 @@ void main() {
 
     test('a silent same-document traversal commits via pulled history', () async {
       setupBackTarget();
-      var pulled = false;
+      var pulls = 0;
       queries = buildQueries(
         navigationEvents: () => const Stream<WebviewEvent>.empty(),
         navigateWaitBudget: const Duration(milliseconds: 30),
         pullHistoryState: (_) async {
-          pulled = true;
-          return {
-            // The traversal landed on the previous history entry — a URL
-            // different from the panel's current one.
-            'url': 'https://alpha.example.com/list',
-            'canGoBack': true,
-            'canGoForward': true,
-          };
+          pulls++;
+          // First pull is the pre-dispatch check (current url, canGoBack);
+          // the second is post-traversal — url changed ⇒ silent same-doc.
+          return pulls == 1
+              ? {
+                  'url': 'https://alpha.example.com/entry',
+                  'canGoBack': true,
+                  'canGoForward': false,
+                }
+              : {
+                  'url': 'https://alpha.example.com/list',
+                  'canGoBack': true,
+                  'canGoForward': true,
+                };
         },
       );
       final result = await queries.dispatch({
         'op': 'back',
         'identityId': 'id-a1',
       }) as Map<String, Object?>;
-      expect(pulled, true);
+      expect(pulls, greaterThanOrEqualTo(2));
       expect(result['status'], 'committed');
       expect(result['sameDocument'], true);
       expect(result['silent'], true);
@@ -3920,9 +3931,10 @@ void main() {
         navigationEvents: () => const Stream<WebviewEvent>.empty(),
         navigateWaitBudget: const Duration(milliseconds: 30),
         pullHistoryState: (_) async => {
+          // Same url before and after — nothing traversed.
           'url': 'https://alpha.example.com/entry',
           'canGoBack': true,
-          'canGoForward': true,
+          'canGoForward': false,
         },
       );
       final result = await queries.dispatch({
@@ -3962,6 +3974,121 @@ void main() {
       // would cancel — here the traversal itself commits, so committed.
       expect(result['status'], 'committed');
       await controller.close();
+    });
+  });
+
+  group('forward', () {
+    void setupFwdTarget({String url = 'https://alpha.example.com/entry'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires an explicit identityId', () async {
+      expect(
+        queries.dispatch({'op': 'forward'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('empty forward history is no_history and never dispatches', () async {
+      setupFwdTarget();
+      var calls = 0;
+      queries = buildQueries(
+        canGoForwardPanel: (_) => false,
+        forwardPanel: (_) => calls++,
+      );
+      expect(
+        queries.dispatch({'op': 'forward', 'identityId': 'id-a1'}),
+        failure('no_history', 409),
+      );
+      expect(calls, 0);
+    });
+
+    test('a committed forward reports batch and invalidated refs', () async {
+      setupFwdTarget();
+      final controller = StreamController<WebviewEvent>();
+      var dispatched = '';
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        forwardPanel: (id) {
+          dispatched = id;
+          controller.add(
+            WebviewLoadStarted(id, Uri.parse('https://alpha.example.com/next')),
+          );
+          controller.add(
+            WebviewLoadCommitted(
+              id,
+              Uri.parse('https://alpha.example.com/next'),
+              canGoBack: true,
+              canGoForward: false,
+            ),
+          );
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'forward',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      expect(dispatched, 'id-a1');
+      expect(result['status'], 'committed');
+      expect(result['finalUrl'], 'https://alpha.example.com/next');
+      expect(result['canGoBack'], true);
+      expect(result['canGoForward'], false);
+      expect(result['invalidatedRefs'], true);
+      expect((result['forwardId'] as String).startsWith('fwd-'), true);
+      await controller.close();
+    });
+
+    test('a silent same-document forward commits via pulled history', () async {
+      setupFwdTarget();
+      var pulls = 0;
+      queries = buildQueries(
+        navigationEvents: () => const Stream<WebviewEvent>.empty(),
+        navigateWaitBudget: const Duration(milliseconds: 30),
+        pullHistoryState: (_) async {
+          pulls++;
+          return pulls == 1
+              ? {
+                  'url': 'https://alpha.example.com/entry',
+                  'canGoBack': true,
+                  'canGoForward': true,
+                }
+              : {
+                  'url': 'https://alpha.example.com/next',
+                  'canGoBack': true,
+                  'canGoForward': false,
+                };
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'forward',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      expect(result['status'], 'committed');
+      expect(result['sameDocument'], true);
+      expect(result['invalidatedRefs'], false);
+    });
+
+    test('navigation_in_flight blocks the forward', () async {
+      setupFwdTarget();
+      var calls = 0;
+      queries = buildQueries(
+        isNavigating: (_) => true,
+        forwardPanel: (_) => calls++,
+      );
+      expect(
+        queries.dispatch({'op': 'forward', 'identityId': 'id-a1'}),
+        failure('navigation_in_flight', 409),
+      );
+      expect(calls, 0);
     });
   });
 }

@@ -145,6 +145,7 @@ SELECTOR_HELP = {
     'key': 'Dispatch one synthetic key on an element; --identity --ref --document-id --key',
     'scroll': 'Bounded DOM scroll; --identity --document-id [--ref] --mode|--dx/--dy|--x/--y',
     'back': "Back one step in the panel's WK history; --identity (no_history when empty)",
+    'forward': "Forward one step in the panel's WK history; --identity (no_history when empty)",
 }
 
 
@@ -221,7 +222,7 @@ def build_parser():
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
                           required=(op == 'screenshot'
-                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input', 'key', 'scroll', 'back') and flag == '--identity')
+                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input', 'key', 'scroll', 'back', 'forward') and flag == '--identity')
                                     or (op == 'activate_project' and flag == '--project')
                                     or (op == 'navigate' and flag == '--url')
                                     or (op == 'input' and flag == '--text')))

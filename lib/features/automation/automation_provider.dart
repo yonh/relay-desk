@@ -70,6 +70,10 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
         ref.read(workspaceControllerProvider.notifier).back(identityId),
     canGoBackPanel: (identityId) =>
         adapter.navInfoFor(identityId).canGoBack,
+    forwardPanel: (identityId) =>
+        ref.read(workspaceControllerProvider.notifier).forward(identityId),
+    canGoForwardPanel: (identityId) =>
+        adapter.navInfoFor(identityId).canGoForward,
     pullHistoryState: (identityId) => adapter.pullHistoryState(identityId),
     isNavigating: (identityId) => adapter.navInfoFor(identityId).loading,
     navigationEvents: () => adapter.events,
