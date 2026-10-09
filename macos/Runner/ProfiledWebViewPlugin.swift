@@ -1384,7 +1384,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (!u) return null;
         u = String(u);
         if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
-        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\u2026' : u;
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
       }
       function seekableRanges(m) {
         var ranges = [];
