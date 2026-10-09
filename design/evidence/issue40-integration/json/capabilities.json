@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "data": {
+    "protocolVersion": 2,
+    "readOnly": false,
+    "engine": "WKWebView",
+    "operations": [
+      "capabilities",
+      "state",
+      "projects",
+      "project",
+      "identities",
+      "identity",
+      "panels",
+      "panel",
+      "windows",
+      "window",
+      "workspaces",
+      "workspace",
+      "screenshot",
+      "media",
+      "errors",
+      "dom",
+      "dom_find",
+      "dom_inspect"
+    ],
+    "writeOperations": [
+      "activate_project",
+      "open_panel"
+    ],
+    "limitations": {
+      "dom": true,
+      "screenshot": true,
+      "media": true,
+      "errors": true,
+      "projectActivation": true,
+      "eval": false,
+      "actions": false,
+      "console": false,
+      "network": false,
+      "cdp": false
+    }
+  }
+}

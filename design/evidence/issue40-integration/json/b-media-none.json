@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:45:49.587052Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/no-media.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/no-media.html",
+        "depth": 0,
+        "reachable": true,
+        "media": [],
+        "mediaSkipped": 0,
+        "mediaCount": 0
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0
+  }
+}

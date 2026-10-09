@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:49:34.637820Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frame.html",
+    "documentId": "ewkazk8nmmrmv10uzot",
+    "matchCount": 1,
+    "complete": true,
+    "scannedTotal": 29,
+    "scanTruncated": false,
+    "unreachableFrames": 1,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.6",
+        "frame": "main",
+        "tag": "a",
+        "role": "link",
+        "label": "top link",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}

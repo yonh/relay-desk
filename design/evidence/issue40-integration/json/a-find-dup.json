@@ -1,0 +1,92 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:44:00.195795Z",
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "documentId": "izs7genqqydmv10ntmp",
+    "matchCount": 8,
+    "complete": true,
+    "scannedTotal": 666,
+    "scanTruncated": false,
+    "unreachableFrames": 0,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.110",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.181",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.223",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.292",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.374",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场更新",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.422",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.439",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场更新",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.510",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "立场更新",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}

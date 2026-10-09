@@ -1,0 +1,1831 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:46:19.951668Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+        "depth": 0,
+        "reachable": true,
+        "installed": true,
+        "errors": [
+          {
+            "t": "2026-10-09T13:46:13.426Z",
+            "kind": "error",
+            "message": "Error: flood-30",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.432Z",
+            "kind": "error",
+            "message": "Error: flood-31",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.434Z",
+            "kind": "error",
+            "message": "Error: flood-32",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.440Z",
+            "kind": "error",
+            "message": "Error: flood-33",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.443Z",
+            "kind": "error",
+            "message": "Error: flood-34",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.447Z",
+            "kind": "error",
+            "message": "Error: flood-35",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.451Z",
+            "kind": "error",
+            "message": "Error: flood-36",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.455Z",
+            "kind": "error",
+            "message": "Error: flood-37",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.459Z",
+            "kind": "error",
+            "message": "Error: flood-38",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.464Z",
+            "kind": "error",
+            "message": "Error: flood-39",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.467Z",
+            "kind": "error",
+            "message": "Error: flood-40",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.472Z",
+            "kind": "error",
+            "message": "Error: flood-41",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.475Z",
+            "kind": "error",
+            "message": "Error: flood-42",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.479Z",
+            "kind": "error",
+            "message": "Error: flood-43",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.482Z",
+            "kind": "error",
+            "message": "Error: flood-44",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.486Z",
+            "kind": "error",
+            "message": "Error: flood-45",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.490Z",
+            "kind": "error",
+            "message": "Error: flood-46",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.494Z",
+            "kind": "error",
+            "message": "Error: flood-47",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.498Z",
+            "kind": "error",
+            "message": "Error: flood-48",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.502Z",
+            "kind": "error",
+            "message": "Error: flood-49",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.508Z",
+            "kind": "error",
+            "message": "Error: flood-50",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.511Z",
+            "kind": "error",
+            "message": "Error: flood-51",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.516Z",
+            "kind": "error",
+            "message": "Error: flood-52",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.519Z",
+            "kind": "error",
+            "message": "Error: flood-53",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.523Z",
+            "kind": "error",
+            "message": "Error: flood-54",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.527Z",
+            "kind": "error",
+            "message": "Error: flood-55",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.532Z",
+            "kind": "error",
+            "message": "Error: flood-56",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.535Z",
+            "kind": "error",
+            "message": "Error: flood-57",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.540Z",
+            "kind": "error",
+            "message": "Error: flood-58",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.543Z",
+            "kind": "error",
+            "message": "Error: flood-59",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.547Z",
+            "kind": "error",
+            "message": "Error: flood-60",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.551Z",
+            "kind": "error",
+            "message": "Error: flood-61",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.555Z",
+            "kind": "error",
+            "message": "Error: flood-62",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.559Z",
+            "kind": "error",
+            "message": "Error: flood-63",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.562Z",
+            "kind": "error",
+            "message": "Error: flood-64",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.566Z",
+            "kind": "error",
+            "message": "Error: flood-65",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.570Z",
+            "kind": "error",
+            "message": "Error: flood-66",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.574Z",
+            "kind": "error",
+            "message": "Error: flood-67",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.578Z",
+            "kind": "error",
+            "message": "Error: flood-68",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.583Z",
+            "kind": "error",
+            "message": "Error: flood-69",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.586Z",
+            "kind": "error",
+            "message": "Error: flood-70",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.591Z",
+            "kind": "error",
+            "message": "Error: flood-71",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.594Z",
+            "kind": "error",
+            "message": "Error: flood-72",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.599Z",
+            "kind": "error",
+            "message": "Error: flood-73",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.604Z",
+            "kind": "error",
+            "message": "Error: flood-74",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.607Z",
+            "kind": "error",
+            "message": "Error: flood-75",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.610Z",
+            "kind": "error",
+            "message": "Error: flood-76",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.616Z",
+            "kind": "error",
+            "message": "Error: flood-77",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.619Z",
+            "kind": "error",
+            "message": "Error: flood-78",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.624Z",
+            "kind": "error",
+            "message": "Error: flood-79",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.627Z",
+            "kind": "error",
+            "message": "Error: flood-80",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.631Z",
+            "kind": "error",
+            "message": "Error: flood-81",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.635Z",
+            "kind": "error",
+            "message": "Error: flood-82",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.638Z",
+            "kind": "error",
+            "message": "Error: flood-83",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.642Z",
+            "kind": "error",
+            "message": "Error: flood-84",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.646Z",
+            "kind": "error",
+            "message": "Error: flood-85",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.650Z",
+            "kind": "error",
+            "message": "Error: flood-86",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.654Z",
+            "kind": "error",
+            "message": "Error: flood-87",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.659Z",
+            "kind": "error",
+            "message": "Error: flood-88",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.664Z",
+            "kind": "error",
+            "message": "Error: flood-89",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.667Z",
+            "kind": "error",
+            "message": "Error: flood-90",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.670Z",
+            "kind": "error",
+            "message": "Error: flood-91",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.675Z",
+            "kind": "error",
+            "message": "Error: flood-92",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.680Z",
+            "kind": "error",
+            "message": "Error: flood-93",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.682Z",
+            "kind": "error",
+            "message": "Error: flood-94",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.687Z",
+            "kind": "error",
+            "message": "Error: flood-95",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.692Z",
+            "kind": "error",
+            "message": "Error: flood-96",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.695Z",
+            "kind": "error",
+            "message": "Error: flood-97",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.699Z",
+            "kind": "error",
+            "message": "Error: flood-98",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.704Z",
+            "kind": "error",
+            "message": "Error: flood-99",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.707Z",
+            "kind": "error",
+            "message": "Error: flood-100",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.711Z",
+            "kind": "error",
+            "message": "Error: flood-101",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.715Z",
+            "kind": "error",
+            "message": "Error: flood-102",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.718Z",
+            "kind": "error",
+            "message": "Error: flood-103",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.722Z",
+            "kind": "error",
+            "message": "Error: flood-104",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.726Z",
+            "kind": "error",
+            "message": "Error: flood-105",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.730Z",
+            "kind": "error",
+            "message": "Error: flood-106",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.734Z",
+            "kind": "error",
+            "message": "Error: flood-107",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.739Z",
+            "kind": "error",
+            "message": "Error: flood-108",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.744Z",
+            "kind": "error",
+            "message": "Error: flood-109",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.747Z",
+            "kind": "error",
+            "message": "Error: flood-110",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.751Z",
+            "kind": "error",
+            "message": "Error: flood-111",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.756Z",
+            "kind": "error",
+            "message": "Error: flood-112",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.759Z",
+            "kind": "error",
+            "message": "Error: flood-113",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.764Z",
+            "kind": "error",
+            "message": "Error: flood-114",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.766Z",
+            "kind": "error",
+            "message": "Error: flood-115",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.772Z",
+            "kind": "error",
+            "message": "Error: flood-116",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.775Z",
+            "kind": "error",
+            "message": "Error: flood-117",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.779Z",
+            "kind": "error",
+            "message": "Error: flood-118",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.782Z",
+            "kind": "error",
+            "message": "Error: flood-119",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.788Z",
+            "kind": "error",
+            "message": "Error: flood-120",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.790Z",
+            "kind": "error",
+            "message": "Error: flood-121",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.794Z",
+            "kind": "error",
+            "message": "Error: flood-122",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.798Z",
+            "kind": "error",
+            "message": "Error: flood-123",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.802Z",
+            "kind": "error",
+            "message": "Error: flood-124",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.806Z",
+            "kind": "error",
+            "message": "Error: flood-125",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.810Z",
+            "kind": "error",
+            "message": "Error: flood-126",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.815Z",
+            "kind": "error",
+            "message": "Error: flood-127",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.818Z",
+            "kind": "error",
+            "message": "Error: flood-128",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.823Z",
+            "kind": "error",
+            "message": "Error: flood-129",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.827Z",
+            "kind": "error",
+            "message": "Error: flood-130",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.831Z",
+            "kind": "error",
+            "message": "Error: flood-131",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.835Z",
+            "kind": "error",
+            "message": "Error: flood-132",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.840Z",
+            "kind": "error",
+            "message": "Error: flood-133",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.843Z",
+            "kind": "error",
+            "message": "Error: flood-134",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.848Z",
+            "kind": "error",
+            "message": "Error: flood-135",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.850Z",
+            "kind": "error",
+            "message": "Error: flood-136",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.856Z",
+            "kind": "error",
+            "message": "Error: flood-137",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.859Z",
+            "kind": "error",
+            "message": "Error: flood-138",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.863Z",
+            "kind": "error",
+            "message": "Error: flood-139",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.867Z",
+            "kind": "error",
+            "message": "Error: flood-140",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.872Z",
+            "kind": "error",
+            "message": "Error: flood-141",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.875Z",
+            "kind": "error",
+            "message": "Error: flood-142",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.878Z",
+            "kind": "error",
+            "message": "Error: flood-143",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.882Z",
+            "kind": "error",
+            "message": "Error: flood-144",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.886Z",
+            "kind": "error",
+            "message": "Error: flood-145",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.890Z",
+            "kind": "error",
+            "message": "Error: flood-146",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.894Z",
+            "kind": "error",
+            "message": "Error: flood-147",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.898Z",
+            "kind": "error",
+            "message": "Error: flood-148",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.904Z",
+            "kind": "error",
+            "message": "Error: flood-149",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.907Z",
+            "kind": "error",
+            "message": "Error: flood-150",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.911Z",
+            "kind": "error",
+            "message": "Error: flood-151",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.915Z",
+            "kind": "error",
+            "message": "Error: flood-152",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.918Z",
+            "kind": "error",
+            "message": "Error: flood-153",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.924Z",
+            "kind": "error",
+            "message": "Error: flood-154",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.927Z",
+            "kind": "error",
+            "message": "Error: flood-155",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.931Z",
+            "kind": "error",
+            "message": "Error: flood-156",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.935Z",
+            "kind": "error",
+            "message": "Error: flood-157",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.940Z",
+            "kind": "error",
+            "message": "Error: flood-158",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.943Z",
+            "kind": "error",
+            "message": "Error: flood-159",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.947Z",
+            "kind": "error",
+            "message": "Error: flood-160",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.950Z",
+            "kind": "error",
+            "message": "Error: flood-161",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.956Z",
+            "kind": "error",
+            "message": "Error: flood-162",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.958Z",
+            "kind": "error",
+            "message": "Error: flood-163",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.962Z",
+            "kind": "error",
+            "message": "Error: flood-164",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.966Z",
+            "kind": "error",
+            "message": "Error: flood-165",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.970Z",
+            "kind": "error",
+            "message": "Error: flood-166",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.975Z",
+            "kind": "error",
+            "message": "Error: flood-167",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.978Z",
+            "kind": "error",
+            "message": "Error: flood-168",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.982Z",
+            "kind": "error",
+            "message": "Error: flood-169",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.987Z",
+            "kind": "error",
+            "message": "Error: flood-170",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.990Z",
+            "kind": "error",
+            "message": "Error: flood-171",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.996Z",
+            "kind": "error",
+            "message": "Error: flood-172",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:13.999Z",
+            "kind": "error",
+            "message": "Error: flood-173",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.004Z",
+            "kind": "error",
+            "message": "Error: flood-174",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.007Z",
+            "kind": "error",
+            "message": "Error: flood-175",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.010Z",
+            "kind": "error",
+            "message": "Error: flood-176",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.015Z",
+            "kind": "error",
+            "message": "Error: flood-177",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.019Z",
+            "kind": "error",
+            "message": "Error: flood-178",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.023Z",
+            "kind": "error",
+            "message": "Error: flood-179",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.026Z",
+            "kind": "error",
+            "message": "Error: flood-180",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.032Z",
+            "kind": "error",
+            "message": "Error: flood-181",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.035Z",
+            "kind": "error",
+            "message": "Error: flood-182",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.039Z",
+            "kind": "error",
+            "message": "Error: flood-183",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.043Z",
+            "kind": "error",
+            "message": "Error: flood-184",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.046Z",
+            "kind": "error",
+            "message": "Error: flood-185",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.050Z",
+            "kind": "error",
+            "message": "Error: flood-186",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.054Z",
+            "kind": "error",
+            "message": "Error: flood-187",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.058Z",
+            "kind": "error",
+            "message": "Error: flood-188",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.062Z",
+            "kind": "error",
+            "message": "Error: flood-189",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.066Z",
+            "kind": "error",
+            "message": "Error: flood-190",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.070Z",
+            "kind": "error",
+            "message": "Error: flood-191",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.074Z",
+            "kind": "error",
+            "message": "Error: flood-192",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.079Z",
+            "kind": "error",
+            "message": "Error: flood-193",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.082Z",
+            "kind": "error",
+            "message": "Error: flood-194",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.087Z",
+            "kind": "error",
+            "message": "Error: flood-195",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.091Z",
+            "kind": "error",
+            "message": "Error: flood-196",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.095Z",
+            "kind": "error",
+            "message": "Error: flood-197",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.099Z",
+            "kind": "error",
+            "message": "Error: flood-198",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.103Z",
+            "kind": "error",
+            "message": "Error: flood-199",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.108Z",
+            "kind": "error",
+            "message": "Error: flood-200",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.111Z",
+            "kind": "error",
+            "message": "Error: flood-201",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.116Z",
+            "kind": "error",
+            "message": "Error: flood-202",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.119Z",
+            "kind": "error",
+            "message": "Error: flood-203",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.123Z",
+            "kind": "error",
+            "message": "Error: flood-204",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.128Z",
+            "kind": "error",
+            "message": "Error: flood-205",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.130Z",
+            "kind": "error",
+            "message": "Error: flood-206",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.134Z",
+            "kind": "error",
+            "message": "Error: flood-207",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.138Z",
+            "kind": "error",
+            "message": "Error: flood-208",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.142Z",
+            "kind": "error",
+            "message": "Error: flood-209",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.146Z",
+            "kind": "error",
+            "message": "Error: flood-210",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.150Z",
+            "kind": "error",
+            "message": "Error: flood-211",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.154Z",
+            "kind": "error",
+            "message": "Error: flood-212",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.158Z",
+            "kind": "error",
+            "message": "Error: flood-213",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.164Z",
+            "kind": "error",
+            "message": "Error: flood-214",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.166Z",
+            "kind": "error",
+            "message": "Error: flood-215",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.172Z",
+            "kind": "error",
+            "message": "Error: flood-216",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.175Z",
+            "kind": "error",
+            "message": "Error: flood-217",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.180Z",
+            "kind": "error",
+            "message": "Error: flood-218",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.182Z",
+            "kind": "error",
+            "message": "Error: flood-219",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.188Z",
+            "kind": "error",
+            "message": "Error: flood-220",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.191Z",
+            "kind": "error",
+            "message": "Error: flood-221",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.195Z",
+            "kind": "error",
+            "message": "Error: flood-222",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.199Z",
+            "kind": "error",
+            "message": "Error: flood-223",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.203Z",
+            "kind": "error",
+            "message": "Error: flood-224",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.207Z",
+            "kind": "error",
+            "message": "Error: flood-225",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.210Z",
+            "kind": "error",
+            "message": "Error: flood-226",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.214Z",
+            "kind": "error",
+            "message": "Error: flood-227",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.218Z",
+            "kind": "error",
+            "message": "Error: flood-228",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          },
+          {
+            "t": "2026-10-09T13:46:14.222Z",
+            "kind": "error",
+            "message": "Error: flood-229",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html",
+            "line": 7,
+            "col": 59,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-flood.html:7:45"
+          }
+        ],
+        "bufferId": "bj3yg7hfu6j-1791553573005",
+        "collectedAt": "2026-10-09T13:46:13.005Z",
+        "overflow": 30,
+        "count": 200
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0,
+    "errorsDropped": 0
+  }
+}

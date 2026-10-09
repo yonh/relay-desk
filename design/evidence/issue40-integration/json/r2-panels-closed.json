@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "data": {
+    "panels": [
+      {
+        "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+        "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+        "identityName": "Http-B",
+        "state": "embedded",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frame.html",
+        "loading": false,
+        "selected": true,
+        "devicePresetId": "desktop-1920",
+        "isolationMode": "nativeProfile",
+        "layout": {
+          "x": 70.0,
+          "y": 70.0,
+          "width": 480.0,
+          "height": 360.0,
+          "zIndex": 0,
+          "minimized": false,
+          "detached": false
+        },
+        "nativeViewId": 9,
+        "windowId": 37,
+        "hasKeyboardFocus": false
+      }
+    ]
+  }
+}

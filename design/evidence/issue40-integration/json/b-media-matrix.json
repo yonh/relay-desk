@@ -1,0 +1,194 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:45:26.019119Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/media.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/media.html",
+        "depth": 0,
+        "reachable": true,
+        "media": [
+          {
+            "index": 0,
+            "tag": "video",
+            "currentTime": 25.59698104200001,
+            "duration": 90,
+            "durationKind": "finite",
+            "paused": false,
+            "ended": false,
+            "seeking": false,
+            "readyState": 4,
+            "playbackRate": 1,
+            "seekable": [
+              [
+                0,
+                90
+              ]
+            ],
+            "error": null
+          },
+          {
+            "index": 1,
+            "tag": "video",
+            "currentTime": 0,
+            "duration": 90,
+            "durationKind": "finite",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 4,
+            "playbackRate": 1,
+            "seekable": [
+              [
+                0,
+                90
+              ]
+            ],
+            "error": null
+          },
+          {
+            "index": 2,
+            "tag": "video",
+            "currentTime": 0,
+            "duration": null,
+            "durationKind": "unknown",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 0,
+            "playbackRate": 1,
+            "seekable": [],
+            "error": {
+              "code": 4
+            }
+          },
+          {
+            "index": 3,
+            "tag": "video",
+            "currentTime": 0,
+            "duration": null,
+            "durationKind": "unknown",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 0,
+            "playbackRate": 1,
+            "seekable": [],
+            "error": null
+          },
+          {
+            "index": 4,
+            "tag": "audio",
+            "currentTime": 0,
+            "duration": 6,
+            "durationKind": "finite",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 4,
+            "playbackRate": 1,
+            "seekable": [
+              [
+                0,
+                6
+              ]
+            ],
+            "error": null
+          }
+        ],
+        "mediaSkipped": 0,
+        "mediaCount": 5
+      },
+      {
+        "index": 1,
+        "label": "f0",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/media-frame.html",
+        "depth": 1,
+        "reachable": true,
+        "media": [
+          {
+            "index": 0,
+            "tag": "video",
+            "currentTime": 0,
+            "duration": 90,
+            "durationKind": "finite",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 4,
+            "playbackRate": 1,
+            "seekable": [
+              [
+                0,
+                90
+              ]
+            ],
+            "error": null
+          }
+        ],
+        "mediaSkipped": 0,
+        "mediaCount": 1
+      },
+      {
+        "index": 2,
+        "label": "f0.f0",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/media-frame2.html",
+        "depth": 2,
+        "reachable": true,
+        "media": [
+          {
+            "index": 0,
+            "tag": "video",
+            "currentTime": 0,
+            "duration": 90,
+            "durationKind": "finite",
+            "paused": true,
+            "ended": false,
+            "seeking": false,
+            "readyState": 4,
+            "playbackRate": 1,
+            "seekable": [
+              [
+                0,
+                90
+              ]
+            ],
+            "error": null
+          }
+        ],
+        "mediaSkipped": 0,
+        "mediaCount": 1
+      },
+      {
+        "index": 3,
+        "label": "f1",
+        "url": "%3Copaque-url%3E",
+        "depth": 1,
+        "reachable": false,
+        "reason": "unavailable",
+        "media": [],
+        "mediaCount": 0
+      },
+      {
+        "index": 4,
+        "label": "f2",
+        "url": "https://example.com/",
+        "depth": 1,
+        "reachable": false,
+        "reason": "unavailable",
+        "media": [],
+        "mediaCount": 0
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0
+  }
+}

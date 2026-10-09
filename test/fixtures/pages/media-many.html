@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>media budget fixture</title>
+<body>
+<h2>media budget fixture — 40 media elements (probe cap is 32)</h2>
+<script>
+for (var i = 0; i < 40; i++) {
+  var v = document.createElement('video');
+  v.src = 'v.mp4';
+  v.preload = 'metadata';
+  v.muted = true;
+  v.width = 80;
+  v.id = 'mv-' + i;
+  document.body.appendChild(v);
+}
+</script>
+</body>

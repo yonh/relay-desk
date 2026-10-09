@@ -1,0 +1,99 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:49:34.605801Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frame.html",
+    "documentId": "sw6rs507t7mv10uznw",
+    "title": "dom frame host",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frame.html",
+        "documentId": "sw6rs507t7mv10uznw:0",
+        "depth": 0,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "0.5",
+            "tag": "h1",
+            "label": "Host page"
+          },
+          {
+            "ref": "0.6",
+            "tag": "a",
+            "label": "top link",
+            "href": "/a.html"
+          },
+          {
+            "ref": "0.7",
+            "tag": "button",
+            "label": "Host button"
+          }
+        ],
+        "text": "Host page top link Host button <p>fallback</p>",
+        "title": "dom frame host",
+        "elementCount": 3
+      },
+      {
+        "index": 1,
+        "label": "f0",
+        "url": "http://127.0.0.1:8901/a.html",
+        "documentId": "sw6rs507t7mv10uznw:1",
+        "depth": 1,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "1.5",
+            "tag": "h1",
+            "label": "Error response"
+          }
+        ],
+        "text": "Error response Error code: 404 Message: File not found. Error code explanation: 404 - Nothing matches the given URI.",
+        "title": "Error response",
+        "elementCount": 1
+      },
+      {
+        "index": 2,
+        "label": "f1",
+        "url": "https://example.com/unreachable",
+        "documentId": "sw6rs507t7mv10uznw:2",
+        "depth": 1,
+        "reachable": false,
+        "reason": "unavailable",
+        "elements": [],
+        "elementCount": 0,
+        "text": ""
+      },
+      {
+        "index": 3,
+        "label": "f2",
+        "url": "http://127.0.0.1:8901/b.html",
+        "documentId": "sw6rs507t7mv10uznw:3",
+        "depth": 1,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "3.5",
+            "tag": "h1",
+            "label": "Error response"
+          }
+        ],
+        "text": "Error response Error code: 404 Message: File not found. Error code explanation: 404 - Nothing matches the given URI.",
+        "title": "Error response",
+        "elementCount": 1
+      }
+    ],
+    "truncated": false,
+    "skipped": {
+      "nodes": 0,
+      "frames": 0,
+      "hidden": 9,
+      "textTruncated": 0
+    }
+  }
+}

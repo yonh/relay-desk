@@ -1,0 +1,70 @@
+{
+  "ok": true,
+  "data": {
+    "projectId": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+    "project": {
+      "id": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+      "name": "UpgradeE2E",
+      "targetUrl": "https://example.com",
+      "allowPrivateNetwork": false,
+      "defaultLayoutMode": "grid"
+    },
+    "alreadyActive": false,
+    "activatedAt": "2026-10-09T13:43:20.851799Z",
+    "selectedProjectId": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+    "workspaceSelectedProjectId": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+    "selectedPanelId": "6d683554-17ba-4d19-bb0b-bfbc96223e23",
+    "selectionConsistent": true,
+    "focusedIdentityId": null,
+    "frameSettled": true,
+    "settled": true,
+    "panels": [
+      {
+        "identityId": "6d683554-17ba-4d19-bb0b-bfbc96223e23",
+        "projectId": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+        "identityName": "Verify-A",
+        "state": "openingEmbedded",
+        "url": "https://a",
+        "loading": false,
+        "selected": true,
+        "devicePresetId": "desktop-1920",
+        "isolationMode": "nativeProfile",
+        "layout": {
+          "x": 0.0,
+          "y": 0.0,
+          "width": 480.0,
+          "height": 360.0,
+          "zIndex": 0,
+          "minimized": false,
+          "detached": false
+        },
+        "nativeViewId": null,
+        "windowId": null,
+        "hasKeyboardFocus": false
+      },
+      {
+        "identityId": "b494a75b-a7f0-4895-8c7d-d36ed9c639be",
+        "projectId": "4e990d7d-5234-4e87-a397-b58f27898e7c",
+        "identityName": "Verify-B",
+        "state": "openingEmbedded",
+        "url": "https://b",
+        "loading": false,
+        "selected": false,
+        "devicePresetId": "desktop-1920",
+        "isolationMode": "nativeProfile",
+        "layout": {
+          "x": 480.0,
+          "y": 0.0,
+          "width": 480.0,
+          "height": 360.0,
+          "zIndex": 0,
+          "minimized": false,
+          "detached": false
+        },
+        "nativeViewId": null,
+        "windowId": null,
+        "hasKeyboardFocus": false
+      }
+    ]
+  }
+}
