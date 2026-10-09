@@ -33,6 +33,7 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     readSelectedProjectId: () => ref.read(selectedProjectIdProvider),
     readNativeWindows: adapter.windowInventory,
     captureScreenshot: adapter.takeSnapshot,
+    sampleMedia: adapter.sampleMedia,
   );
   if (!ref.mounted) return null;
 

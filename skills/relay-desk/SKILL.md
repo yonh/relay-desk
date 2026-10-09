@@ -1,6 +1,6 @@
 ---
 name: relay-desk
-description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or use Relay Desk for code acceptance. Scoped to Relay Desk on macOS; the transport is read-only metadata plus an explicit-ID panel screenshot — no page DOM, script evaluation or network capture.
+description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or sample a page's media playback state — and for code acceptance against real evidence. Scoped to Relay Desk on macOS; the transport is read-only metadata plus explicit-ID panel screenshot and media-state sampling — no page DOM, caller script evaluation or network capture.
 ---
 
 # Relay Desk inspection
@@ -65,8 +65,18 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Copy into a repo evidence path only when the task requires formal archived evidence; never auto-commit business screenshots.
 - Cleanup is scoped to files this task owns: at task end, remove your own temporary look-only shots; keep evidence that must persist. Never sweep other files under `/tmp`, never touch an active task's directory or archived evidence.
 
+## Media sampling
+
+`relayctl media --identity <uuid>` samples the page in that identity's panel with a fixed read-only probe — never caller-supplied JavaScript. It returns `sampledAt`, identity/view/window bindings, and a `frames[]` walk:
+
+- Each frame reports `label` (`main`, `f0`, `f0.f1`, ...), `depth`, sanitized `url`, `reachable`, and a `media[]` list of `video`/`audio` state: `currentTime`, `duration` + `durationKind` (`finite`/`live`/`unknown` — non-finite durations are `null`, never invalid numbers), `paused`, `ended`, `seeking`, `readyState`, `playbackRate`, `seekable` ranges, and MediaError `error.code`.
+- Same-origin iframes are recursed into; cross-origin frames report `reachable:false, reason:unavailable` — that is "cannot observe", never "no media". A reachable frame with `mediaCount:0` genuinely has no media elements.
+- Budgets (depth 4, 32 frames, 32 media/frame) truncate oversized documents; top-level `truncated`/`skippedFrames`/`depthLimitSkipped` and per-frame `mediaSkipped` flag what was cut — do not read a truncated result as complete.
+- `sampledAt` marks when the single probe pass finished; media fields move while sampling, so two samples differ naturally. Compare positions with the business's own tolerance, never float equality.
+- Fields prove **player state only** — they cannot prove effective watch time, gift eligibility, or which business account is logged in.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata and media-state sampling; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.

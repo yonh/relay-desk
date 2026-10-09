@@ -37,6 +37,7 @@ class AutomationQueries {
     required this.readSelectedProjectId,
     required this.readNativeWindows,
     required this.captureScreenshot,
+    required this.sampleMedia,
   });
 
   final ProjectRepository projects;
@@ -61,6 +62,15 @@ class AutomationQueries {
     String expectedIdentityId,
   )
   captureScreenshot;
+
+  /// One-shot media-state sample of the page in the web view bound to
+  /// `viewId`, re-validated natively the same way. Returns `json` (the fixed
+  /// probe's JSON string), `url`, `windowId`.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+  )
+  sampleMedia;
 
   /// Decoded PNG size bound for `screenshot`: a full-viewport capture should
   /// stay far below this; anything larger is refused rather than shipped
@@ -108,6 +118,8 @@ class AutomationQueries {
         return _workspace(command);
       case 'screenshot':
         return _screenshot(command);
+      case 'media':
+        return _media(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -125,6 +137,7 @@ class AutomationQueries {
     'limitations': {
       'dom': false,
       'screenshot': true,
+      'media': true,
       'eval': false,
       'actions': false,
       'console': false,
@@ -416,6 +429,88 @@ class AutomationQueries {
     };
   }
 
+  /// Read-only media-state sample of the page bound to an explicit
+  /// `identityId`.
+  ///
+  /// Same target discipline as `screenshot`: no id is `invalid_argument`, an
+  /// unknown id is `not_found`, and no live view is `no_native_view`. The
+  /// native side runs one fixed probe script (never caller JS) that reads
+  /// `video`/`audio` state in the main document plus every reachable
+  /// same-origin iframe, and re-checks the (view, identity, instance,
+  /// window, navigation generations) binding when evaluation completes —
+  /// drift returns `target_changed` so results never mix across targets.
+  /// Unreachable frames arrive marked `reachable: false`, never probed.
+  Future<Map<String, Object?>> _media(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'media requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Identity has no live native web view',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> sample;
+    try {
+      sample = await sampleMedia(viewId, id);
+    } on PlatformException catch (error) {
+      const codes = {'target_changed', 'media_failed', 'media_timeout'};
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Media state could not be sampled',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(sample['json'] is String ? sample['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      throw const AutomationFailure(
+        'media_failed',
+        'Native media probe returned malformed JSON',
+        status: 500,
+      );
+    }
+    // Every URL the probe reports goes through the same sanitizer as all
+    // other transport URLs: scheme, host, port and path only.
+    final frames = <Map<String, dynamic>>[
+      for (final f in payload['frames'] is List ? payload['frames'] as List : const [])
+        if (f is Map) Map<String, dynamic>.from(f),
+    ];
+    for (final frame in frames) {
+      frame['url'] = _stripUrl(frame['url'] as String? ?? '');
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': sample['windowId'] ?? view?['windowId'],
+      'sampledAt': DateTime.now().toUtc().toIso8601String(),
+      'url': _stripUrl(sample['url'] as String? ?? ''),
+      'frames': frames,
+      // Probe budgets: a truncated walk is surfaced, never read as "no media".
+      'truncated': payload['truncated'] == true,
+      'skippedFrames': payload['skippedFrames'] ?? 0,
+      'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
+    };
+  }
+
   // ---- selection ----
 
   /// The UI-selected identity, or null when the selection is empty or stale.
@@ -649,8 +744,14 @@ class AutomationQueries {
       final port = uri.hasPort ? ':${uri.port}' : '';
       return '${uri.scheme}://$safeHost$port${uri.path}';
     }
-    // No authority: only the path survives. Empty means nothing but query or
-    // fragment, so there is no safe remainder to return.
+    // Opaque absolute URI (`scheme:` with no authority): the path is payload,
+    // not a locator — `data:text/html,<markup>` and `javascript:…` would ship
+    // page content or code verbatim. Only the scheme marker survives, e.g.
+    // `data:`, so the URL stays identifiable without its body.
+    if (uri.scheme.isNotEmpty) return '${uri.scheme}:';
+    // Relative reference (identity startPath, `page.html`, `dir/x`): only the
+    // path survives. Empty means nothing but query or fragment, so there is
+    // no safe remainder to return.
     return uri.path;
   }
 }

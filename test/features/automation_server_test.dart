@@ -294,6 +294,7 @@ void main() {
         'panels',
         'panel',
         'screenshot',
+        'media',
         'windows',
         'window',
         'workspaces',

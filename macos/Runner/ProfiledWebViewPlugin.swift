@@ -979,6 +979,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             result(windowInventory())
         case "takeSnapshot":
             takeSnapshot(args, result: result)
+        case "sampleMedia":
+            sampleMedia(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1239,6 +1241,220 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 "png": FlutterStandardTypedData(bytes: png),
                 "width": bitmap.pixelsWide,
                 "height": bitmap.pixelsHigh,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Fixed read-only probe evaluated inside the target page for `sampleMedia`.
+    /// Walks `video`/`audio` elements in the main document plus every same-origin
+    /// iframe reachable through `contentDocument`; a cross-origin or otherwise
+    /// unreachable frame is listed as `reachable: false` — never probed across
+    /// the boundary and never mistaken for "no media". `duration` that is NaN
+    /// or non-finite (live streams) is reported as `duration: null` with a
+    /// `durationKind` marker so JSON output never carries an invalid number.
+    /// The caller cannot inject script: this literal is the only thing run.
+    /// Budgets: 4 levels deep, 32 frames and 32 media elements per frame cap
+    /// the work before the result is built — the walk stops touching nodes
+    /// once spent (skipped counts come from collection lengths). URL fields
+    /// are length-capped and opaque-scheme URLs stripped in-page, before
+    /// serialization; a 200 KB total-byte budget then trims media entries
+    /// from the tail. Anything cut is reported via `truncated`/
+    /// `skippedFrames`/`depthLimitSkipped`/`mediaSkipped`/`mediaDropped`, so
+    /// a truncated walk is never mistaken for "no media".
+    /// Nested same-origin iframes are recursed into with hierarchical labels
+    /// (`main`, `f0`, `f0.f1`); an unreachable frame at any depth is listed
+    /// `reachable:false` and its own subtree is marked unexplored, never
+    /// probed across the boundary.
+    private static let mediaProbeScript = """
+    (function () {
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_MEDIA = 32;
+      var MAX_URL = 512, MAX_BYTES = 200000;
+      var frames = [];
+      var skippedFrames = 0, depthLimitSkipped = 0, mediaSkippedTotal = 0;
+      // URL fields are bounded and stripped before they ever reach
+      // JSON.stringify — a huge data: payload never allocates into the
+      // result or the platform channel.
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function seekableRanges(m) {
+        var ranges = [];
+        try {
+          var t = m.seekable;
+          for (var i = 0; i < t.length && ranges.length < 8; i++) {
+            ranges.push([t.start(i), t.end(i)]);
+          }
+        } catch (e) {}
+        return ranges;
+      }
+      function mediaEntry(m, i) {
+        var d = m.duration;
+        var kind = 'unknown';
+        var duration = null;
+        if (typeof d === 'number' && !isNaN(d)) {
+          if (isFinite(d)) { kind = 'finite'; duration = d; } else { kind = 'live'; }
+        }
+        return {
+          index: i, tag: String(m.tagName || '').toLowerCase(),
+          currentTime: m.currentTime, duration: duration, durationKind: kind,
+          paused: m.paused, ended: m.ended, seeking: m.seeking,
+          readyState: m.readyState, playbackRate: m.playbackRate,
+          seekable: seekableRanges(m),
+          error: m.error ? { code: m.error.code } : null
+        };
+      }
+      function collect(doc, label, url, depth) {
+        if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
+        var frame = { index: frames.length, label: label, url: safeUrl(url),
+                      depth: depth, reachable: true, media: [], mediaSkipped: 0 };
+        var els = doc.querySelectorAll('video, audio');
+        // Budget-bounded: only the first MAX_MEDIA elements are touched;
+        // the skipped count is computed from the collection length.
+        var take = Math.min(els.length, MAX_MEDIA);
+        for (var i = 0; i < take; i++) frame.media.push(mediaEntry(els[i], i));
+        if (els.length > take) {
+          frame.mediaSkipped = els.length - take;
+          mediaSkippedTotal += frame.mediaSkipped;
+        }
+        frame.mediaCount = els.length;
+        frames.push(frame);
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) {
+          // Subtrees beyond the depth budget are reported as unexplored,
+          // not as absent.
+          if (iframes.length) { depthLimitSkipped += iframes.length; }
+          return;
+        }
+        for (var k = 0; k < iframes.length; k++) {
+          // Stop before touching the remaining iframe elements — the
+          // budget is spent, so skipped count comes from list length.
+          if (frames.length >= MAX_FRAMES) {
+            skippedFrames += iframes.length - k;
+            break;
+          }
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            collect(idoc, childLabel,
+                    (idoc.location && idoc.location.href) || el.src || null,
+                    depth + 1);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: safeUrl(el.src), depth: depth + 1,
+                          reachable: false, reason: 'unavailable',
+                          media: [], mediaCount: 0 });
+          }
+        }
+      }
+      collect(document, 'main', location.href, 0);
+      var result = {
+        frames: frames,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0 ||
+                   mediaSkippedTotal > 0,
+        skippedFrames: skippedFrames,
+        depthLimitSkipped: depthLimitSkipped,
+        mediaSkipped: mediaSkippedTotal
+      };
+      // Total response-byte budget: media entries are dropped from the
+      // tail until the serialized result fits; the drop is reported.
+      var out = JSON.stringify(result);
+      var bytesDropped = 0;
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fm = frames[bi].media;
+          if (fm && fm.length) { fm.pop(); bytesDropped++; dropped = true;
+                                 frames[bi].mediaSkipped++; break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (bytesDropped) {
+        result.mediaDropped = bytesDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
+    })()
+    """
+
+    /// Read-only media-state sample of the page bound to [args]' target.
+    ///
+    /// Same binding discipline as `takeSnapshot`: (viewId, expectedIdentityId,
+    /// live instance, window, provisional + commit generations) is re-verified
+    /// when the async evaluation completes, so a navigation or instance swap
+    /// mid-eval fails `target_changed` instead of mixing results across
+    /// targets. Only the fixed `mediaProbeScript` runs — no caller-supplied
+    /// JavaScript. Completes exactly once via the shared completion gate:
+    /// the probe result or `media_timeout` after `SnapshotPolicy.deadline`.
+    private func sampleMedia(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId and expectedIdentityId are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "media_timeout",
+                    message: "Media probe did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        webView.evaluateJavaScript(Self.mediaProbeScript) { [weak self, weak webView] value, error in
+            // Late callback after the deadline: return before binding checks
+            // or any success result.
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "media_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "media_failed", message: "Media probe returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during media probe", details: nil))
+                return
+            }
+            result([
+                "json": json,
                 "url": webView.url?.absoluteString as Any,
                 "windowId": self.orNull(webView.window?.windowNumber),
             ])
