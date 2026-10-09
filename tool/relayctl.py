@@ -100,6 +100,16 @@ COMMANDS = {
         ('--document-id', 'documentId', None, 'documentId that issued the ref'),
         ('--key', 'key', None, 'Enter|Escape|Tab|Backspace|Delete|Arrow*|Home|End|Page*; no combos'),
     ),
+    'scroll': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--document-id', 'documentId', None, 'documentId (nonce:frame picks the frame doc)'),
+        ('--ref', 'ref', None, 'Element ref; into_view target or element container'),
+        ('--mode', 'mode', None, 'into_view (default)|delta|position'),
+        ('--dx', 'dx', float, 'Delta left in CSS px (bounded)'),
+        ('--dy', 'dy', float, 'Delta top in CSS px (bounded)'),
+        ('--x', 'x', float, 'Absolute left in CSS px (position mode)'),
+        ('--y', 'y', float, 'Absolute top in CSS px (position mode)'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -133,6 +143,7 @@ SELECTOR_HELP = {
     'click': 'Synthetic click on one element; --identity --ref --document-id required',
     'input': 'Write text into an editable element; --identity --ref --document-id --text',
     'key': 'Dispatch one synthetic key on an element; --identity --ref --document-id --key',
+    'scroll': 'Bounded DOM scroll; --identity --document-id [--ref] --mode|--dx/--dy|--x/--y',
 }
 
 
@@ -209,7 +220,7 @@ def build_parser():
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
                           required=(op == 'screenshot'
-                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input', 'key') and flag == '--identity')
+                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input', 'key', 'scroll') and flag == '--identity')
                                     or (op == 'activate_project' and flag == '--project')
                                     or (op == 'navigate' and flag == '--url')
                                     or (op == 'input' and flag == '--text')))

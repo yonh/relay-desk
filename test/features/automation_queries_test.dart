@@ -141,6 +141,7 @@ void main() {
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domInput,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domKey,
+    Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domScroll,
     bool Function(String identityId)? isNavigating,
     Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
@@ -204,6 +205,7 @@ void main() {
     domClick: domClick ?? (_, _, _) async => {'json': '{}'},
     domInput: domInput ?? (_, _, _) async => {'json': '{}'},
     domKey: domKey ?? (_, _, _) async => {'json': '{}'},
+    domScroll: domScroll ?? (_, _, _) async => {'json': '{}'},
     isNavigating: isNavigating ?? (_) => false,
     navigationEvents:
         navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
@@ -277,6 +279,7 @@ void main() {
       'click',
       'input',
       'key',
+      'scroll',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -3438,6 +3441,230 @@ void main() {
             throw PlatformException(code: 'dom_key_failed'),
       );
       expect(queries.dispatch(keyCmd('Enter')), failure('dom_key_failed', 500));
+    });
+  });
+
+  group('scroll', () {
+    void setupTarget() {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel(
+            'id-a1',
+            url: 'https://alpha.example.com/long',
+            state: WebviewState.embedded,
+          ),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1', windowId: 83)]);
+    }
+
+    Map<String, dynamic> scrollJson(Map<String, dynamic> payload) => {
+      'json': jsonEncode(payload),
+      'windowId': 83,
+      'url': 'https://alpha.example.com/long',
+    };
+
+    Map<String, dynamic> scrollCmd([Map<String, dynamic>? extra]) => {
+      'op': 'scroll',
+      'identityId': 'id-a1',
+      'documentId': 'doc:0',
+      ...?extra,
+    };
+
+    test('requires identityId and documentId; into_view requires ref', () async {
+      expect(
+        queries.dispatch({'op': 'scroll'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch(scrollCmd()),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch(scrollCmd({'mode': 'bogus', 'ref': '0.3'})),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch(scrollCmd({'ref': '0.3'})),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('delta without ref targets the frame document', () async {
+      setupTarget();
+      String? sentQuery;
+      queries = buildQueries(
+        domScroll: (_, _, query) async {
+          sentQuery = query;
+          return scrollJson({
+            'frame': 'main',
+            'frameIndex': 0,
+            'mode': 'delta',
+            'container': 'document',
+            'unit': 'css-pixel',
+            'before': {
+              'top': 0,
+              'left': 0,
+              'maxTop': 4800,
+              'maxLeft': 0,
+              'clientHeight': 600,
+              'clientWidth': 800,
+            },
+            'after': {
+              'top': 500,
+              'left': 0,
+              'maxTop': 4800,
+              'maxLeft': 0,
+              'clientHeight': 600,
+              'clientWidth': 800,
+            },
+            'movedY': 500,
+            'movedX': 0,
+            'dispatched': true,
+            'atTop': false,
+            'atBottom': false,
+            'atLeft': true,
+            'atRight': true,
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run(scrollCmd({'mode': 'delta', 'dy': 500}));
+      expect(data['dispatched'], true);
+      expect(data['mechanism'], 'native_dom_scroll');
+      expect(data['container'], 'document');
+      expect(data['unit'], 'css-pixel');
+      expect(data['movedY'], 500);
+      expect(data['atTop'], false);
+      expect(data['atBottom'], false);
+      expect(data['panelQueryable'], true);
+      expect(data.containsKey('navigationStarted'), false);
+      final sent = jsonDecode(sentQuery!) as Map<String, dynamic>;
+      expect(sent['mode'], 'delta');
+      expect(sent['dy'], 500);
+      expect(sent.containsKey('ref'), false);
+      expect(sent['documentId'], 'doc:0');
+    });
+
+    test('into_view reports target rect, visibility and occlusion', () async {
+      setupTarget();
+      queries = buildQueries(
+        domScroll: (_, _, _) async => scrollJson({
+          'frame': 'main',
+          'frameIndex': 0,
+          'mode': 'into_view',
+          'container': 'element',
+          'containerTag': 'div',
+          'dispatched': true,
+          'before': {
+            'top': 0, 'left': 0, 'maxTop': 1000, 'maxLeft': 0,
+            'clientHeight': 200, 'clientWidth': 300,
+          },
+          'after': {
+            'top': 420, 'left': 0, 'maxTop': 1000, 'maxLeft': 0,
+            'clientHeight': 200, 'clientWidth': 300,
+          },
+          'movedY': 420,
+          'movedX': 0,
+          'atTop': false, 'atBottom': false, 'atLeft': true, 'atRight': true,
+          'target': {
+            'ref': '0.9',
+            'tag': 'article',
+            'rect': {'x': 10, 'y': 50, 'width': 200, 'height': 100},
+            'visibleInViewport': true,
+            'occludedBy': {'tag': 'header', 'id': 'sticky', 'cls': 'sticky'},
+          },
+          'documentId': 'doc:0',
+        }),
+      );
+      final data = await run(scrollCmd({'ref': '0.9'}));
+      expect(data['container'], 'element');
+      final target = data['target'] as Map<String, dynamic>;
+      expect(target['visibleInViewport'], true);
+      expect((target['occludedBy'] as Map)['tag'], 'header');
+      expect(data['movedY'], 420);
+    });
+
+    test('element-container delta sends the ref through', () async {
+      setupTarget();
+      String? sentQuery;
+      queries = buildQueries(
+        domScroll: (_, _, query) async {
+          sentQuery = query;
+          return scrollJson({
+            'frame': 'f0',
+            'frameIndex': 1,
+            'mode': 'delta',
+            'container': 'element',
+            'containerTag': 'div',
+            'ref': '1.4',
+            'dispatched': true,
+            'before': {'top': 0, 'left': 0, 'maxTop': 200, 'maxLeft': 0,
+                       'clientHeight': 100, 'clientWidth': 100},
+            'after': {'top': 200, 'left': 0, 'maxTop': 200, 'maxLeft': 0,
+                      'clientHeight': 100, 'clientWidth': 100},
+            'movedY': 200, 'movedX': 0,
+            'atTop': false, 'atBottom': true, 'atLeft': true, 'atRight': true,
+            'documentId': 'doc:1',
+          });
+        },
+      );
+      final data =
+          await run(scrollCmd({'mode': 'delta', 'ref': '1.4', 'dy': 9999}));
+      expect(data['container'], 'element');
+      expect(data['containerTag'], 'div');
+      expect(data['atBottom'], true);
+      expect(data['frame'], 'f0');
+      final sent = jsonDecode(sentQuery!) as Map<String, dynamic>;
+      expect(sent['ref'], '1.4');
+    });
+
+    test('stale_element maps to 409', () async {
+      setupTarget();
+      queries = buildQueries(
+        domScroll: (_, _, _) async => scrollJson({
+          'error': 'stale_element',
+          'message': 'Document changed since the ref was issued',
+        }),
+      );
+      expect(
+        queries.dispatch(scrollCmd({'ref': '0.3'})),
+        failure('stale_element', 409),
+      );
+    });
+
+    test('invalid_argument payloads map to 400', () async {
+      setupTarget();
+      queries = buildQueries(
+        domScroll: (_, _, _) async => scrollJson({
+          'error': 'invalid_argument',
+          'message': 'dx/dy must be finite and |v| <= 20000 CSS px',
+        }),
+      );
+      expect(
+        queries.dispatch(scrollCmd({'mode': 'delta', 'dy': 999999})),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('a native failure maps dom_scroll_failed to 500', () async {
+      setupTarget();
+      queries = buildQueries(
+        domScroll: (_, _, _) async =>
+            throw PlatformException(code: 'dom_scroll_failed'),
+      );
+      expect(
+        queries.dispatch(scrollCmd({'ref': '0.3'})),
+        failure('dom_scroll_failed', 500),
+      );
     });
   });
 

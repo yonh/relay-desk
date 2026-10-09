@@ -1125,6 +1125,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             domInput(args, result: result)
         case "domKey":
             domKey(args, result: result)
+        case "domScroll":
+            domScroll(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -3386,6 +3388,290 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             }
             guard let json = value as? String else {
                 result(FlutterError(code: "dom_key_failed", message: "DOM key dispatch returned no JSON payload", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Scroll tail (issue #27). Same ref/frame/nonce resolution as the
+    /// other DOM tails, then one of three fixed modes:
+    ///   mode=into_view (ref required): el.scrollIntoView nearest/nearest
+    ///   mode=delta    (ref optional):  target.scrollBy({top:dy,left:dx})
+    ///   mode=position (ref optional):  target.scrollTo({top:y,left:x})
+    /// The scroll target is the element itself when `ref` is given, else
+    /// the frame document's scrollingElement — so same-origin iframe
+    /// documents and nested containers scroll correctly (picked by the
+    /// documentId's frame index). All units are CSS pixels; scrolling is
+    /// instantaneous (`behavior:'auto'`, no animation wait). Returns
+    /// before/after metrics, clamp flags, the moved delta and — for
+    /// into_view — the target's rect, visibility and an honest
+    /// elementFromPoint occlusion check (sticky overlay detection).
+    private static let domScrollScriptTail = """
+      var Q = __rdQuery;
+      var MAX_DEPTH = 8, MAX_FRAMES = 16;
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
+          if (node) return true;
+        } catch (e) { return true; }
+        return false;
+      }
+      function frameDocs() {
+        var out = [];
+        function collect(doc, label, url, depth, hostEl, hostWin) {
+          if (out.length >= MAX_FRAMES) return;
+          out.push({ doc: doc, label: label, url: url, depth: depth,
+                     index: out.length, reachable: true,
+                     hostEl: hostEl || null, hostWin: hostWin || null });
+          if (depth >= MAX_DEPTH) return;
+          var iframes = doc.querySelectorAll('iframe');
+          for (var k = 0; k < iframes.length; k++) {
+            var el = iframes[k];
+            var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
+            var idoc = null, reachable = true;
+            try {
+              idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+              if (!idoc) reachable = false;
+            } catch (e) { reachable = false; }
+            if (reachable) {
+              collect(idoc, childLabel,
+                      (idoc.location && idoc.location.href) || el.src || null,
+                      depth + 1, el, doc.defaultView || window);
+            } else {
+              if (out.length >= MAX_FRAMES) continue;
+              out.push({ doc: null, label: childLabel, url: el.src || null,
+                         depth: depth + 1, index: out.length,
+                         reachable: false, hostEl: el,
+                         hostWin: doc.defaultView || window });
+            }
+          }
+        }
+        collect(document, 'main', location.href, 0, null, null);
+        return out;
+      }
+      function metrics(t, isDoc) {
+        var maxTop, maxLeft;
+        if (isDoc) {
+          maxTop  = Math.max(0, t.scrollHeight - t.clientHeight);
+          maxLeft = Math.max(0, t.scrollWidth  - t.clientWidth);
+        } else {
+          maxTop  = Math.max(0, t.scrollHeight - t.clientHeight);
+          maxLeft = Math.max(0, t.scrollWidth  - t.clientWidth);
+        }
+        return { top: t.scrollTop, left: t.scrollLeft,
+                 maxTop: maxTop, maxLeft: maxLeft,
+                 clientHeight: t.clientHeight, clientWidth: t.clientWidth };
+      }
+      var frames = frameDocs();
+      var doc = null, fr = null;
+      var m = /^([0-9]+)\\.([0-9]+)$/.exec(String(Q.ref || ''));
+      if (Q.ref != null && Q.ref !== '' && !m) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref must look like <frame>.<position>' });
+      }
+      var frameIndex = 0, position = -1;
+      var docParts = String(Q.documentId || '').split(':');
+      var wantNonce = docParts[0];
+      if (docParts.length > 1 && docParts[1] !== '') {
+        frameIndex = parseInt(docParts[1], 10) || 0;
+      }
+      if (m) { frameIndex = parseInt(m[1], 10); position = parseInt(m[2], 10); }
+      if (frameIndex >= frames.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Frame no longer exists in the document' });
+      }
+      fr = frames[frameIndex];
+      if (fr.reachable === false) {
+        return __rdResult({ error: 'frame_unreachable',
+                            message: 'Frame is not reachable (cross-origin)' });
+      }
+      doc = fr.doc;
+      if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document changed since the ref was issued; re-probe' });
+      }
+      var el = null;
+      if (m) {
+        if (position >= 2000) {
+          return __rdResult({ error: 'not_found',
+                              message: 'Position was never issued as a ref' });
+        }
+        var all = doc.querySelectorAll('*');
+        if (position >= all.length) {
+          return __rdResult({ error: 'stale_element',
+                              message: 'Document shrank; position is out of range' });
+        }
+        el = all[position];
+        if (el.__rdRef === undefined) {
+          return __rdResult({ error: 'not_found',
+                              message: 'Position was never issued as a ref' });
+        }
+        if (el.__rdRef !== Q.ref) {
+          return __rdResult({ error: 'stale_element',
+                              message: 'Position now resolves to a different element; re-probe' });
+        }
+        if (SKIP[el.tagName]) {
+          return __rdResult({ error: 'not_found',
+                              message: 'Ref does not resolve to a readable element' });
+        }
+      }
+      var win2 = doc.defaultView || window;
+      var hiddenNow = el && isHiddenDeep(el, win2);
+      if (!hiddenNow && fr.hostEl) {
+        hiddenNow = isHiddenDeep(fr.hostEl, fr.hostWin || win2);
+      }
+      if (hiddenNow) {
+        return __rdResult({ error: 'not_interactable', reason: 'hidden',
+                            ref: Q.ref, tag: el.tagName.toLowerCase(),
+                            message: 'Element is hidden (attribute or computed ancestor)' });
+      }
+      var mode = String(Q.mode || 'into_view');
+      if (mode === 'into_view' && !el) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'into_view requires an element ref' });
+      }
+      if (mode !== 'into_view' && mode !== 'delta' && mode !== 'position') {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'mode must be into_view, delta or position' });
+      }
+      // For delta/position the container is the element itself when a ref
+      // is given, else the frame document's scrollingElement. For
+      // into_view the element's own scrollTop never moves — the metric
+      // that changes is the frame document's position, so measure that.
+      var isDoc = !el || mode === 'into_view';
+      var target = isDoc ? (doc.scrollingElement || doc.documentElement) : el;
+      var BOUND = 20000;
+      var dx = Number(Q.dx || 0), dy = Number(Q.dy || 0);
+      var x = Number(Q.x), y = Number(Q.y);
+      if (mode === 'delta') {
+        if (!isFinite(dx) || !isFinite(dy) || Math.abs(dx) > BOUND || Math.abs(dy) > BOUND) {
+          return __rdResult({ error: 'invalid_argument',
+                              message: 'dx/dy must be finite and |v| <= ' + BOUND + ' CSS px' });
+        }
+      }
+      if (mode === 'position' && (!isFinite(x) || !isFinite(y))) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'position mode requires finite x and y in CSS px' });
+      }
+      var before = metrics(target, isDoc);
+      try {
+        if (mode === 'into_view') {
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+        } else if (mode === 'delta') {
+          target.scrollBy({ top: dy, left: dx, behavior: 'auto' });
+        } else {
+          target.scrollTo({ top: y, left: x, behavior: 'auto' });
+        }
+      } catch (e) {
+        return __rdResult({ error: 'scroll_failed',
+                            message: 'scroll threw: ' + String(e && e.message || e).slice(0, 200) });
+      }
+      var after = metrics(target, isDoc);
+      var movedY = after.top - before.top, movedX = after.left - before.left;
+      var result = {
+        frame: fr.label,
+        frameIndex: frameIndex,
+        mode: mode,
+        container: isDoc ? 'document' : 'element',
+        unit: 'css-pixel',
+        before: before,
+        after: after,
+        movedY: movedY,
+        movedX: movedX,
+        dispatched: true,
+        atTop: after.top <= 0,
+        atBottom: after.top >= after.maxTop,
+        atLeft: after.left <= 0,
+        atRight: after.left >= after.maxLeft,
+        documentId: doc.__rdDocNonce + ':' + frameIndex,
+      };
+      if (!isDoc) {
+        result.containerTag = target.tagName.toLowerCase();
+        result.ref = Q.ref;
+      }
+      if (mode === 'into_view' && el) {
+        var r = el.getBoundingClientRect();
+        var ih = (doc.defaultView || window).innerHeight;
+        var iw = (doc.defaultView || window).innerWidth;
+        var vis = r.bottom > 0 && r.top < ih && r.right > 0 && r.left < iw;
+        var occluded = null;
+        if (vis && r.width > 0 && r.height > 0) {
+          try {
+            var cx = Math.min(Math.max(r.left + r.width / 2, 0), iw - 1);
+            var cy = Math.min(Math.max(r.top + r.height / 2, 0), ih - 1);
+            var hit = doc.elementFromPoint(cx, cy);
+            if (hit && hit !== el && !el.contains(hit)) {
+              occluded = { tag: hit.tagName.toLowerCase(),
+                           id: (hit.id || null) && String(hit.id).slice(0, 80),
+                           cls: (hit.className || null) && String(hit.className).slice(0, 120) };
+            }
+          } catch (e) {}
+        }
+        result.target = { ref: Q.ref, tag: el.tagName.toLowerCase(),
+                          rect: { x: r.x, y: r.y, width: r.width, height: r.height,
+                                  coordinateSpace: 'frame' },
+                          visibleInViewport: vis };
+        if (occluded) result.target.occludedBy = occluded;
+      }
+      return __rdResult(result);
+    """
+
+    /// Bounded DOM scroll on a document or element container (issue #27).
+    /// `query` is the JSON `{documentId, ref?, mode, dx?, dy?, x?, y?}`
+    /// literal. Same binding/gate/deadline discipline as the other DOM
+    /// handlers. Scroll is instantaneous and never touches OS input.
+    private func domScroll(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String,
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId, expectedIdentityId and query are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_scroll_timeout",
+                    message: "DOM scroll did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        let script = "var __rdQuery = \(query);\n" +
+            "var __rdResult = function (o) { return JSON.stringify(o); };\n" +
+            "(function () {\n" + Self.domScrollScriptTail + "\n})()"
+        webView.evaluateJavaScript(script) { value, error in
+            guard gate.claim() else { return }
+            if let error {
+                result(FlutterError(code: "dom_scroll_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_scroll_failed", message: "DOM scroll returned no JSON payload", details: nil))
                 return
             }
             result([
