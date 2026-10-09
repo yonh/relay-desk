@@ -1542,9 +1542,11 @@ class AutomationQueries {
     // than ours — give a commit a bounded grace to win (BUG_0003).
     String? supersededBy;
     Timer? blockedGrace;
+    Timer? preArmGrace;
     final settled = Completer<WebviewEvent>();
     void completeOnce(WebviewEvent event) {
       blockedGrace?.cancel();
+      preArmGrace?.cancel();
       if (!settled.isCompleted) settled.complete(event);
     }
 
@@ -1555,6 +1557,9 @@ class AutomationQueries {
           case WebviewLoadStarted(:final uri):
             if (isExpected(uri.toString())) {
               armed = true;
+              // A failure that arrived before OUR loadStarted predates this
+              // batch — it was stale after all; drop the deferred report.
+              preArmGrace?.cancel();
             } else {
               supersededBy ??= uri.toString();
             }
@@ -1564,7 +1569,17 @@ class AutomationQueries {
           // A block carrying a DIFFERENT address is a stale event from an
           // earlier navigation — not ours to report.
           case WebviewNavigationBlocked(:final uri):
-            if (isExpected(uri.toString())) completeOnce(event);
+            if (isExpected(uri.toString())) {
+              // Same-url failure before our loadStarted: an instant
+              // dispatch failure (dead view) or a stale event — defer by
+              // the short grace; arming discards it, expiry reports it
+              // (BUG_0002 vs stale-attribution).
+              preArmGrace?.cancel();
+              preArmGrace = Timer(
+                navigateWaitBudget ~/ 4,
+                () => completeOnce(event),
+              );
+            }
           case WebviewStateChanged(:final state):
             if (state == WebviewState.closed ||
                 state == WebviewState.closing ||
@@ -1609,6 +1624,7 @@ class AutomationQueries {
       supersededBy: () => supersededBy,
       cancel: () {
         blockedGrace?.cancel();
+        preArmGrace?.cancel();
         return subscription.cancel();
       },
     );
