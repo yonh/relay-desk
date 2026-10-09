@@ -303,6 +303,11 @@ const List<_Command> _commands = <_Command>[
     "Back one step in the panel's WK history; --identity (no_history when empty)",
     <_Selector>[_requiredIdentitySelector],
   ),
+  _Command(
+    'forward',
+    "Forward one step in the panel's WK history; --identity (no_history when empty)",
+    <_Selector>[_requiredIdentitySelector],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.

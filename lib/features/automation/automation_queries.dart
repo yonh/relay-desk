@@ -59,6 +59,8 @@ class AutomationQueries {
     required this.reloadPanel,
     required this.backPanel,
     required this.canGoBackPanel,
+    required this.forwardPanel,
+    required this.canGoForwardPanel,
     required this.pullHistoryState,
     required this.isNavigating,
     required this.navigationEvents,
@@ -215,6 +217,15 @@ class AutomationQueries {
   /// instead of a silent no-op (issue #29).
   final bool Function(String identityId) canGoBackPanel;
 
+  /// `WorkspaceController.forward` — WK `goForward()` on the app's own
+  /// path. Injected so tests observe it (issue #30).
+  final void Function(String identityId) forwardPanel;
+
+  /// Whether the tracked navInfo says the panel can traverse forward —
+  /// checked BEFORE dispatching so an empty forward stack answers
+  /// `no_history` (issue #30).
+  final bool Function(String identityId) canGoForwardPanel;
+
   /// Pull-based history snapshot (url/canGoBack/canGoForward) straight
   /// from the view — used when a traversal produces no delegate events
   /// (same-document popstate) so the answer reflects what actually
@@ -326,6 +337,8 @@ class AutomationQueries {
         return _scroll(command);
       case 'back':
         return _back(command);
+      case 'forward':
+        return _forward(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1870,8 +1883,14 @@ class AutomationQueries {
       );
     }
     // History check BEFORE dispatching — a silent no-op goBack() would
-    // otherwise time out looking like a navigation failure.
-    if (!canGoBackPanel(id)) {
+    // otherwise time out looking like a navigation failure. The pulled
+    // state is the ground truth: silent same-document traversals never
+    // update the event-fed navInfo, so a prior silent traversal would
+    // leave navInfo.canGoBack/canGoForward stale (issue #30 live catch).
+    final pulledBefore = await pullHistoryState(id);
+    final canBack =
+        (pulledBefore?['canGoBack'] ?? canGoBackPanel(id)) == true;
+    if (!canBack) {
       throw const AutomationFailure(
         'no_history',
         'Panel has no back history to traverse',
@@ -1882,11 +1901,12 @@ class AutomationQueries {
     final backId =
         'back-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
     final requestedAt = DateTime.now().toUtc();
-    final beforeUrl = panel.url;
-    // Baseline pull BEFORE dispatch: URL-unchanged same-document traversals
-    // (pushState/hash entries) are only detectable via canGoBack/
-    // canGoForward deltas — the URL alone cannot distinguish them.
-    final beforeHistory = await pullHistoryState(id);
+    // The pre-dispatch pull is also the traversal baseline: URL-unchanged
+    // same-document traversals (pushState/hash entries) are only
+    // detectable via canGoBack/canGoForward deltas.
+    final beforeUrl = pulledBefore?['url']?.toString().isNotEmpty == true
+        ? pulledBefore!['url'].toString()
+        : panel.url;
     try {
       backPanel(id);
     } catch (_) {
@@ -1918,10 +1938,10 @@ class AutomationQueries {
       final pulledUrl = pulled?['url']?.toString() ?? '';
       final traversed = pulled != null &&
           ((pulledUrl.isNotEmpty && pulledUrl != beforeUrl) ||
-              (beforeHistory != null &&
-                  (pulled['canGoBack'] != beforeHistory['canGoBack'] ||
+              (pulledBefore != null &&
+                  (pulled['canGoBack'] != pulledBefore['canGoBack'] ||
                       pulled['canGoForward'] !=
-                          beforeHistory['canGoForward'])));
+                          pulledBefore['canGoForward'])));
       if (traversed) {
         silentSameDocument = true;
         refsInvalid = false;
@@ -1965,6 +1985,165 @@ class AutomationQueries {
       // document — every minted documentId/ref is stale. Same-document
       // popstate traversals keep the document, so refs stay valid; the flag
       // tells the caller which case it got.
+      'invalidatedRefs': refsInvalid,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Forward history traversal (issue #30): mirror of [_back] on the
+  /// WK `goForward()` path — explicit `identityId`, the panel's own
+  /// backForwardList forward entry, never a re-navigation of a guessed
+  /// URL. Same two-layer reporting: cross-document forwards emit
+  /// delegate events; same-document (popstate) forwards traverse
+  /// silently and are confirmed by pulling the view's history state.
+  Future<Map<String, Object?>> _forward(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null || id.isEmpty) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'forward requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the forward dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    if (view == null) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the forward dispatch',
+        status: 409,
+      );
+    }
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
+    // Pulled history state first — navInfo.canGoForward is stale after a
+    // silent same-document back (no delegate events feed it), which would
+    // falsely report no_history while a real forward entry exists.
+    final pulledBefore = await pullHistoryState(id);
+    final canFwd =
+        (pulledBefore?['canGoForward'] ?? canGoForwardPanel(id)) == true;
+    if (!canFwd) {
+      throw const AutomationFailure(
+        'no_history',
+        'Panel has no forward history to traverse',
+        status: 409,
+      );
+    }
+    final armed = _armClickNavigation(id);
+    final forwardId =
+        'fwd-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final beforeUrl = pulledBefore?['url']?.toString().isNotEmpty == true
+        ? pulledBefore!['url'].toString()
+        : panel.url;
+    try {
+      forwardPanel(id);
+    } catch (_) {
+      await armed.subscription.cancel();
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(navigateWaitBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.subscription.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    var outcome = _navigationOutcome(event);
+    var silentSameDocument = false;
+    var refsInvalid = true;
+    if (event == null && !armed.started()) {
+      // Same-document forwards (popstate) emit no delegate events; confirm
+      // via the view's pulled history state — URL change OR a canGoBack/
+      // canGoForward delta against the pre-dispatch baseline.
+      final pulled = await pullHistoryState(id);
+      final pulledUrl = pulled?['url']?.toString() ?? '';
+      final traversed = pulled != null &&
+          ((pulledUrl.isNotEmpty && pulledUrl != beforeUrl) ||
+              (pulledBefore != null &&
+                  (pulled['canGoBack'] != pulledBefore['canGoBack'] ||
+                      pulled['canGoForward'] !=
+                          pulledBefore['canGoForward'])));
+      if (traversed) {
+        silentSameDocument = true;
+        refsInvalid = false;
+        outcome = (
+          status: 'committed',
+          error: null,
+          finalUrl: _stripUrl(pulledUrl),
+          canGoBack: pulled['canGoBack'] == true,
+          canGoForward: pulled['canGoForward'] == true,
+        );
+      } else {
+        outcome = (
+          status: 'timeout',
+          error:
+              'no traversal observed within budget — the history layer may be'
+              ' unhandled (e.g. in-app router state outside backForwardList)',
+          finalUrl: null,
+          canGoBack: null,
+          canGoForward: null,
+        );
+      }
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': view['viewId'],
+      'windowId': view['windowId'],
+      'forwardId': forwardId,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'status': outcome.status,
+      'navigationStarted': armed.started(),
+      if (silentSameDocument) 'sameDocument': true,
+      if (silentSameDocument) 'silent': true,
+      'finalUrl': ?outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'error': ?outcome.error,
       'invalidatedRefs': refsInvalid,
       'panelQueryable': true,
     };
