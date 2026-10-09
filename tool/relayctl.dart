@@ -52,6 +52,7 @@ class _Selector {
     this.integer = false,
     this.local = false,
     this.required = false,
+    this.freeform = false,
   });
 
   /// Command-line flag, for example `--project`.
@@ -64,6 +65,12 @@ class _Selector {
 
   /// Whether the raw value must parse as an integer before dispatch.
   final bool integer;
+
+  /// Free-form text (input --text): the value may be empty or start with
+  /// '-' — clearing a field and negative text are legitimate payloads.
+  /// A following token that exactly matches a known flag still parses as
+  /// that flag.
+  final bool freeform;
 
   /// Local CLI argument consumed by the client itself (e.g. `--output`):
   /// validated here but never forwarded into the command JSON, so the server
@@ -262,7 +269,8 @@ const List<_Command> _commands = <_Command>[
       _requiredIdentitySelector,
       _Selector('--ref', 'ref', 'Element ref <frame>.<position> from dom/dom_find'),
       _Selector('--document-id', 'documentId', 'documentId that issued the ref'),
-      _Selector('--text', 'text', 'Text to write (empty clears in replace mode)'),
+      _Selector('--text', 'text',
+          'Text to write (empty clears in replace mode)', freeform: true),
       _Selector('--mode', 'mode', 'replace (default) or append'),
     ],
   ),
@@ -516,7 +524,15 @@ _Invocation _parse(List<String> args) {
         if (int.tryParse(raw) == null) {
           throw _UsageError("option '${selector.flag}' requires an integer");
         }
-      } else if (raw.isEmpty || raw.startsWith('-')) {
+      } else if (!selector.freeform &&
+          (raw.isEmpty || raw.startsWith('-'))) {
+        throw _UsageError(
+          "option '${selector.flag}' requires a value, not '$raw'",
+        );
+      } else if (selector.freeform &&
+          raw.startsWith('-') &&
+          _selectorForAnyCommand(raw) != null) {
+        // `--text --mode` means --mode is a flag, not text.
         throw _UsageError(
           "option '${selector.flag}' requires a value, not '$raw'",
         );

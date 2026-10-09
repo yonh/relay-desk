@@ -204,7 +204,8 @@ def build_parser():
                           required=(op == 'screenshot'
                                     or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input') and flag == '--identity')
                                     or (op == 'activate_project' and flag == '--project')
-                                    or (op == 'navigate' and flag == '--url')))
+                                    or (op == 'navigate' and flag == '--url')
+                                    or (op == 'input' and flag == '--text')))
     return parser
 
 

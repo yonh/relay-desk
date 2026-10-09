@@ -3002,7 +3002,17 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                             message: 'Frame is not reachable (cross-origin)' });
       }
       var doc = fr.doc;
-      var wantNonce = String(Q.documentId || '').split(':')[0];
+      var didParts = String(Q.documentId || '').split(':');
+      var wantNonce = didParts[0];
+      var wantFrame = didParts.length > 1 ? didParts[1] : null;
+      // A ref is only meaningful against the documentId issued for ITS
+      // frame — passing another frame's documentId must not silently act
+      // on the wrong frame's element.
+      if (wantFrame !== null && wantFrame !== '' &&
+          parseInt(wantFrame, 10) !== frameIndex) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref frame does not match documentId frame' });
+      }
       if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
         return __rdResult({ error: 'stale_element',
                             message: 'Document changed since the ref was issued; re-probe' });
@@ -3079,6 +3089,17 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         return __rdResult({ error: 'input_failed', ref: Q.ref,
                             tag: tag.toLowerCase(), type: type || null,
                             message: 'value write threw: ' + String(e && e.message || e).slice(0, 200) });
+      }
+      // A typed input can normalize the write away (e.g. invalid text on
+      // type=number reads back ''). Reporting dispatched:true here would
+      // hide that the previous value was destroyed — answer honestly with
+      // the effective value length instead.
+      var written = String(el.value);
+      if (written !== next) {
+        return __rdResult({ error: 'value_not_accepted', ref: Q.ref,
+                            tag: tag.toLowerCase(), type: type || null,
+                            valueLength: written.length,
+                            message: 'Field normalized the written value (type=' + (type || tag.toLowerCase()) + '); length of what remains: ' + written.length });
       }
       // The text itself never leaves the page — only its length.
       return __rdResult({
