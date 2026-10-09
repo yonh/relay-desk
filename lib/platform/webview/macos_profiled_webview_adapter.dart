@@ -88,6 +88,33 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
   @override
   Stream<WebviewEvent> get events => _events.stream;
 
+  /// scheme://host[:port]/path for the diagnostic log — the strip applied
+  /// to every URL the log sees. Event and request URLs can carry sessions,
+  /// tokens or userinfo in their query/credentials; none of that belongs on
+  /// disk.
+  static String _safeLogUrl(String? raw) {
+    if (raw == null) return '';
+    final uri = Uri.tryParse(raw);
+    if (uri == null || uri.host.isEmpty) return '';
+    final host = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://$host$port${uri.path}';
+  }
+
+  static final _embeddedUrl = RegExp(r'https?://[^\s"<>]+');
+
+  /// Free-text fields (platform error messages) can embed URLs that carry
+  /// queries/credentials — replace each embedded locator with its stripped
+  /// `_safeLogUrl` form before it reaches the diagnostic log.
+  static String _safeLogText(Object? raw) {
+    final text = raw?.toString() ?? '';
+    final scrubbed = text.replaceAllMapped(
+      _embeddedUrl,
+      (m) => _safeLogUrl(m.group(0)),
+    );
+    return scrubbed.length <= 500 ? scrubbed : scrubbed.substring(0, 500);
+  }
+
   void _log(String event, [Map<String, Object?> fields = const {}]) {
     if (!Platform.isMacOS || _logFailures >= 3) return;
     unawaited(
@@ -157,9 +184,11 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     _log('nativeEvent', {
       'type': type,
       'identityId': identityId,
-      'url': payload['url'],
+      // Event URLs can carry sessions/tokens in their query — only the
+      // locator (scheme://host:port/path) belongs in the diagnostic log.
+      'url': _safeLogUrl(payload['url'] as String?),
       'state': payload['state'],
-      'error': payload['error'],
+      'error': _safeLogText(payload['error']),
       'code': payload['code'],
       'isLoading': payload['isLoading'],
     });
@@ -204,6 +233,30 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
         }
         _stateByIdentity[identityId] = state;
         _events.add(WebviewStateChanged(identityId, state));
+        break;
+      case 'loadCommitted':
+        // Main-document commit: the URL/history flags are already real,
+        // but the page is still loading — keep the spinner until
+        // didFinish/didFail resolve it.
+        final committed = _navInfoByIdentity[identityId];
+        _navInfoByIdentity[identityId] = WebviewNavInfo(
+          url: payload['url'] as String? ?? committed?.url ?? '',
+          canGoBack: payload['canGoBack'] as bool? ?? false,
+          canGoForward: payload['canGoForward'] as bool? ?? false,
+          loading: committed?.loading ?? true,
+        );
+        _events.add(
+          WebviewLoadCommitted(
+            identityId,
+            Uri.parse(
+              (payload['url'] as String?)?.isNotEmpty == true
+                  ? payload['url'] as String
+                  : 'about:blank',
+            ),
+            canGoBack: payload['canGoBack'] as bool? ?? false,
+            canGoForward: payload['canGoForward'] as bool? ?? false,
+          ),
+        );
         break;
       case 'loadComplete':
         final nav = WebviewNavInfo(
@@ -374,7 +427,10 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     if (viewId == null) {
       // View not registered yet — emit a blocked event so the controller
       // resets its loading flag instead of spinning forever.
-      _log('navigateNoView', {'identityId': identityId, 'url': uri.toString()});
+      _log('navigateNoView', {
+        'identityId': identityId,
+        'url': _safeLogUrl(uri.toString()),
+      });
       _events.add(
         WebviewNavigationBlocked(identityId, uri, 'view not registered'),
       );
@@ -384,7 +440,7 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     _log('navigate', {
       'identityId': identityId,
       'viewId': viewId,
-      'url': uri.toString(),
+      'url': _safeLogUrl(uri.toString()),
     });
     try {
       await _channel.invokeMethod('loadUrl', {
@@ -396,7 +452,7 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
       _log('navigateFailed', {
         'identityId': identityId,
         'viewId': viewId,
-        'url': uri.toString(),
+        'url': _safeLogUrl(uri.toString()),
         'error': e.message ?? e.code,
       });
       // The channel call itself failed (typically a stale viewId pointing at
