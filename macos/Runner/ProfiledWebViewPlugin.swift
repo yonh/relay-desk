@@ -506,7 +506,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                     return p.origin + p.pathname;
                   } catch (e) { return '<url>'; }
                 });
-              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\\s&'")]+)/gi,
+              // HTTP auth scheme values — "Bearer abc.def", "Basic dXNlcg=="
+              s = s.replace(/\\b(bearer|basic)\s+[A-Za-z0-9._~+\/=-]{4,}/gi,
+                            '$1 <redacted>');
+              // Quoted pairs — {"token":"v"}, 'secret': 'v', token: "v"
+              s = s.replace(/(["']?)(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\1(\s*[:=]\s*)(["'])([^"']{0,512})\4/gi,
+                            '$1$2$3$4<redacted>$4');
+              // Bare key=value / key: value
+              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\s*[:=]\s*([^\s&'"),}\]]{4,})/gi,
                             '$1=<redacted>');
               return s;
             }
@@ -1578,11 +1585,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// hierarchical labels (`f0`, `f0.f1`) bounded at 4 levels / 32 frames;
     /// an unreachable frame's subtree is reported unexplored. URL fields are
     /// capped and opaque schemes stripped in-page, and a 200 KB byte budget
-    /// drops error entries from the tail (`errorsDropped` + `truncated`).
-    /// The drain is read-only: entries persist for later samples.
+    /// drops the OLDEST error entries first so the newest survive
+    /// (`errorsDropped` + `truncated`). The drain is read-only: entries
+    /// persist for later samples. MAX_CHARS counts JS UTF-16 units
+    /// (String.length), not encoded bytes — the cap is a size bound,
+    /// not a wire-byte guarantee.
     private static let errorsDrainScript = """
     (function () {
-      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_BYTES = 200000;
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_CHARS = 200000;
       var frames = [];
       var skippedFrames = 0, depthLimitSkipped = 0, errorsDropped = 0;
       function safeUrl(u) {
@@ -1638,11 +1648,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         depthLimitSkipped: depthLimitSkipped
       };
       var out = JSON.stringify(result);
-      while (out.length > MAX_BYTES) {
+      while (out.length > MAX_CHARS) {
         var dropped = false;
         for (var bi = frames.length - 1; bi >= 0; bi--) {
           var fe = frames[bi].errors;
-          if (fe && fe.length) { fe.pop(); errorsDropped++; dropped = true;
+          // Errors are chronological — drop the oldest first so the
+          // newest entries survive any budget trim, matching the
+          // buffer's keep-newest contract.
+          if (fe && fe.length) { fe.shift(); errorsDropped++; dropped = true;
                                  break; }
         }
         if (!dropped) break;
@@ -1766,11 +1779,6 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                        H1: 1, H2: 1, H3: 1, H4: 1 };
       var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
                    SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
-      function shortText(el) {
-        var t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
-        if (t.length > MAX_TEXT) { skipped.textTruncated++; return t.slice(0, MAX_TEXT); }
-        return t;
-      }
       function labelFor(el) {
         var tag = el.tagName;
         // Privacy boundary: INPUT/TEXTAREA labels come only from
@@ -1782,7 +1790,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (a.length > MAX_TEXT) { skipped.textTruncated++; a = a.slice(0, MAX_TEXT); }
           return a;
         }
-        var l = el.getAttribute('aria-label') || el.innerText || el.textContent || '';
+        // Labels are bounded VISIBLE text only: `innerText` reflects
+        // rendering (CSS-hidden descendants contribute nothing), while a
+        // `textContent` fallback would read hidden subtree text — e.g.
+        // <button><span display:none>SECRET</span></button>.
+        var l = el.getAttribute('aria-label') || el.innerText || '';
         l = l.replace(/\\s+/g, ' ').trim();
         if (l.length > MAX_TEXT) { skipped.textTruncated++; l = l.slice(0, MAX_TEXT); }
         return l;
@@ -1798,10 +1810,18 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       function isHiddenDeep(el, win) {
         if (!el || !el.closest) return true;
         if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        // CSS hiding does not propagate to a descendant's own computed
+        // style — display:none on an ancestor leaves a child's display
+        // untouched, so every ancestor must be checked, bounded by a
+        // depth guard.
         try {
-          var cs = (win || window).getComputedStyle(el);
-          if (cs.display === 'none' || cs.visibility === 'hidden' ||
-              cs.visibility === 'collapse') return true;
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
         } catch (e) {}
         return false;
       }
@@ -1877,6 +1897,12 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         for (var k = 0; k < iframes.length; k++) {
           var el = iframes[k];
           var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          // A CSS/attribute-hidden iframe hides its whole subtree — same
+          // visibility semantics as elements: count it, never probe it.
+          try {
+            var w = doc.defaultView || window;
+            if (isHiddenDeep(el, w)) { skipped.hidden++; continue; }
+          } catch (e) {}
           try {
             var idoc = el.contentDocument ||
                        (el.contentWindow && el.contentWindow.document);
