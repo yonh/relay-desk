@@ -843,6 +843,36 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// DOM element search of the view bound to [viewId] (issue #21). [query]
+  /// is a JSON string of the validated criteria — embedded natively as a
+  /// data literal ahead of the fixed find script, never evaluated as code.
+  /// Same binding and deadline discipline as [probeDom].
+  Future<Map<String, dynamic>> domFind(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('domFind', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+      'query': query,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_find_timeout',
+          message: 'Native DOM find did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_find_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and

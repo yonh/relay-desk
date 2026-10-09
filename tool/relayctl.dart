@@ -206,6 +206,19 @@ const List<_Command> _commands = <_Command>[
     'Bounded DOM summary of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],
   ),
+  _Command(
+    'dom_find',
+    'Find elements by text/role/selector; --identity plus one criterion',
+    <_Selector>[
+      _requiredIdentitySelector,
+      _Selector('--text', 'text', 'Visible text to find; use with --match'),
+      _Selector('--role', 'role', 'ARIA role to find (e.g. button, link)'),
+      _Selector('--name', 'name', 'Accessible name filter for --role'),
+      _Selector('--selector', 'selector', 'CSS selector to find'),
+      _Selector('--match', 'match', "exact or contains (default contains)"),
+      _Selector('--frame', 'frame', 'Frame label to search (main, f0, …)'),
+    ],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.

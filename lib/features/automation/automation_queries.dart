@@ -45,6 +45,7 @@ class AutomationQueries {
     required this.sampleMedia,
     required this.drainJsErrors,
     required this.probeDom,
+    required this.domFind,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -99,6 +100,16 @@ class AutomationQueries {
     String expectedIdentityId,
   )
   probeDom;
+
+  /// Read-only DOM element search of the view bound to `viewId`. The third
+  /// argument is a JSON string of the validated criteria, embedded natively
+  /// as data ahead of the fixed script. Returns `json`, `url`, `windowId`.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domFind;
 
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
@@ -172,6 +183,8 @@ class AutomationQueries {
         return _errors(command);
       case 'dom':
         return _dom(command);
+      case 'dom_find':
+        return _domFind(command);
       case 'activate_project':
         return _activateProject(command);
       case 'open_panel':
@@ -752,6 +765,131 @@ class AutomationQueries {
       'frames': frames,
       'truncated': payload['truncated'] == true,
       'skipped': payload['skipped'] ?? const {},
+    };
+  }
+
+  /// Element search for an explicit `identityId` (issue #21). Exactly one
+  /// criterion is required: `text` (with `match: 'exact'|'contains'`,
+  /// default contains), `role` (optional `name`), or `selector`. Optional
+  /// `frame` restricts to one frame label (`main`, `f0`, …). Zero matches
+  /// are `not_found`(404); a bounded `matches` list is returned verbatim —
+  /// multi-match is never auto-picked. Invalid selector maps to
+  /// `invalid_selector`, an unreachable named frame to `frame_unreachable`.
+  /// Criteria travel as JSON data — no caller JavaScript ever runs.
+  Future<Map<String, Object?>> _domFind(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'dom_find requires an explicit identityId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    final text = _optionalString(command, 'text');
+    final role = _optionalString(command, 'role');
+    final selector = _optionalString(command, 'selector');
+    final kinds = [if (text != null) 'text', if (role != null) 'role', if (selector != null) 'selector'];
+    if (kinds.length != 1) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'dom_find requires exactly one of text, role or selector',
+      );
+    }
+    final match = _optionalString(command, 'match') ?? 'contains';
+    if (match != 'exact' && match != 'contains') {
+      throw const AutomationFailure(
+        'invalid_argument',
+        "match must be 'exact' or 'contains'",
+      );
+    }
+    final query = <String, Object?>{
+      'kind': kinds.single,
+      'match': match,
+      'text': ?text,
+      'role': ?role,
+      'selector': ?selector,
+      'name': ?_optionalString(command, 'name'),
+      'frame': ?_optionalString(command, 'frame'),
+    };
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final view = _viewFor(views, id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Identity has no live native web view',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domFind(viewId, id, jsonEncode(query));
+    } on PlatformException catch (error) {
+      const codes = {'target_changed', 'dom_find_failed', 'dom_find_timeout'};
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'DOM find could not run',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      throw const AutomationFailure(
+        'dom_find_failed',
+        'Native DOM find returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'DOM find failed',
+        status: error == 'invalid_selector' ? 400 : (error == 'not_found' ? 404 : 409),
+      );
+    }
+    final count = payload['count'];
+    final complete = payload['complete'] != false;
+    if (count is! int) {
+      throw const AutomationFailure('not_found', 'No element matches', status: 404);
+    }
+    // A zero-count is `not_found` only when the walk actually covered the
+    // searchable range — an incomplete scan must never claim "no match".
+    if (count == 0 && complete) {
+      throw const AutomationFailure('not_found', 'No element matches', status: 404);
+    }
+    final matches = <Map<String, dynamic>>[
+      for (final m in payload['matches'] is List ? payload['matches'] as List : const [])
+        if (m is Map) Map<String, dynamic>.from(m),
+    ];
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'sampledAt': DateTime.now().toUtc().toIso8601String(),
+      'url': _stripUrl(probed['url'] as String? ?? ''),
+      'documentId': payload['documentId'],
+      'matchCount': count,
+      // Coverage honesty: `complete:false` means candidates may exist
+      // beyond the scanned range — `matchCount` is then a lower bound and
+      // an empty list is not "no match".
+      'complete': complete,
+      if (!complete) 'countIsLowerBound': true,
+      'scannedTotal': payload['scannedTotal'],
+      'scanTruncated': payload['scanTruncated'] == true,
+      'unreachableFrames': payload['unreachableFrames'],
+      'truncated': payload['truncated'] == true,
+      'matches': matches,
     };
   }
 

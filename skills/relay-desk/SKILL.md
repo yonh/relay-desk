@@ -1,6 +1,6 @@
 ---
 name: relay-desk
-description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or sample a page's media playback state — and for code acceptance against real evidence. Scoped to Relay Desk on macOS; the transport is metadata plus explicit-ID panel screenshot, media-state and error sampling, and a bounded DOM summary — caller script evaluation and network capture are never served.
+description: Inspect a running Relay Desk app — current project, identity, panel, native window, saved workspace — through the standalone relayctl CLI, and grade code acceptance against real evidence. Use when the user asks to inspect Relay Desk, find which identity/panel/window is current, capture a panel screenshot, or sample a page's media playback state — and for code acceptance against real evidence. Scoped to Relay Desk on macOS; the transport is metadata plus explicit-ID panel screenshot, media-state and error sampling, DOM summary/find — caller script evaluation and network capture are never served.
 ---
 
 # Relay Desk inspection
@@ -94,6 +94,16 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Budgets (depth 8, 16 frames, 300 elements/frame, 80-char labels, 2000-node scan) truncate oversized documents; top-level `truncated`/`skipped` flag what was cut — never read a truncated result as complete.
 - The probe never returns scripts, input values, or password fields — it is a summary for locating elements, not a DOM dump.
 
+## DOM element find
+
+`relayctl dom_find --identity <uuid> --text|--role|--selector <v>` (issue #21) searches the rendered page with a fixed native probe — the criteria travel as JSON data, never as caller JavaScript:
+
+- Exactly one criterion is required: `--text` (normalized visible-text match; `--match exact|contains`, default contains; deepest matches only, so hits are operable leaf elements), `--role` (explicit `role` attr or tag-implied role; `--name` narrows by accessible name), or `--selector` (CSS selector; a malformed one is `invalid_selector`).
+- `--frame <label>` restricts to one frame (`main`, `f0`, …): an unknown label is `not_found`, a cross-origin one is `frame_unreachable` — never search-blind spots silently.
+- Results are `documentId` + `matchCount` + a bounded `matches` list (`ref`, `frame`, `tag`, `role`, `label`, `visible`, `disabled`) with `truncated` on overflow. **Multiple matches stay a list — never report the first as chosen.** Zero matches is `not_found`, not an empty success.
+- A `ref` is `<frameIndex>.<document position>`; it identifies one element only while that document is unchanged — a navigation or DOM mutation shifts positions, so re-find instead of assuming stability. (Inspecting one ref is the dom_inspect stage.)
+- The op only reads — it never clicks, types, or returns input values.
+
 ## Project activation (write op)
 
 `relayctl activate_project --project <uuid>` (issue #31) switches the app to an existing project — the same call the sidebar makes, so layout restore and panel sync are the UI's own. It is the first whitelisted **write** operation: `capabilities.readOnly` is now `false`, and writes are listed under `writeOperations` (reads stay under `operations`).
@@ -116,6 +126,6 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer and a DOM summary, plus the write operations `activate_project` and `open_panel`; they expose no element find/inspect, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project` and `open_panel`; they expose no element inspect, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
