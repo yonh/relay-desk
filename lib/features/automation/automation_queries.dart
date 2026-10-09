@@ -1922,7 +1922,7 @@ class AutomationQueries {
                   (pulled['canGoBack'] != beforeHistory['canGoBack'] ||
                       pulled['canGoForward'] !=
                           beforeHistory['canGoForward'])));
-      if (traversed && pulled != null) {
+      if (traversed) {
         silentSameDocument = true;
         refsInvalid = false;
         outcome = (
