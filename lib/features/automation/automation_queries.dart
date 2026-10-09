@@ -656,6 +656,12 @@ class AutomationQueries {
       'sampledAt': DateTime.now().toUtc().toIso8601String(),
       'url': _stripUrl(drained['url'] as String? ?? ''),
       'frames': frames,
+      // Coverage facts from the drain — a client must be able to tell a
+      // complete error list from a budget-truncated one (issue #17 review).
+      'truncated': payload['truncated'] == true,
+      'skippedFrames': payload['skippedFrames'] ?? 0,
+      'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
+      'errorsDropped': payload['errorsDropped'] ?? 0,
     };
   }
 

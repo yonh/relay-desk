@@ -506,7 +506,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                     return p.origin + p.pathname;
                   } catch (e) { return '<url>'; }
                 });
-              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\\s&'")]+)/gi,
+              // HTTP auth scheme values — "Bearer abc.def", "Basic dXNlcg=="
+              s = s.replace(/\\b(bearer|basic)\s+[A-Za-z0-9._~+\/=-]{4,}/gi,
+                            '$1 <redacted>');
+              // Quoted pairs — {"token":"v"}, 'secret': 'v', token: "v"
+              s = s.replace(/(["']?)(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\1(\s*[:=]\s*)(["'])([^"']{0,512})\4/gi,
+                            '$1$2$3$4<redacted>$4');
+              // Bare key=value / key: value
+              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\s*[:=]\s*([^\s&'"),}\]]{4,})/gi,
                             '$1=<redacted>');
               return s;
             }
@@ -1576,11 +1583,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// hierarchical labels (`f0`, `f0.f1`) bounded at 4 levels / 32 frames;
     /// an unreachable frame's subtree is reported unexplored. URL fields are
     /// capped and opaque schemes stripped in-page, and a 200 KB byte budget
-    /// drops error entries from the tail (`errorsDropped` + `truncated`).
-    /// The drain is read-only: entries persist for later samples.
+    /// drops the OLDEST error entries first so the newest survive
+    /// (`errorsDropped` + `truncated`). The drain is read-only: entries
+    /// persist for later samples. MAX_CHARS counts JS UTF-16 units
+    /// (String.length), not encoded bytes — the cap is a size bound,
+    /// not a wire-byte guarantee.
     private static let errorsDrainScript = """
     (function () {
-      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_BYTES = 200000;
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_CHARS = 200000;
       var frames = [];
       var skippedFrames = 0, depthLimitSkipped = 0, errorsDropped = 0;
       function safeUrl(u) {
@@ -1636,11 +1646,14 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         depthLimitSkipped: depthLimitSkipped
       };
       var out = JSON.stringify(result);
-      while (out.length > MAX_BYTES) {
+      while (out.length > MAX_CHARS) {
         var dropped = false;
         for (var bi = frames.length - 1; bi >= 0; bi--) {
           var fe = frames[bi].errors;
-          if (fe && fe.length) { fe.pop(); errorsDropped++; dropped = true;
+          // Errors are chronological — drop the oldest first so the
+          // newest entries survive any budget trim, matching the
+          // buffer's keep-newest contract.
+          if (fe && fe.length) { fe.shift(); errorsDropped++; dropped = true;
                                  break; }
         }
         if (!dropped) break;
