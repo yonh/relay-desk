@@ -2276,10 +2276,10 @@ class AutomationQueries {
           'documentId': documentId,
           if (ref != null) 'ref': ref,
           'mode': mode,
-          if (command['dx'] != null) 'dx': command['dx'],
-          if (command['dy'] != null) 'dy': command['dy'],
-          if (command['x'] != null) 'x': command['x'],
-          if (command['y'] != null) 'y': command['y'],
+          'dx': ?command['dx'],
+          'dy': ?command['dy'],
+          'x': ?command['x'],
+          'y': ?command['y'],
         }),
       );
     } on PlatformException catch (error) {
