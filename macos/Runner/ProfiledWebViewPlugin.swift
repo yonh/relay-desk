@@ -2033,11 +2033,28 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (tag === 'INPUT') return INPUT_ROLES[(el.type || '').toLowerCase()] || 'textbox';
         return ROLE_MAP[tag] || null;
       }
-      function isHiddenDeep(el) {
-        return !!(el.closest && el.closest('[hidden],[aria-hidden="true"]'));
+      // Full hidden check: attribute ancestors AND computed style — same
+      // privacy boundary as the dom summary probe.
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var cs = (win || window).getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden' ||
+              cs.visibility === 'collapse') return true;
+        } catch (e) {}
+        return false;
       }
       function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
       function labelOf(el) {
+        var tag = el.tagName;
+        // INPUT/TEXTAREA: label only from aria-label/placeholder —
+        // textContent on a TEXTAREA is the field's content.
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+          var a = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+                  norm(el.getAttribute && el.getAttribute('placeholder'));
+          return a.length > 80 ? a.slice(0, 80) : a;
+        }
         var l = norm(el.getAttribute && el.getAttribute('aria-label')) ||
                 norm(el.innerText) || norm(el.textContent);
         return l.length > 80 ? l.slice(0, 80) : l;
@@ -2098,16 +2115,20 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         frames = [hit];
       }
       var candidates = [];
-      var matchCount = 0, truncated = false;
+      var matchCount = 0, truncated = false, candTruncated = false;
+      var scannedTotal = 0, scanTruncated = false, unreachableFrames = 0;
       var wants = Q.kind;
       for (var fi2 = 0; fi2 < frames.length; fi2++) {
         var fr = frames[fi2];
-        if (fr.reachable === false) continue;
+        if (fr.reachable === false) { unreachableFrames++; continue; }
         var all = fr.doc.querySelectorAll('*');
         var indexOf = new Map();
         var scanned = Math.min(all.length, MAX_SCAN);
+        scannedTotal += scanned;
+        if (all.length > MAX_SCAN) scanTruncated = true;
         for (var ii = 0; ii < scanned; ii++) indexOf.set(all[ii], ii);
         var matched = [];
+        var win = fr.doc.defaultView || window;
         if (wants === 'selector') {
           var found;
           try { found = fr.doc.querySelectorAll(Q.selector); }
@@ -2115,7 +2136,9 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             return __rdResult({ error: 'invalid_selector',
                                 message: 'Selector is not a valid CSS selector' });
           }
-          for (var si = 0; si < found.length && matched.length < MAX_CAND; si++) {
+          for (var si = 0; si < found.length; si++) {
+            if (matched.length >= MAX_CAND) { candTruncated = true;
+                                            truncated = true; break; }
             var mel = found[si];
             if (!indexOf.has(mel)) continue; // beyond scan bound
             if (SKIP[mel.tagName]) continue;
@@ -2124,7 +2147,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         } else {
           for (var ii2 = 0; ii2 < scanned; ii2++) {
             var el2 = all[ii2];
-            if (SKIP[el2.tagName] || isHiddenDeep(el2)) continue;
+            if (SKIP[el2.tagName] || isHiddenDeep(el2, win)) continue;
             if (wants === 'text') {
               var t = norm(el2.innerText || el2.textContent);
               if (!t || t.length > 400) continue;
@@ -2159,21 +2182,35 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           matchCount++;
           if (candidates.length < MAX_MATCH) {
             var mel2 = matched[mi];
+            var hid = isHiddenDeep(mel2, win);
+            // A hidden match is reported only with safe fields — its
+            // subtree text never leaves the page.
             candidates.push({
               ref: fr.index + '.' + indexOf.get(mel2),
               frame: fr.label,
               tag: mel2.tagName.toLowerCase(),
               role: roleOf(mel2),
-              label: labelOf(mel2),
-              visible: visibleOf(mel2),
+              label: hid ? null : labelOf(mel2),
+              visible: hid ? false : visibleOf(mel2),
+              hidden: hid || undefined,
               disabled: !!mel2.disabled,
             });
           } else { truncated = true; }
         }
       }
+      // `complete` is false when the walk could not scan everything the
+      // criteria could have matched — an empty result then means "no
+      // match within the scanned range", never "no match on the page".
+      var complete = !scanTruncated && !candTruncated;
       return __rdResult({
         documentId: docNonce,
         count: matchCount,
+        countIsLowerBound: !complete,
+        complete: complete,
+        scannedTotal: scannedTotal,
+        scanTruncated: scanTruncated,
+        candTruncated: candTruncated,
+        unreachableFrames: unreachableFrames,
         truncated: truncated || matchCount > candidates.length,
         matches: candidates
       });

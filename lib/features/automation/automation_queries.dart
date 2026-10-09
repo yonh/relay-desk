@@ -852,7 +852,13 @@ class AutomationQueries {
       );
     }
     final count = payload['count'];
-    if (count is! int || count == 0) {
+    final complete = payload['complete'] != false;
+    if (count is! int) {
+      throw const AutomationFailure('not_found', 'No element matches', status: 404);
+    }
+    // A zero-count is `not_found` only when the walk actually covered the
+    // searchable range — an incomplete scan must never claim "no match".
+    if (count == 0 && complete) {
       throw const AutomationFailure('not_found', 'No element matches', status: 404);
     }
     final matches = <Map<String, dynamic>>[
@@ -868,6 +874,14 @@ class AutomationQueries {
       'url': _stripUrl(probed['url'] as String? ?? ''),
       'documentId': payload['documentId'],
       'matchCount': count,
+      // Coverage honesty: `complete:false` means candidates may exist
+      // beyond the scanned range — `matchCount` is then a lower bound and
+      // an empty list is not "no match".
+      'complete': complete,
+      if (!complete) 'countIsLowerBound': true,
+      'scannedTotal': payload['scannedTotal'],
+      'scanTruncated': payload['scanTruncated'] == true,
+      'unreachableFrames': payload['unreachableFrames'],
       'truncated': payload['truncated'] == true,
       'matches': matches,
     };
