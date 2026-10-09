@@ -41,6 +41,7 @@ const automationWriteOperations = <String>{
   'open_panel',
   'navigate',
   'reload',
+  'click',
 };
 
 /// Every operation the transport serves.

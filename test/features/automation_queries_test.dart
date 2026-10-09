@@ -138,10 +138,12 @@ void main() {
     Future<void> Function()? awaitFrame,
     void Function(String identityId, String url)? navigatePanel,
     void Function(String identityId)? reloadPanel,
+    Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
     bool Function(String identityId)? isNavigating,
     Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
     Duration? navigateWaitBudget,
+    Duration? clickNavObserveBudget,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -197,11 +199,14 @@ void main() {
         },
     navigatePanel: navigatePanel ?? (_, _) {},
     reloadPanel: reloadPanel ?? (_) {},
+    domClick: domClick ?? (_, _, _) async => {'json': '{}'},
     isNavigating: isNavigating ?? (_) => false,
     navigationEvents:
         navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
     navigateWaitBudget:
         navigateWaitBudget ?? const Duration(milliseconds: 100),
+    clickNavObserveBudget:
+        clickNavObserveBudget ?? const Duration(milliseconds: 50),
   );
 
   Matcher failure(String code, int status) => throwsA(
@@ -265,6 +270,7 @@ void main() {
       'open_panel',
       'navigate',
       'reload',
+      'click',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -853,7 +859,7 @@ void main() {
   );
 
   test('mutation and unknown operations never enter dispatch', () async {
-    for (final op in ['eval', 'click', 'nope']) {
+    for (final op in ['eval', 'nope']) {
       expect(
         queries.dispatch({'op': op}),
         failure('unsupported_operation', 400),
@@ -2674,6 +2680,310 @@ void main() {
     });
   });
 
+  group('click', () {
+    void setupTarget({String url = 'https://alpha.example.com/page'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    Map<String, dynamic> clickJson(Map<String, dynamic> payload) => {
+      'json': jsonEncode(payload),
+      'windowId': 83,
+      'url': 'https://alpha.example.com/page',
+    };
+
+    test('requires identityId, ref and documentId', () async {
+      expect(
+        queries.dispatch({'op': 'click'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({'op': 'click', 'identityId': 'id-a1'}),
+        failure('invalid_argument', 400),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+        }),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('identity of an inactive project is project_not_active', () async {
+      setupTarget();
+      selectedProjectId = projectB.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('project_not_active', 409),
+      );
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('panel without a registered view is no_native_view', () async {
+      setupTarget();
+      native = nativeSnapshot();
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('payload stale_element maps to 409 and does not retry', () async {
+      setupTarget();
+      var calls = 0;
+      queries = buildQueries(
+        domClick: (_, _, _) async {
+          calls++;
+          return clickJson({
+            'error': 'stale_element',
+            'message': 'Document changed since the ref was issued',
+          });
+        },
+      );
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('stale_element', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 1); // one dispatch, never replayed
+    });
+
+    test('not_interactable refusals carry the reason through', () async {
+      setupTarget();
+      for (final reason in ['hidden', 'disabled', 'invisible']) {
+        queries = buildQueries(
+          domClick: (_, _, _) async => clickJson({
+            'error': 'not_interactable',
+            'reason': reason,
+            'message': 'Element is $reason',
+          }),
+        );
+        expect(
+          queries.dispatch({
+            'op': 'click',
+            'identityId': 'id-a1',
+            'ref': '0.3',
+            'documentId': 'doc:0',
+          }),
+          failure('not_interactable', 409),
+          reason: reason,
+        );
+      }
+    });
+
+    test('a dispatched click reports mechanism and no navigation', () async {
+      setupTarget();
+      queries = buildQueries(
+        domClick: (viewId, identityId, query) async {
+          expect(viewId, 9);
+          expect(identityId, 'id-a1');
+          final q = jsonDecode(query) as Map<String, dynamic>;
+          expect(q['ref'], '0.3');
+          expect(q['documentId'], 'doc:0');
+          return clickJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'frameIndex': 0,
+            'tag': 'button',
+            'role': 'button',
+            'name': 'Play',
+            'dispatched': true,
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'click',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+      });
+      expect(data['dispatched'], true);
+      expect(data['mechanism'], 'synthetic_dom_click');
+      expect(data['isTrusted'], false);
+      expect(data['clickId'] as String, startsWith('clk-'));
+      expect(data['tag'], 'button');
+      expect(data['name'], 'Play');
+      expect(data['navigationStarted'], false);
+      expect(data['panelQueryable'], true);
+    });
+
+    test('a navigation started by the click reports the batch', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        domClick: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted(
+              'id-a1',
+              Uri.parse('https://alpha.example.com/next?session=tok'),
+            ),
+          );
+          controller.add(
+            WebviewLoadCommitted(
+              'id-a1',
+              Uri.parse('https://alpha.example.com/next?session=tok'),
+              canGoBack: true,
+            ),
+          );
+          return clickJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'frameIndex': 0,
+            'tag': 'a',
+            'role': 'link',
+            'name': 'Back',
+            'dispatched': true,
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'click',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+      });
+      expect(data['dispatched'], true);
+      expect(data['navigationStarted'], true);
+      expect(data['navStatus'], 'committed');
+      expect(data['navigationId'] as String, startsWith('nav-'));
+      expect(data['finalUrl'], 'https://alpha.example.com/next');
+      expect(jsonEncode(data), isNot(contains('session=tok')));
+      expect(data['canGoBack'], true);
+      expect(data['settledAt'], isNotNull);
+    });
+
+    test('a started-but-uncommitted navigation reports timeout status', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        clickNavObserveBudget: const Duration(milliseconds: 50),
+        domClick: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted(
+              'id-a1',
+              Uri.parse('https://alpha.example.com/slow'),
+            ),
+          );
+          return clickJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'frameIndex': 0,
+            'tag': 'a',
+            'dispatched': true,
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'click',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+      });
+      expect(data['dispatched'], true);
+      expect(data['navigationStarted'], true);
+      expect(data['navStatus'], 'timeout');
+      expect(data['settledAt'], isNull);
+    });
+
+    test('events from other identities never settle the observation', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        clickNavObserveBudget: const Duration(milliseconds: 50),
+        domClick: (_, _, _) async {
+          controller.add(
+            WebviewLoadStarted(
+              'id-b2',
+              Uri.parse('https://beta.example.com/other'),
+            ),
+          );
+          return clickJson({
+            'ref': '0.3',
+            'frame': 'main',
+            'frameIndex': 0,
+            'tag': 'button',
+            'dispatched': true,
+            'documentId': 'doc:0',
+          });
+        },
+      );
+      final data = await run({
+        'op': 'click',
+        'identityId': 'id-a1',
+        'ref': '0.3',
+        'documentId': 'doc:0',
+      });
+      expect(data['navigationStarted'], false);
+    });
+
+    test('a native failure maps dom_click_failed to 500', () async {
+      setupTarget();
+      queries = buildQueries(
+        domClick: (_, _, _) async =>
+            throw PlatformException(code: 'dom_click_failed'),
+      );
+      expect(
+        queries.dispatch({
+          'op': 'click',
+          'identityId': 'id-a1',
+          'ref': '0.3',
+          'documentId': 'doc:0',
+        }),
+        failure('dom_click_failed', 500),
+      );
+    });
+  });
+
   group('transport whitelist', () {
     late Directory directory;
     late AutomationServer server;
@@ -2721,7 +3031,7 @@ void main() {
     });
 
     test('rejects non-read operations before dispatch', () async {
-      for (final op in ['eval', 'click']) {
+      for (final op in ['eval']) {
         final response = await post({'op': op, 'identityId': 'id-a1'});
         expect(response['status'], 400, reason: op);
         expect(response['ok'], false);
