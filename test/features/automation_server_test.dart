@@ -296,6 +296,7 @@ void main() {
         'screenshot',
         'media',
         'errors',
+        'dom',
         'windows',
         'window',
         'workspaces',

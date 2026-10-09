@@ -27,6 +27,7 @@ const automationReadOperations = <String>{
   'screenshot',
   'media',
   'errors',
+  'dom',
 };
 
 /// Write operations admitted by this transport (issue #31). Each one mutates

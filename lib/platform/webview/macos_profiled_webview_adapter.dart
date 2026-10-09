@@ -816,6 +816,33 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Read-only DOM summary of the view bound to [viewId] (issue #20). Same
+  /// binding and deadline discipline as [sampleMedia]; only the fixed probe
+  /// runs natively — the caller cannot inject script.
+  Future<Map<String, dynamic>> probeDom(
+    int viewId,
+    String expectedIdentityId,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('probeDom', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_timeout',
+          message: 'Native DOM probe did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
