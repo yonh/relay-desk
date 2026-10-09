@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": {
+    "code": "stale_element",
+    "message": "Position now resolves to a different element; re-probe"
+  }
+}

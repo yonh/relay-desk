@@ -3,9 +3,13 @@
 <h2>media seek fixture — preset start 20s</h2>
 <video id="v-seek" src="v.mp4" muted playsinline preload="auto" width="240"></video>
 <script>
-// The page itself establishes the start position (~20s) once metadata is
-// available, then plays muted. Relay Desk only samples; the observed
-// landing point and later advance are compared in the acceptance report.
+// Two clearly separated phases so each media sample is independently
+// verifiable:
+//   phase 1 (t<15s): the page seeks to 20s then PAUSES — currentTime is
+//     held, so a sample showing ~20s proves the seek landed at 20s
+//     (nothing is playing, the value cannot have drifted).
+//   phase 2 (t>=15s): the page starts muted playback — a later sample
+//     must show paused:false and currentTime>20 advancing.
 var v = document.getElementById('v-seek');
 var armed = false;
 v.addEventListener('loadedmetadata', function () {
@@ -13,6 +17,7 @@ v.addEventListener('loadedmetadata', function () {
   armed = true;
   v.currentTime = 20;
 });
-v.addEventListener('seeked', function () { v.play().catch(function () {}); });
+v.addEventListener('seeked', function () { v.pause(); });
+setTimeout(function () { v.play().catch(function () {}); }, 15000);
 </script>
 </body>

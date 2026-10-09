@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:49:22.268803Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/hidden.html",
+    "documentId": "ext1kfm90j6mv10uq57",
+    "matchCount": 2,
+    "complete": true,
+    "scannedTotal": 14,
+    "scanTruncated": false,
+    "unreachableFrames": 0,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.9",
+        "frame": "main",
+        "tag": "a",
+        "role": "link",
+        "label": null,
+        "visible": false,
+        "hidden": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.12",
+        "frame": "main",
+        "tag": "a",
+        "role": "link",
+        "label": "visible link",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}
