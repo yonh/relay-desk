@@ -497,16 +497,16 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             function scrub(s) {
               if (s === null || s === undefined) return s;
               s = String(s);
-              s = s.replace(/\b(data|blob|javascript|vbscript):[^\s'")\]]+/gi,
+              s = s.replace(/\\b(data|blob|javascript|vbscript):[^\\s'")\\]]+/gi,
                             '<opaque-url>');
-              s = s.replace(/\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s'")\]]+/g,
+              s = s.replace(/\\b[a-zA-Z][a-zA-Z0-9+.-]*:\\/\\/[^\\s'")\\]]+/g,
                 function (u) {
                   try {
                     var p = new URL(u);
                     return p.origin + p.pathname;
                   } catch (e) { return '<url>'; }
                 });
-              s = s.replace(/\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\s&'")]+)/gi,
+              s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\\s&'")]+)/gi,
                             '$1=<redacted>');
               return s;
             }
@@ -1390,7 +1390,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (!u) return null;
         u = String(u);
         if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
-        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\u2026' : u;
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
       }
       function seekableRanges(m) {
         var ranges = [];
