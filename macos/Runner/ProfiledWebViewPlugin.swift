@@ -3184,8 +3184,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         Enter:     { code: 'Enter', keypress: true },
         Escape:    { code: 'Escape', keypress: false },
         Tab:       { code: 'Tab',          keypress: false },
-        Backspace: { code: 'Backspace',    keypress: true },
-        Delete:    { code: 'Delete', keypress: true },
+        Backspace: { code: 'Backspace',    keypress: false },
+        Delete:    { code: 'Delete', keypress: false },
         ArrowUp:   { code: 'ArrowUp', keypress: false },
         ArrowDown: { code: 'ArrowDown', keypress: false },
         ArrowLeft: { code: 'ArrowLeft', keypress: false },
@@ -3317,14 +3317,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       };
       var fired = [];
       try {
+        // Same-origin iframe targets: construct events with the element's
+        // OWN window so `event instanceof KeyboardEvent` holds inside that
+        // frame (BUG: top-window events fail frame type checks).
+        var kv = (el.ownerDocument && el.ownerDocument.defaultView &&
+                  el.ownerDocument.defaultView.KeyboardEvent) || KeyboardEvent;
         fired.push('keydown');
-        el.dispatchEvent(new KeyboardEvent('keydown', base));
+        el.dispatchEvent(new kv('keydown', base));
         if (spec.keypress) {
           fired.push('keypress');
-          el.dispatchEvent(new KeyboardEvent('keypress', base));
+          el.dispatchEvent(new kv('keypress', base));
         }
         fired.push('keyup');
-        el.dispatchEvent(new KeyboardEvent('keyup', base));
+        el.dispatchEvent(new kv('keyup', base));
       } catch (e) {
         return __rdResult({ error: 'key_failed', ref: Q.ref,
                             message: 'key dispatch threw: ' + String(e && e.message || e).slice(0, 200) });
