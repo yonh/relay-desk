@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>error capture fixture</title>
+<body>
+<iframe src="errs-frame.html" width="120" height="80"></iframe>
+<script>
+setTimeout(function () { throw new Error('main-boom'); }, 300);
+setTimeout(function () { Promise.reject(new Error('rej-failure')); }, 400);
+setTimeout(function () { Promise.reject({secret: 'BUSINESS-SECRET-MARKER'}); }, 500);
+</script>
+</body>

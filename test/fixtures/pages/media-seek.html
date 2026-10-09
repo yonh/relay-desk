@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>media seek fixture</title>
+<body>
+<h2>media seek fixture — preset start 20s</h2>
+<video id="v-seek" src="v.mp4" muted playsinline preload="auto" width="240"></video>
+<script>
+// The page itself establishes the start position (~20s) once metadata is
+// available, then plays muted. Relay Desk only samples; the observed
+// landing point and later advance are compared in the acceptance report.
+var v = document.getElementById('v-seek');
+var armed = false;
+v.addEventListener('loadedmetadata', function () {
+  if (armed) return;
+  armed = true;
+  v.currentTime = 20;
+});
+v.addEventListener('seeked', function () { v.play().catch(function () {}); });
+</script>
+</body>
