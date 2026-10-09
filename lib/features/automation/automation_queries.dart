@@ -769,6 +769,19 @@ class AutomationQueries {
     }
     final project = await projects.getById(identity.projectId);
     if (project == null) throw _notFound('project');
+    // Critical section: re-validate the active project immediately before
+    // the mutation — the repository awaits above are suspension points
+    // where a user switch (or another automation write) can move the
+    // selection, and `ensurePanel` writes workspace.selectedProjectId =
+    // project.id, which would split the UI/workspace markers onto
+    // different projects.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the panel mutation',
+        status: 409,
+      );
+    }
     final before = readWorkspace().panels[id];
     final alreadyOpen =
         before != null &&
@@ -782,6 +795,15 @@ class AutomationQueries {
       await awaitFrame().timeout(const Duration(seconds: 4));
     } on TimeoutException {
       frameSeen = false;
+    }
+    // Drift check: a user-driven project switch during the frame wait must
+    // not be reported as a successful open of the old project's panel.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the panel was opening',
+        status: 409,
+      );
     }
     final workspace = readWorkspace();
     final panel = workspace.panels[id];
