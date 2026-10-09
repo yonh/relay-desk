@@ -215,6 +215,11 @@ const List<_Command> _commands = <_Command>[
     ],
   ),
   _Command(
+    'reload',
+    'Reload an open panel\'s current URL; --identity required',
+    <_Selector>[_requiredIdentitySelector],
+  ),
+  _Command(
     'dom',
     'Bounded DOM summary of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],

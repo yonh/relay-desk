@@ -310,6 +310,7 @@ void main() {
         'activate_project',
         'open_panel',
         'navigate',
+        'reload',
       });
     });
 
@@ -399,7 +400,6 @@ void main() {
 
       for (final op in <String>[
         'eval',
-        'reload',
         'click',
         'console',
         'network',

@@ -56,6 +56,10 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
               identityId,
               url,
             ),
+    // The same reload the toolbar/Cmd+R path calls — WK reload() with
+    // normal cache semantics (issue #28).
+    reloadPanel: (identityId) =>
+        ref.read(workspaceControllerProvider.notifier).reload(identityId),
     isNavigating: (identityId) => adapter.navInfoFor(identityId).loading,
     navigationEvents: () => adapter.events,
   );
