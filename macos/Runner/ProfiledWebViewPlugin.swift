@@ -1777,11 +1777,6 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                        H1: 1, H2: 1, H3: 1, H4: 1 };
       var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
                    SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
-      function shortText(el) {
-        var t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
-        if (t.length > MAX_TEXT) { skipped.textTruncated++; return t.slice(0, MAX_TEXT); }
-        return t;
-      }
       function labelFor(el) {
         var tag = el.tagName;
         // Privacy boundary: INPUT/TEXTAREA labels come only from
@@ -1793,7 +1788,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (a.length > MAX_TEXT) { skipped.textTruncated++; a = a.slice(0, MAX_TEXT); }
           return a;
         }
-        var l = el.getAttribute('aria-label') || el.innerText || el.textContent || '';
+        // Labels are bounded VISIBLE text only: `innerText` reflects
+        // rendering (CSS-hidden descendants contribute nothing), while a
+        // `textContent` fallback would read hidden subtree text — e.g.
+        // <button><span display:none>SECRET</span></button>.
+        var l = el.getAttribute('aria-label') || el.innerText || '';
         l = l.replace(/\\s+/g, ' ').trim();
         if (l.length > MAX_TEXT) { skipped.textTruncated++; l = l.slice(0, MAX_TEXT); }
         return l;
@@ -1809,10 +1808,18 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       function isHiddenDeep(el, win) {
         if (!el || !el.closest) return true;
         if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        // CSS hiding does not propagate to a descendant's own computed
+        // style — display:none on an ancestor leaves a child's display
+        // untouched, so every ancestor must be checked, bounded by a
+        // depth guard.
         try {
-          var cs = (win || window).getComputedStyle(el);
-          if (cs.display === 'none' || cs.visibility === 'hidden' ||
-              cs.visibility === 'collapse') return true;
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
         } catch (e) {}
         return false;
       }
@@ -1888,6 +1895,12 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         for (var k = 0; k < iframes.length; k++) {
           var el = iframes[k];
           var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          // A CSS/attribute-hidden iframe hides its whole subtree — same
+          // visibility semantics as elements: count it, never probe it.
+          try {
+            var w = doc.defaultView || window;
+            if (isHiddenDeep(el, w)) { skipped.hidden++; continue; }
+          } catch (e) {}
           try {
             var idoc = el.contentDocument ||
                        (el.contentWindow && el.contentWindow.document);
