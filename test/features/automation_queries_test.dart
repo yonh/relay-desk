@@ -137,6 +137,7 @@ void main() {
     void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
     void Function(String identityId, String url)? navigatePanel,
+    void Function(String identityId)? reloadPanel,
     bool Function(String identityId)? isNavigating,
     Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
@@ -195,6 +196,7 @@ void main() {
           );
         },
     navigatePanel: navigatePanel ?? (_, _) {},
+    reloadPanel: reloadPanel ?? (_) {},
     isNavigating: isNavigating ?? (_) => false,
     navigationEvents:
         navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
@@ -262,6 +264,7 @@ void main() {
       'activate_project',
       'open_panel',
       'navigate',
+      'reload',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -2445,6 +2448,232 @@ void main() {
     });
   });
 
+  group('reload', () {
+    void setupTarget({String url = 'https://alpha.example.com/old'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires an explicit identityId', () async {
+      expect(
+        queries.dispatch({'op': 'reload'}),
+        failure('invalid_input', 400),
+      );
+    });
+
+    test('unknown identity reports not_found', () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1')},
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(views: [nativeView(9, 'id-a1')]);
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'reload', 'identityId': 'nope'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('identity of an inactive project is project_not_active', () async {
+      setupTarget();
+      selectedProjectId = projectB.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'reload', 'identityId': 'id-a1'}),
+        failure('project_not_active', 409),
+      );
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'reload',
+          'identityId': 'id-a1',
+        }),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('a panel without a URL is no_current_url', () async {
+      setupTarget(url: '');
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'reload',
+          'identityId': 'id-a1',
+        }),
+        failure('no_current_url', 409),
+      );
+    });
+
+    test('panel without a registered view is no_native_view', () async {
+      setupTarget();
+      native = nativeSnapshot();
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'reload',
+          'identityId': 'id-a1',
+        }),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('a navigation already in flight is navigation_in_flight', () async {
+      setupTarget();
+      var calls = 0;
+      queries = buildQueries(
+        isNavigating: (_) => true,
+        reloadPanel: (_) => calls++,
+      );
+      expect(
+        queries.dispatch({'op': 'reload', 'identityId': 'id-a1'}),
+        failure('navigation_in_flight', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+    });
+
+    test('reload commits a new navigation batch on the same URL', () async {
+      setupTarget(url: 'https://docs.example.com/x?session=tok');
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      final dispatched = <String>[];
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        reloadPanel: (id) {
+          dispatched.add(id);
+          // WK reload emits loadStarted for the CURRENT URL — the listener
+          // arms on it, then the commit settles the batch.
+          controller.add(
+            WebviewLoadStarted(
+              id,
+              Uri.parse('https://docs.example.com/x?session=tok'),
+            ),
+          );
+          controller.add(
+            WebviewLoadCommitted(
+              id,
+              Uri.parse('https://docs.example.com/x?session=tok'),
+              canGoBack: true,
+            ),
+          );
+        },
+      );
+      final data = await run({'op': 'reload', 'identityId': 'id-a1'});
+      expect(dispatched, ['id-a1']);
+      expect(data['status'], 'committed');
+      expect(data['navigationId'] as String, startsWith('nav-'));
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['canGoBack'], true);
+      expect(data['canGoForward'], false);
+      expect(data['panelQueryable'], true);
+      // The returned URL is sanitized — the session token never leaves.
+      expect(data['url'], 'https://docs.example.com/x');
+      expect(jsonEncode(data), isNot(contains('session=tok')));
+      expect(data['settledAt'], isNotNull);
+    });
+
+    test('a loadStarted for a different URL reports superseded', () async {
+      setupTarget(url: 'https://docs.example.com/x');
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        reloadPanel: (id) => controller.add(
+          WebviewLoadStarted(id, Uri.parse('https://other.example.com/')),
+        ),
+      );
+      final data = await run({'op': 'reload', 'identityId': 'id-a1'});
+      expect(data['status'], 'cancelled');
+      expect(data['error'] as String, contains('superseded'));
+      // The URL field still reports the sanitized reload target.
+      expect(data['url'], 'https://docs.example.com/x');
+    });
+
+    test('stale events of the previous batch are not attributed', () async {
+      setupTarget(url: 'https://docs.example.com/x');
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        reloadPanel: (id) {
+          controller.add(
+            WebviewNavigationBlocked(
+              id,
+              Uri.parse('https://docs.example.com/x'),
+              'old failure',
+            ),
+          );
+          controller.add(
+            WebviewLoadStarted(id, Uri.parse('https://docs.example.com/x')),
+          );
+          controller.add(
+            WebviewLoadComplete(id, Uri.parse('https://docs.example.com/x')),
+          );
+        },
+      );
+      final data = await run({'op': 'reload', 'identityId': 'id-a1'});
+      expect(data['status'], 'committed');
+    });
+
+    test('a blocked reload reports failed with a scrubbed error', () async {
+      setupTarget(url: 'https://docs.example.com/x?token=abc');
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        reloadPanel: (id) {
+          controller.add(
+            WebviewLoadStarted(
+              id,
+              Uri.parse('https://docs.example.com/x?token=abc'),
+            ),
+          );
+          controller.add(
+            WebviewNavigationBlocked(
+              id,
+              Uri.parse('https://docs.example.com/x'),
+              'cannot reload https://docs.example.com/x?token=abc — refused',
+            ),
+          );
+        },
+      );
+      final data = await run({'op': 'reload', 'identityId': 'id-a1'});
+      expect(data['status'], 'failed');
+      expect(data['error'] as String, isNot(contains('token=abc')));
+      expect(data['panelQueryable'], true);
+    });
+
+    test('no settling event within the budget reports timeout', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        reloadPanel: (_) {},
+        navigateWaitBudget: const Duration(milliseconds: 50),
+      );
+      final data = await run({'op': 'reload', 'identityId': 'id-a1'});
+      expect(data['status'], 'timeout');
+      expect(data['settledAt'], isNull);
+      expect(data['panelQueryable'], true);
+    });
+  });
+
   group('transport whitelist', () {
     late Directory directory;
     late AutomationServer server;
@@ -2492,7 +2721,7 @@ void main() {
     });
 
     test('rejects non-read operations before dispatch', () async {
-      for (final op in ['reload', 'eval', 'click']) {
+      for (final op in ['eval', 'click']) {
         final response = await post({'op': op, 'identityId': 'id-a1'});
         expect(response['status'], 400, reason: op);
         expect(response['ok'], false);
