@@ -1384,6 +1384,22 @@ void main() {
       expect(data['projectId'], projectB.id);
     });
 
+    test('UI selection drifting away during activation is target_changed',
+        () async {
+      selectedProjectId = projectA.id;
+      // UI-level switch to project B lands while the op waits a frame —
+      // the workspace marker is left bound to A to mimic a partial switch.
+      queries = buildQueries(
+        awaitFrame: () async {
+          selectedProjectId = projectB.id;
+        },
+      );
+      expect(
+        queries.dispatch({'op': 'activate_project', 'projectId': projectA.id}),
+        failure('target_changed', 409),
+      );
+    });
+
   group('dom', () {
     Map<String, dynamic> domPayload() => {
       'documentId': 'abc123',
@@ -1626,6 +1642,36 @@ void main() {
         queries.dispatch({'op': 'open_panel', 'identityId': 'id-a1'}),
         failure('panel_not_open', 409),
       );
+    });
+
+    test('project switch during the frame wait is target_changed', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      var ensured = 0;
+      queries = buildQueries(
+        ensurePanel: (i, p) {
+          ensured++;
+          final panels = Map<String, PanelRuntime>.from(workspace.panels);
+          panels[i.id] = makePanel(i.id, state: WebviewState.openingEmbedded);
+          workspace = workspace.copyWith(
+            panels: panels,
+            selectedProjectId: p.id,
+          );
+        },
+        // A user-driven project switch lands while the op waits a frame.
+        awaitFrame: () async {
+          selectedProjectId = projectB.id;
+          workspace = workspace.copyWith(selectedProjectId: projectB.id);
+        },
+      );
+      expect(
+        queries.dispatch({'op': 'open_panel', 'identityId': 'id-a1'}),
+        failure('target_changed', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      // The mutation ran (it was committed before the switch), but the
+      // response never claims a successful open on the drifted project.
+      expect(ensured, 1);
     });
   });
 
