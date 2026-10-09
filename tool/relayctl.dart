@@ -246,6 +246,15 @@ const List<_Command> _commands = <_Command>[
       _Selector('--document-id', 'documentId', 'documentId that issued the ref'),
     ],
   ),
+  _Command(
+    'click',
+    'Synthetic click on one element; --identity --ref --document-id required',
+    <_Selector>[
+      _requiredIdentitySelector,
+      _Selector('--ref', 'ref', 'Element ref <frame>.<position> from dom/dom_find'),
+      _Selector('--document-id', 'documentId', 'documentId that issued the ref'),
+    ],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.

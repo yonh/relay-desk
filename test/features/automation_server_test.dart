@@ -311,6 +311,7 @@ void main() {
         'open_panel',
         'navigate',
         'reload',
+        'click',
       });
     });
 
@@ -400,7 +401,6 @@ void main() {
 
       for (final op in <String>[
         'eval',
-        'click',
         'console',
         'network',
         'capabilities ',

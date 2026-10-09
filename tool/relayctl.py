@@ -82,6 +82,11 @@ COMMANDS = {
         ('--ref', 'ref', None, 'Element ref <frame>.<position> from dom/dom_find'),
         ('--document-id', 'documentId', None, 'documentId that issued the ref'),
     ),
+    'click': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--ref', 'ref', None, 'Element ref <frame>.<position> from dom/dom_find'),
+        ('--document-id', 'documentId', None, 'documentId that issued the ref'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -112,6 +117,7 @@ SELECTOR_HELP = {
     'dom': 'Bounded DOM summary of one identity panel; --identity required',
     'dom_find': 'Find elements by text/role/selector; --identity plus one criterion',
     'dom_inspect': 'Inspect one element by ref; --identity --ref --document-id required',
+    'click': 'Synthetic click on one element; --identity --ref --document-id required',
 }
 
 
@@ -188,7 +194,7 @@ def build_parser():
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
                           required=(op == 'screenshot'
-                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload') and flag == '--identity')
+                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click') and flag == '--identity')
                                     or (op == 'activate_project' and flag == '--project')
                                     or (op == 'navigate' and flag == '--url')))
     return parser
