@@ -1812,10 +1812,10 @@ class AutomationQueries {
   /// stale (the restored or new document mints fresh nonces): callers
   /// must re-probe. `back` never touches other identities/windows.
   Future<Map<String, Object?>> _back(Map<String, dynamic> command) async {
-    final id = command['identityId']?.toString() ?? '';
-    if (id.isEmpty) {
+    final id = _optionalString(command, 'identityId');
+    if (id == null || id.isEmpty) {
       throw const AutomationFailure(
-        'invalid_input',
+        'invalid_argument',
         'back requires an explicit identityId',
       );
     }
@@ -1883,6 +1883,10 @@ class AutomationQueries {
         'back-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
     final requestedAt = DateTime.now().toUtc();
     final beforeUrl = panel.url;
+    // Baseline pull BEFORE dispatch: URL-unchanged same-document traversals
+    // (pushState/hash entries) are only detectable via canGoBack/
+    // canGoForward deltas — the URL alone cannot distinguish them.
+    final beforeHistory = await pullHistoryState(id);
     try {
       backPanel(id);
     } catch (_) {
@@ -1912,7 +1916,13 @@ class AutomationQueries {
       // unhandled history layer.
       final pulled = await pullHistoryState(id);
       final pulledUrl = pulled?['url']?.toString() ?? '';
-      if (pulled != null && pulledUrl.isNotEmpty && pulledUrl != beforeUrl) {
+      final traversed = pulled != null &&
+          ((pulledUrl.isNotEmpty && pulledUrl != beforeUrl) ||
+              (beforeHistory != null &&
+                  (pulled['canGoBack'] != beforeHistory['canGoBack'] ||
+                      pulled['canGoForward'] !=
+                          beforeHistory['canGoForward'])));
+      if (traversed && pulled != null) {
         silentSameDocument = true;
         refsInvalid = false;
         outcome = (
