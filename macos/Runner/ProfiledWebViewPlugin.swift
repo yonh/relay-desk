@@ -2086,7 +2086,10 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 cs.visibility === 'collapse') return true;
             node = node.parentElement;
           }
-        } catch (e) {}
+          // Guard exhausted with unchecked ancestors: unverifiable is
+          // treated as hidden — content is never read on indeterminate.
+          if (node) return true;
+        } catch (e) { return true; }
         return false;
       }
       function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
@@ -2160,7 +2163,16 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (frames[fi].label === Q.frame) { hit = frames[fi]; break; }
         }
         if (!hit) {
+          if (framesTruncated > 0) {
+            // The label may exist beyond the frame/depth budget —
+            // "not in the bounded list" is NOT "does not exist".
+            return __rdResult({ error: 'frame_out_of_scope',
+                                framesTruncated: framesTruncated,
+                                complete: false,
+                                message: 'Frame list truncated by budget; label may exist outside the scanned frames' });
+          }
           return __rdResult({ error: 'not_found',
+                              complete: true,
                               message: 'No frame matches the given label' });
         }
         if (hit.reachable === false) {
