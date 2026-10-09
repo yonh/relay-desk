@@ -1055,6 +1055,36 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Bounded DOM scroll on a document or element container of the view
+  /// bound to [viewId] (issue #27). [query] is a JSON string of
+  /// `{documentId, ref?, mode, dx?, dy?, x?, y?}` — CSS-pixel deltas, same
+  /// ref/frame resolution as the other DOM handlers.
+  Future<Map<String, dynamic>> domScroll(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('domScroll', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+      'query': query,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_scroll_timeout',
+          message: 'Native DOM scroll did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_scroll_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and

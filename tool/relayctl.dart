@@ -284,6 +284,20 @@ const List<_Command> _commands = <_Command>[
       _Selector('--key', 'key', 'Enter|Escape|Tab|Backspace|Delete|Arrow*|Home|End|Page*|no combos'),
     ],
   ),
+  _Command(
+    'scroll',
+    'Bounded DOM scroll; --identity --document-id [--ref] --mode|--dx/--dy|--x/--y',
+    <_Selector>[
+      _requiredIdentitySelector,
+      _Selector('--document-id', 'documentId', 'documentId (nonce:frame picks the frame doc)'),
+      _Selector('--ref', 'ref', 'Element ref; into_view target or element container'),
+      _Selector('--mode', 'mode', 'into_view (default)|delta|position'),
+      _Selector('--dx', 'dx', 'Delta left in CSS px (bounded)', freeform: true),
+      _Selector('--dy', 'dy', 'Delta top in CSS px (bounded)', freeform: true),
+      _Selector('--x', 'x', 'Absolute left in CSS px (position mode)', freeform: true),
+      _Selector('--y', 'y', 'Absolute top in CSS px (position mode)', freeform: true),
+    ],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.

@@ -51,6 +51,7 @@ class AutomationQueries {
     required this.domClick,
     required this.domInput,
     required this.domKey,
+    required this.domScroll,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -164,6 +165,17 @@ class AutomationQueries {
     String query,
   )
   domKey;
+
+  /// Bounded DOM scroll on a document or element container of the view
+  /// bound to `viewId`. The third argument is a JSON string of
+  /// `{documentId, ref?, mode, dx?, dy?, x?, y?}`. Injected so tests can
+  /// observe the call.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domScroll;
 
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
@@ -290,6 +302,8 @@ class AutomationQueries {
         return _input(command);
       case 'key':
         return _key(command);
+      case 'scroll':
+        return _scroll(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -2175,6 +2189,166 @@ class AutomationQueries {
       'canGoBack': ?outcome.canGoBack,
       'canGoForward': ?outcome.canGoForward,
       'navError': ?outcome.error,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Bounded scroll on a document or element container (issue #27).
+  /// `identityId` and `documentId` are required; `documentId`'s
+  /// `nonce:frameIndex` picks the frame document, so same-origin iframe
+  /// documents scroll as first-class targets. Modes:
+  ///   `into_view` — `ref` required, element scrollIntoView (nearest)
+  ///   `delta`     — `dx`/`dy` (finite, |v| ≤ 20000 CSS px); `ref` picks an
+  ///                 element container, omitted ref scrolls the frame doc
+  ///   `position`  — `x`/`y` absolute CSS px, same container rule
+  /// Returns before/after metrics, boundary flags, the moved delta and —
+  /// for `into_view` — target rect/visibility/occlusion. Instant scroll,
+  /// no OS input, no click/screenshot side effects.
+  Future<Map<String, Object?>> _scroll(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    final ref = _optionalString(command, 'ref');
+    final documentId = _optionalString(command, 'documentId');
+    if (id == null || documentId == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'scroll requires identityId and documentId',
+      );
+    }
+    final mode = _optionalString(command, 'mode') ?? 'into_view';
+    if (mode != 'into_view' && mode != 'delta' && mode != 'position') {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'mode must be into_view, delta or position',
+      );
+    }
+    if (mode == 'into_view' && ref == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'into_view requires ref',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the scroll dispatch',
+        status: 409,
+      );
+    }
+    final scrollId =
+        'scr-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domScroll(
+        viewId,
+        id,
+        jsonEncode({
+          'documentId': documentId,
+          'ref': ?ref,
+          'mode': mode,
+          'dx': ?command['dx'],
+          'dy': ?command['dy'],
+          'x': ?command['x'],
+          'y': ?command['y'],
+        }),
+      );
+    } on PlatformException catch (error) {
+      const codes = {
+        'target_changed',
+        'dom_scroll_failed',
+        'dom_scroll_timeout',
+      };
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Scroll could not be dispatched',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> payload;
+    try {
+      final decoded =
+          jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      throw const AutomationFailure(
+        'dom_scroll_failed',
+        'Native scroll returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'Scroll could not run',
+        status: error == 'invalid_argument'
+            ? 400
+            : (error == 'not_found'
+                ? 404
+                : (error == 'scroll_failed' ? 500 : 409)),
+      );
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'documentId': payload['documentId'],
+      'frame': payload['frame'],
+      'mode': payload['mode'],
+      'container': payload['container'],
+      'containerTag': ?payload['containerTag'],
+      'ref': ?payload['ref'],
+      'unit': 'css-pixel',
+      'mechanism': 'native_dom_scroll',
+      'scrollId': scrollId,
+      'dispatched': true,
+      'before': payload['before'],
+      'after': payload['after'],
+      'movedX': payload['movedX'],
+      'movedY': payload['movedY'],
+      'atTop': payload['atTop'],
+      'atBottom': payload['atBottom'],
+      'atLeft': payload['atLeft'],
+      'atRight': payload['atRight'],
+      'target': ?payload['target'],
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
       'panelQueryable': true,
     };
   }

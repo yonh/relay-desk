@@ -44,6 +44,7 @@ const automationWriteOperations = <String>{
   'click',
   'input',
   'key',
+  'scroll',
 };
 
 /// Every operation the transport serves.
