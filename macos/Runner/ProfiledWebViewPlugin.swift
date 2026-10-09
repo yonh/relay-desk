@@ -3491,10 +3491,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       var frameIndex = 0, position = -1;
       var docParts = String(Q.documentId || '').split(':');
       var wantNonce = docParts[0];
-      if (docParts.length > 1 && docParts[1] !== '') {
-        frameIndex = parseInt(docParts[1], 10) || 0;
+      var docFrame = (docParts.length > 1 && docParts[1] !== '')
+          ? parseInt(docParts[1], 10) : null;
+      if (docFrame !== null) frameIndex = docFrame;
+      if (m) {
+        // Same binding rule as click/input: a ref inside a documentId
+        // must live in that document's frame — silently ignoring the
+        // mismatch scrolls the wrong frame.
+        if (docFrame !== null && docFrame !== parseInt(m[1], 10)) {
+          return __rdResult({ error: 'invalid_argument',
+                              message: 'ref frame does not match documentId frame' });
+        }
+        frameIndex = parseInt(m[1], 10); position = parseInt(m[2], 10);
       }
-      if (m) { frameIndex = parseInt(m[1], 10); position = parseInt(m[2], 10); }
       if (frameIndex >= frames.length) {
         return __rdResult({ error: 'stale_element',
                             message: 'Frame no longer exists in the document' });
@@ -3575,11 +3584,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       var before = metrics(target, isDoc);
       try {
         if (mode === 'into_view') {
-          el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
         } else if (mode === 'delta') {
-          target.scrollBy({ top: dy, left: dx, behavior: 'auto' });
+          target.scrollBy({ top: dy, left: dx, behavior: 'instant' });
         } else {
-          target.scrollTo({ top: y, left: x, behavior: 'auto' });
+          target.scrollTo({ top: y, left: x, behavior: 'instant' });
         }
       } catch (e) {
         return __rdResult({ error: 'scroll_failed',
