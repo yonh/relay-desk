@@ -2763,7 +2763,17 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                             message: 'Frame is not reachable (cross-origin)' });
       }
       var doc = fr.doc;
-      var wantNonce = String(Q.documentId || '').split(':')[0];
+      var didParts = String(Q.documentId || '').split(':');
+      var wantNonce = didParts[0];
+      var wantFrame = didParts.length > 1 ? didParts[1] : null;
+      // A ref is only meaningful against the documentId issued for ITS
+      // frame — passing another frame's documentId (same probe batch, same
+      // nonce) must not silently act on the wrong frame's element.
+      if (wantFrame !== null && wantFrame !== '' &&
+          parseInt(wantFrame, 10) !== frameIndex) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref frame does not match documentId frame' });
+      }
       if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
         return __rdResult({ error: 'stale_element',
                             message: 'Document changed since the ref was issued; re-probe' });
@@ -2829,12 +2839,23 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       // One dispatch, no replay: the page sees exactly one synthetic click
       // in this evaluation turn. An error thrown by a handler surfaces as
       // click_failed — the click may already have partially taken effect.
+      // Page exceptions can embed URLs carrying queries/credentials —
+      // strip every embedded locator to scheme://host/path before the
+      // message leaves the interface (same rule as navigation errors).
+      function scrubText(s) {
+        return String(s).replace(/https?:\/\/[^\s"'<>]+/g, function (u) {
+          try {
+            var p = new URL(u);
+            return p.protocol + '//' + p.host + p.pathname;
+          } catch (_) { return '<url>'; }
+        });
+      }
       try {
         el.click();
       } catch (e) {
         return __rdResult({ error: 'click_failed', ref: Q.ref,
                             tag: el.tagName.toLowerCase(),
-                            message: 'click() threw: ' + String(e && e.message || e).slice(0, 200) });
+                            message: 'click() threw: ' + scrubText(e && e.message || e).slice(0, 200) });
       }
       return __rdResult({
         ref: Q.ref,
