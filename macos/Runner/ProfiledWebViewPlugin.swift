@@ -2314,19 +2314,45 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       var MAX_DEPTH = 8, MAX_FRAMES = 16;
       var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
                    SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
-      // Same DFS frame order as the dom/dom_find probes.
+      // Same hidden policy as dom/dom_find: attribute ancestors plus a
+      // per-ancestor computed-style walk; an exhausted budget or a thrown
+      // check means "unverifiable", which is treated as hidden.
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
+          if (node) return true;
+        } catch (e) { return true; }
+        return false;
+      }
+      // Same DFS frame order as the dom/dom_find probes — hidden iframes
+      // are skipped identically, so frame indices line up with the refs
+      // those probes issued. `hostEl`/`hostWin` keep the iframe element
+      // and its owning window so a frame whose host turned hidden after
+      // issuance can be refused at read time.
       function frameDocs() {
         var out = [];
-        function collect(doc, label, url, depth) {
+        function collect(doc, label, url, depth, hostEl, hostWin) {
           if (out.length >= MAX_FRAMES) return;
           var cur = { doc: doc, label: label, url: url, depth: depth,
-                      index: out.length, reachable: true };
+                      index: out.length, reachable: true,
+                      hostEl: hostEl || null, hostWin: hostWin || null };
           out.push(cur);
           if (depth >= MAX_DEPTH) return;
           var iframes = doc.querySelectorAll('iframe');
           for (var k = 0; k < iframes.length; k++) {
             var el = iframes[k];
             var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
             var idoc = null, reachable = true;
             try {
               idoc = el.contentDocument ||
@@ -2336,16 +2362,17 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             if (reachable) {
               collect(idoc, childLabel,
                       (idoc.location && idoc.location.href) || el.src || null,
-                      depth + 1);
+                      depth + 1, el, doc.defaultView || window);
             } else {
               if (out.length >= MAX_FRAMES) continue;
               out.push({ doc: null, label: childLabel, url: el.src || null,
                          depth: depth + 1, index: out.length,
-                         reachable: false });
+                         reachable: false, hostEl: el,
+                         hostWin: doc.defaultView || window });
             }
           }
         }
-        collect(document, 'main', location.href, 0);
+        collect(document, 'main', location.href, 0, null, null);
         return out;
       }
       var m = /^([0-9]+)\\.([0-9]+)$/.exec(String(Q.ref || ''));
@@ -2401,21 +2428,13 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         return __rdResult({ error: 'not_found',
                             message: 'Ref does not resolve to a readable element' });
       }
-      var hiddenNow = false;
-      try {
-        if (el.closest && el.closest('[hidden],[aria-hidden="true"]')) hiddenNow = true;
-        // Same ancestor walk as the probes: a descendant's own computed
-        // style never reveals a display:none ancestor.
-        if (!hiddenNow) {
-          var node = el, guard = 0;
-          while (node && guard++ < 40) {
-            var cs = win2.getComputedStyle(node);
-            if (cs.display === 'none' || cs.visibility === 'hidden' ||
-                cs.visibility === 'collapse') { hiddenNow = true; break; }
-            node = node.parentElement;
-          }
-        }
-      } catch (e) {}
+      var hiddenNow = isHiddenDeep(el, win2);
+      // A ref into a frame is also hidden when its host iframe is hidden
+      // now — checking only the element's own ancestors would keep
+      // serving content from a frame the page has concealed.
+      if (!hiddenNow && fr.hostEl) {
+        hiddenNow = isHiddenDeep(fr.hostEl, fr.hostWin || win2);
+      }
       // Hidden content policy covers the WHOLE result, not just the
       // name: a hidden element answers with the explicitly safe status
       // allowlist — never name, attrs, aria-*, or rect, which could all
