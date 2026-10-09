@@ -12,7 +12,7 @@
 | 构建 | `flutter build macos --debug --dart-define=RELAY_DESK_AUTOMATION=true`（debug 包，pid 2339） |
 | CLI | 仓库 `tool/relayctl.dart` 同 HEAD 本地编译（无独立版本号；Mach-O arm64，仅链系统库） |
 | 会话 | `automation-52047.json`（endpoint+token，token 不入证据） |
-| 采样窗口 | R1 2026-10-09 13:43–13:53 UTC；R2（复审补取）14:12–14:13 UTC |
+| 采样窗口 | R1 2026-10-09 13:43–13:53 UTC；R2（复审补取）14:12–14:16 UTC |
 | 环境 | macOS（本机 arm64）；页面服务 `python3 -m http.server 8901 --bind 127.0.0.1 --directory <repo>` |
 | 隔离资源 | 项目 `VerifyHTTP`（`bf0a306e`）、身份 `Http-A`（`98205caa`）/`Http-B`（`7f78ffc9`）——通用验收代号，非业务身份 |
 
@@ -86,7 +86,7 @@ Http-B 逐页导航（UI 操作），`relayctl media --identity 7f78ffc9…` 采
 | CSS/属性隐藏（hidden.html） | `dom` 仅返回可见元素；`SECRET-SPAN/SECRET-LINK/SECRET-HIDDEN-BTN` 原始串 grep 零泄漏；`--text SECRET`→`not_found`；`--selector a` 命中隐藏链接时仅回 `{ref,tag,hidden:true,…}` 白名单（label:null） | 通过 |
 | 帧遍历+不可达（dom-frame.html） | DFS：main→f0(a)→f1(example.com `reachable:false`)→f2(b)；不可达帧保留序号占位 | 通过 |
 | 隐藏 iframe 前置（dom-frames-mixed） | 隐藏 f0/f2 不入列；`frames[]` 有两套编号——`label` 按 DOM 位次（f1=b.html、f3=a.html），`index` 为枚举序（1/2，隐藏不占位）；`--frame` 按 label 选择，元素 ref 前缀用 index：`--frame f1`→`1.4`、`--frame f3`→`2.4`；隐藏位次 `--frame f0`/`f2`→`not_found`（"No frame matches the given label"，R2 补取 `r2-find-frame0/2-hidden.json`） | 通过 |
-| 元素移除/替换（dom-mutate，15s 后） | 变前 find 发 `0.6`(VICTIM-BTN)/`0.7`(VICTIM-BTN2)；变后 `0.6`→`stale_element`（位置现为已签发的 victim2）；`0.7`→`not_found`（"Position was never issued as a ref"，替换元素不静默接管 ref） | 通过 |
+| 元素移除/替换（dom-mutate，15s 后） | 变前 find 发 `0.6`（VICTIM-BTN，documentId `4z1tkm…`）；页面自变后重 find 发 `0.6`/`0.7`（documentId `oqow0trui19mv10xm8u`）；再变后同批 documentId+ref inspect：`0.6`→`stale_element`（位置现为其他元素）；`0.7`→`not_found`（"Position was never issued as a ref"，替换元素不静默接管 ref） | 通过 |
 | 同 URL reload（dom-reload-once，`location.reload()`） | 重载后旧 documentId+ref → `stale_element`（"Document changed since the ref was issued"）——新文档中相同按钮不被误指 | 通过 |
 | 显式 frame 超预算（dom-many-frames，20 iframe > 16） | `dom` 枚举 16 帧（main+f0–f14）、`skipped.frames:5`、`truncated:true`；`--frame f19`→`frame_out_of_scope`；`--frame f14`（界内末位 label）可解析可扫描：`--selector a`→`matchCount:0`（a.html 无链接，`complete:false` 因帧清单截断不敢断言为零），`--text ALPHA`→`matchCount:1` ref `15.4`（index 15=label f14，R2 补取） | 通过 |
 | 候选截断（dom-many-cands，500 link > 400） | `matchCount:400`、返回前 50、`complete:false`、`countIsLowerBound:true`、`truncated:true` | 通过 |
@@ -96,7 +96,7 @@ Http-B 逐页导航（UI 操作），`relayctl media --identity 7f78ffc9…` 采
 入库证据 `design/evidence/issue40-integration/`：
 
 - `INDEX.md`——逐场景「命令模板+参数映射→证据文件→采样时间→定位字段」映射与版本固定表
-- `json/`——52 个命令实际返回（308KB，接口内脱敏原样落盘；错误返回无时间字段者以同批采样窗口标注）
+- `json/`——57 个命令实际返回（合计约 170KB，接口内脱敏原样落盘；错误返回无时间字段者以同批采样窗口标注）
 - `case-a-panel.png`（59KB，评审页面板，对应 `json/a-screenshot.json` 返回）、`case-b-panel.png`（6KB，夹具页面板，对应 `json/b-screenshot.json`）
 
 报告与证据均已脱敏：无 token、无业务域名、项目/身份均为通用验收代号；errs-creds 的 8 个合成凭据标记在证据文件内逐字节 grep 零泄漏。

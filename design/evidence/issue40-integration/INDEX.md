@@ -13,7 +13,7 @@
 | relayctl | `build/relayctl/macos-arm64/relayctl`（dart compile exe，与工作区同源构建） |
 | 会话 | `automation-52047.json`（endpoint http://127.0.0.1:52047；凭据不入库） |
 | 项目/身份 | `bf0a306e-…` VerifyHTTP；`98205caa-…` Http-A(nativeViewId 8/10)；`7f78ffc9-…` Http-B(nativeViewId 9)；windowId 37 |
-| 采样批次 | R1 2026-10-09 13:43:24–13:53:16Z；R2（复审补取）14:12:19–14:13:06Z |
+| 采样批次 | R1 2026-10-09 13:43:24–13:53:16Z；R2（复审补取）14:12:19–14:16:00Z |
 
 ## 命令模板
 
@@ -69,7 +69,7 @@
 | 隐藏内容 | `relayctl dom --identity 7f78ffc9-…` / `dom_find --text SECRET` / `--selector a` | `json/b-dom-hidden.json` `b-find-secret.json` `b-find-links.json` | 13:49:17–13:49:22Z |
 | 帧遍历+不可达 | `relayctl dom --identity …`（dom-frame 页）；`dom_find --selector a`（frame 内链接命中） | `json/b-dom-frames.json` `b-find-frame-links.json` | 13:49:34Z |
 | 隐藏 iframe 前置 | `dom`/`dom_find --frame fN` | `json/b-dom-mixed.json` `b-find-frame1.json` `b-find-frame3.json`；隐藏位次 `--frame f0`/`f2`→not_found（R2 补取 `json/r2-find-frame0-hidden.json` `r2-find-frame2-hidden.json`）；超预算 `--frame f19`→frame_out_of_scope `json/b-find-frame19.json` | 13:50:30Z；R2 14:14Z |
-| 元素移除/替换 | `dom_find --text VICTIM`（变前）→ `dom_inspect --ref 0.6|0.7`（变后） | `json/b-find-victim.json`（变前 0.6/0.7）`b-find-victims.json` `b-inspect-mutated-06.json`（stale_element）`b-inspect-mutated-07.json`（not_found） | 13:50:42/13:51:37/13:52:09Z |
+| 元素移除/替换 | `dom_find --text VICTIM`（变前单次）→ 页面自变后重 find → `dom_inspect --ref 0.6|0.7 --document-id oqow0trui19mv10xm8u`（再变后） | `json/b-find-victim.json`（变前单次匹配 ref 0.6，documentId `4z1tkmstj2kmv10wgbk`）`b-find-victims.json`（变后双匹配 0.6/0.7，documentId `oqow0trui19mv10xm8u`——两个 inspect 均使用本批 documentId+ref）`b-inspect-mutated-06.json`（stale_element）`b-inspect-mutated-07.json`（not_found） | 13:50:42/13:51:37/13:52:09Z |
 | 同 URL reload | `dom_inspect --ref <旧> --document-id <旧>` | `json/b-inspect-stale.json` `b-inspect-reload-stale.json` | —（inspect 错误返回无时间字段；执行于 13:51–13:52 窗口） |
 | 帧预算（20>16） | `dom` / `dom_find --frame f19|f14` | `json/b-dom-many-frames.json`（16 帧/skipped.frames:5）`b-find-frame19.json`（frame_out_of_scope）；R2 补取：`r2-dom-many-frames.json` `r2-find-frame14.json`（界内 label 可解析可扫描，页面无 `<a>`→matchCount:0+complete:false）`r2-find-frame14-hit.json`（`--text ALPHA`→matchCount:1 ref `15.4`） | 13:52:38Z；R2 14:15Z |
 | 候选预算（500>400） | `dom_find --text candidate-link` | `json/b-find-manycands.json`（matchCount 400,complete:false） | 13:52:51Z |
@@ -79,4 +79,4 @@
 
 - `case-a-panel.png`（59KB，评审页面板，对应 `json/a-screenshot.json` 返回的 outputPath/byteLength）
 - `case-b-panel.png`（6KB，夹具页面板，对应 `json/b-screenshot.json`）
-- `json/`（52 个命令实际返回，308KB，接口内脱敏）
+- `json/`（本目录全部 57 个命令实际返回文件，合计约 170KB，接口内脱敏）
