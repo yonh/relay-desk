@@ -312,6 +312,7 @@ void main() {
         'navigate',
         'reload',
         'click',
+        'input',
       });
     });
 

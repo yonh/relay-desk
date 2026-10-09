@@ -1121,6 +1121,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             domInspect(args, result: result)
         case "domClick":
             domClick(args, result: result)
+        case "domInput":
+            domInput(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -2908,6 +2910,229 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             }
             guard let json = value as? String else {
                 result(FlutterError(code: "dom_click_failed", message: "DOM click returned no JSON payload", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Element input tail (issue #25). Same ref/frame/nonce resolution as
+    /// the click tail, then an editable-check and a framework-observable
+    /// value write: the page's own `value` setter plus real `input` +
+    /// `change` events (the Vue/uni-app/native-setter idiom — assigning
+    /// `.value` alone does not reach controlled models). The submitted
+    /// text is never returned, never logged; only its length leaves the
+    /// page. v1 element set: text-family INPUT types + TEXTAREA; file/
+    /// checkbox/radio/range/hidden and buttons are refused.
+    private static let domInputScriptTail = """
+      var Q = __rdQuery;
+      var MAX_DEPTH = 8, MAX_FRAMES = 16;
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
+          if (node) return true;
+        } catch (e) { return true; }
+        return false;
+      }
+      function frameDocs() {
+        var out = [];
+        function collect(doc, label, url, depth, hostEl, hostWin) {
+          if (out.length >= MAX_FRAMES) return;
+          out.push({ doc: doc, label: label, url: url, depth: depth,
+                     index: out.length, reachable: true,
+                     hostEl: hostEl || null, hostWin: hostWin || null });
+          if (depth >= MAX_DEPTH) return;
+          var iframes = doc.querySelectorAll('iframe');
+          for (var k = 0; k < iframes.length; k++) {
+            var el = iframes[k];
+            var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
+            var idoc = null, reachable = true;
+            try {
+              idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+              if (!idoc) reachable = false;
+            } catch (e) { reachable = false; }
+            if (reachable) {
+              collect(idoc, childLabel,
+                      (idoc.location && idoc.location.href) || el.src || null,
+                      depth + 1, el, doc.defaultView || window);
+            } else {
+              if (out.length >= MAX_FRAMES) continue;
+              out.push({ doc: null, label: childLabel, url: el.src || null,
+                         depth: depth + 1, index: out.length,
+                         reachable: false, hostEl: el,
+                         hostWin: doc.defaultView || window });
+            }
+          }
+        }
+        collect(document, 'main', location.href, 0, null, null);
+        return out;
+      }
+      var m = /^([0-9]+)\\.([0-9]+)$/.exec(String(Q.ref || ''));
+      if (!m) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref must look like <frame>.<position>' });
+      }
+      var frameIndex = parseInt(m[1], 10), position = parseInt(m[2], 10);
+      var frames = frameDocs();
+      if (frameIndex >= frames.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Frame no longer exists in the document' });
+      }
+      var fr = frames[frameIndex];
+      if (fr.reachable === false) {
+        return __rdResult({ error: 'frame_unreachable',
+                            message: 'Frame is not reachable (cross-origin)' });
+      }
+      var doc = fr.doc;
+      var wantNonce = String(Q.documentId || '').split(':')[0];
+      if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document changed since the ref was issued; re-probe' });
+      }
+      if (position >= 2000) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      var all = doc.querySelectorAll('*');
+      if (position >= all.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document shrank; position is out of range' });
+      }
+      var el = all[position];
+      if (el.__rdRef === undefined) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      if (el.__rdRef !== Q.ref) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Position now resolves to a different element; re-probe' });
+      }
+      var win2 = doc.defaultView || window;
+      if (SKIP[el.tagName]) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Ref does not resolve to a readable element' });
+      }
+      // Editable gate — v1 set only. Never writes to a non-editable element.
+      var EDITABLE_TYPES = { '': 1, text: 1, search: 1, url: 1, email: 1,
+                             password: 1, tel: 1, number: 1 };
+      var tag = el.tagName, type = (el.type || '').toLowerCase();
+      var editable = tag === 'TEXTAREA' ||
+                     (tag === 'INPUT' && EDITABLE_TYPES[type] === 1);
+      if (!editable) {
+        return __rdResult({ error: 'not_interactable', reason: 'not_editable',
+                            ref: Q.ref, tag: tag.toLowerCase(), type: type || null,
+                            message: 'Element is not an editable input/textarea of a v1 type' });
+      }
+      var hiddenNow = isHiddenDeep(el, win2);
+      if (!hiddenNow && fr.hostEl) {
+        hiddenNow = isHiddenDeep(fr.hostEl, fr.hostWin || win2);
+      }
+      if (hiddenNow) {
+        return __rdResult({ error: 'not_interactable', reason: 'hidden',
+                            ref: Q.ref, tag: tag.toLowerCase(), type: type || null,
+                            message: 'Element is hidden (attribute or computed ancestor)' });
+      }
+      if (el.disabled) {
+        return __rdResult({ error: 'not_interactable', reason: 'disabled',
+                            ref: Q.ref, tag: tag.toLowerCase(), type: type || null,
+                            message: 'Element is disabled' });
+      }
+      if (el.readOnly) {
+        return __rdResult({ error: 'not_interactable', reason: 'readonly',
+                            ref: Q.ref, tag: tag.toLowerCase(), type: type || null,
+                            message: 'Element is readonly' });
+      }
+      var mode = Q.mode === 'append' ? 'append' : 'replace';
+      var next = mode === 'append'
+                   ? String(el.value) + String(Q.text == null ? '' : Q.text)
+                   : String(Q.text == null ? '' : Q.text);
+      // Framework-observable write: invoke the prototype's own value
+      // setter (bypasses reactive overrides like Vue/React's), then fire
+      // real bubbling input + change events so controlled models update.
+      // A bare `el.value = …` leaves those models stale — hence declared.
+      try {
+        var proto = tag === 'TEXTAREA' ? HTMLTextAreaElement.prototype
+                                       : HTMLInputElement.prototype;
+        var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+        setter.call(el, next);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (e) {
+        return __rdResult({ error: 'input_failed', ref: Q.ref,
+                            tag: tag.toLowerCase(), type: type || null,
+                            message: 'value write threw: ' + String(e && e.message || e).slice(0, 200) });
+      }
+      // The text itself never leaves the page — only its length.
+      return __rdResult({
+        ref: Q.ref,
+        frame: fr.label,
+        frameIndex: frameIndex,
+        tag: tag.toLowerCase(),
+        type: tag === 'TEXTAREA' ? null : type,
+        mode: mode,
+        dispatched: true,
+        valueLength: String(el.value).length,
+        eventsFired: ['input', 'change'],
+        documentId: doc.__rdDocNonce + ':' + frameIndex,
+      });
+    """
+
+    /// Text input into an editable element bound to [args]' target (issue
+    /// #25). `query` is the JSON `{ref, documentId, text, mode}` literal
+    /// embedded as data. Same binding/gate/deadline discipline as
+    /// `domClick` and likewise NO post-call binding check. The submitted
+    /// text is passed to the page verbatim and never logged or returned.
+    private func domInput(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String,
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId, expectedIdentityId and query are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_input_timeout",
+                    message: "DOM input did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        let script = "var __rdQuery = \(query);\n" +
+            "var __rdResult = function (o) { return JSON.stringify(o); };\n" +
+            "(function () {\n" + Self.domInputScriptTail + "\n})()"
+        webView.evaluateJavaScript(script) { value, error in
+            guard gate.claim() else { return }
+            if let error {
+                result(FlutterError(code: "dom_input_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_input_failed", message: "DOM input returned no JSON payload", details: nil))
                 return
             }
             result([
