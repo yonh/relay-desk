@@ -1610,6 +1610,16 @@ class AutomationQueries {
         status: 409,
       );
     }
+    // A navigation already in flight — user-driven or another batch —
+    // would land its load events inside this click's observe window and be
+    // misattributed as click-caused (Devin Review #44 BUG_0002).
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
     // Subscribe before dispatch — a click-triggered provisional load can
     // fire within the same runloop turn.
     final armed = _armClickNavigation(id);
@@ -1640,6 +1650,18 @@ class AutomationQueries {
       rethrow;
     }
     final dispatchedAt = DateTime.now().toUtc();
+    // The click already ran inside the await above — if the active project
+    // switched during it, the element belonged to the OLD project. The
+    // dispatch cannot be undone, so report the drift rather than claim a
+    // clean result (Devin Review #44 SEC_0002).
+    if (readSelectedProjectId() != identity.projectId) {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the click was dispatching',
+        status: 409,
+      );
+    }
     final Map<String, dynamic> payload;
     try {
       final decoded = jsonDecode(probed['json'] is String ? probed['json'] as String : '');
