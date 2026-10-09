@@ -298,6 +298,11 @@ const List<_Command> _commands = <_Command>[
       _Selector('--y', 'y', 'Absolute top in CSS px (position mode)', freeform: true),
     ],
   ),
+  _Command(
+    'back',
+    "Back one step in the panel's WK history; --identity (no_history when empty)",
+    <_Selector>[_requiredIdentitySelector],
+  ),
 ];
 
 /// A validated descriptor. [token] is a credential and never reaches output.
