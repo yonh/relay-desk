@@ -2059,15 +2059,21 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (tag === 'INPUT') return INPUT_ROLES[(el.type || '').toLowerCase()] || 'textbox';
         return ROLE_MAP[tag] || null;
       }
-      // Full hidden check: attribute ancestors AND computed style — same
-      // privacy boundary as the dom summary probe.
+      // Full hidden check: attribute ancestors AND a per-ancestor
+      // computed-style walk — display:none on an ancestor does not show
+      // up in a descendant's own computed style. Same privacy boundary
+      // as the dom summary probe.
       function isHiddenDeep(el, win) {
         if (!el || !el.closest) return true;
         if (el.closest('[hidden],[aria-hidden="true"]')) return true;
         try {
-          var cs = (win || window).getComputedStyle(el);
-          if (cs.display === 'none' || cs.visibility === 'hidden' ||
-              cs.visibility === 'collapse') return true;
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
         } catch (e) {}
         return false;
       }
@@ -2081,8 +2087,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                   norm(el.getAttribute && el.getAttribute('placeholder'));
           return a.length > 80 ? a.slice(0, 80) : a;
         }
+        // innerText only — rendered visible text. A textContent fallback
+        // would read hidden subtree text (e.g. display:none span inside a
+        // visible button).
         var l = norm(el.getAttribute && el.getAttribute('aria-label')) ||
-                norm(el.innerText) || norm(el.textContent);
+                norm(el.innerText);
         return l.length > 80 ? l.slice(0, 80) : l;
       }
       function visibleOf(el) {
@@ -2092,17 +2101,23 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       // Same DFS frame order as the dom summary probe — frame indices in
       // `ref` match what `dom` reported for the unchanged document.
       function frameDocs() {
-        var out = [];
+        var out = [], truncated = 0;
         function collect(doc, label, url, depth) {
-          if (out.length >= MAX_FRAMES) return;
+          if (out.length >= MAX_FRAMES) { truncated++; return; }
           var cur = { doc: doc, label: label, url: url, depth: depth,
                       index: out.length, reachable: true };
           out.push(cur);
-          if (depth >= MAX_DEPTH) return;
           var iframes = doc.querySelectorAll('iframe');
+          if (depth >= MAX_DEPTH) { truncated += iframes.length; return; }
           for (var k = 0; k < iframes.length; k++) {
             var el = iframes[k];
             var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            // A hidden iframe hides its subtree — never scanned (same
+            // semantics as the dom probe), and it is not a completeness
+            // gap: hidden content can never produce a match by policy.
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
             var idoc = null, reachable = true;
             try {
               idoc = el.contentDocument ||
@@ -2114,7 +2129,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                       (idoc.location && idoc.location.href) || el.src || null,
                       depth + 1);
             } else {
-              if (out.length >= MAX_FRAMES) continue;
+              if (out.length >= MAX_FRAMES) { truncated++; continue; }
               out.push({ doc: null, label: childLabel, url: el.src || null,
                          depth: depth + 1, index: out.length,
                          reachable: false });
@@ -2122,9 +2137,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           }
         }
         collect(document, 'main', location.href, 0);
-        return out;
+        return { out: out, truncated: truncated };
       }
-      var frames = frameDocs();
+      var fd = frameDocs();
+      var frames = fd.out;
+      var framesTruncated = fd.truncated;
       if (Q.frame && Q.frame !== 'all') {
         var hit = null;
         for (var fi = 0; fi < frames.length; fi++) {
@@ -2175,12 +2192,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             var el2 = all[ii2];
             if (SKIP[el2.tagName] || isHiddenDeep(el2, win)) continue;
             if (wants === 'text') {
-              var t = norm(el2.innerText || el2.textContent);
+              // Rendered text only — textContent would match hidden
+              // subtree text that never left the page legitimately.
+              var t = norm(el2.innerText);
               if (!t || t.length > 400) continue;
               var ok = Q.match === 'exact' ? t === Q.text : t.indexOf(Q.text) >= 0;
               if (!ok) continue;
               matched.push(el2);
-              if (matched.length >= MAX_CAND) break;
+              if (matched.length >= MAX_CAND) { candTruncated = true;
+                                              truncated = true; break; }
             } else if (wants === 'role') {
               if (roleOf(el2) !== Q.role) continue;
               if (Q.name) {
@@ -2188,7 +2208,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 if (Q.match === 'exact' ? ln !== Q.name : ln.indexOf(Q.name) < 0) continue;
               }
               matched.push(el2);
-              if (matched.length >= MAX_CAND) break;
+              if (matched.length >= MAX_CAND) { candTruncated = true;
+                                              truncated = true; break; }
             }
           }
         }
@@ -2227,7 +2248,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       // `complete` is false when the walk could not scan everything the
       // criteria could have matched — an empty result then means "no
       // match within the scanned range", never "no match on the page".
-      var complete = !scanTruncated && !candTruncated;
+      var complete = !scanTruncated && !candTruncated && !framesTruncated;
       return __rdResult({
         documentId: docNonce,
         count: matchCount,
@@ -2236,6 +2257,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         scannedTotal: scannedTotal,
         scanTruncated: scanTruncated,
         candTruncated: candTruncated,
+        framesTruncated: framesTruncated,
         unreachableFrames: unreachableFrames,
         truncated: truncated || matchCount > candidates.length,
         matches: candidates
