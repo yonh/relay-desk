@@ -510,7 +510,10 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
               s = s.replace(/\\b(bearer|basic)\\s+[A-Za-z0-9._~+\\/=-]{4,}/gi,
                             '$1 <redacted>');
               // Quoted pairs — {"token":"v"}, 'secret': 'v', token: "v"
-              s = s.replace(/(["']?)(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\\1(\\s*[:=]\\s*)(["'])([^"']{0,512})\\4/gi,
+              // Value length is unbounded: redaction must never be
+              // skipped because a recognized key's value is long — the
+              // whole pair is dropped before any clipping happens.
+              s = s.replace(/(["']?)(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\\1(\\s*[:=]\\s*)(["'])([^"']{4,})\\4/gi,
                             '$1$2$3$4<redacted>$4');
               // Bare key=value / key: value
               s = s.replace(/\\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth|authorization|credential|session|sig(?:nature)?)\\s*[:=]\\s*([^\\s&'"),}\\]]{4,})/gi,
