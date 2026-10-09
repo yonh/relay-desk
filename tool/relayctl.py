@@ -94,6 +94,12 @@ COMMANDS = {
         ('--text', 'text', None, 'Text to write (empty clears in replace mode)'),
         ('--mode', 'mode', None, 'replace (default) or append'),
     ),
+    'key': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--ref', 'ref', None, 'Element ref <frame>.<position> from dom/dom_find'),
+        ('--document-id', 'documentId', None, 'documentId that issued the ref'),
+        ('--key', 'key', None, 'Enter|Escape|Tab|Backspace|Delete|Arrow*|Home|End|Page*; no combos'),
+    ),
 }
 
 # The PNG magic bytes every PNG file starts with. A payload that fails this
@@ -126,6 +132,7 @@ SELECTOR_HELP = {
     'dom_inspect': 'Inspect one element by ref; --identity --ref --document-id required',
     'click': 'Synthetic click on one element; --identity --ref --document-id required',
     'input': 'Write text into an editable element; --identity --ref --document-id --text',
+    'key': 'Dispatch one synthetic key on an element; --identity --ref --document-id --key',
 }
 
 
@@ -202,7 +209,7 @@ def build_parser():
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
                           required=(op == 'screenshot'
-                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input') and flag == '--identity')
+                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate', 'reload', 'click', 'input', 'key') and flag == '--identity')
                                     or (op == 'activate_project' and flag == '--project')
                                     or (op == 'navigate' and flag == '--url')
                                     or (op == 'input' and flag == '--text')))

@@ -50,6 +50,7 @@ class AutomationQueries {
     required this.domInspect,
     required this.domClick,
     required this.domInput,
+    required this.domKey,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -151,6 +152,18 @@ class AutomationQueries {
     String query,
   )
   domInput;
+
+  /// Synthetic key dispatch on one element of the view bound to
+  /// `viewId`. The third argument is a JSON string of
+  /// `{ref, documentId, key}` — the element receives a synthetic
+  /// keydown/keypress/keyup KeyboardEvent sequence (untrusted). Injected
+  /// so tests can observe the call.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domKey;
 
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
@@ -275,6 +288,8 @@ class AutomationQueries {
         return _click(command);
       case 'input':
         return _input(command);
+      case 'key':
+        return _key(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1980,6 +1995,173 @@ class AutomationQueries {
       'valueLength': payload['valueLength'],
       'eventsFired': payload['eventsFired'],
       'inputId': inputId,
+      'dispatched': true,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'navigationStarted': navigationStarted,
+      if (navigationStarted)
+        'navigationId':
+            'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}',
+      if (navigationStarted) 'navStatus': outcome.status,
+      'finalUrl': ?outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'navError': ?outcome.error,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Synthetic key dispatch on one element (issue #26). `identityId`,
+  /// `ref`, `documentId` and `key` are required; `key` must be one of the
+  /// fixed whitelist (Enter/Escape/Tab/arrows/Backspace/Delete/Home/End/
+  /// PageUp/PageDown) — combos, modifiers, IME composition and free text
+  /// are rejected as `invalid_argument` before any dispatch. The fixed
+  /// native script re-resolves the ref in the same document, refuses
+  /// hidden/disabled targets (`not_interactable`), and dispatches a
+  /// synthetic `KeyboardEvent` sequence on the element — declared
+  /// `mechanism:'synthetic_keyboard_events'` + `isTrusted:false`; page
+  /// handlers observe it but native default actions (Tab focus move,
+  /// native form submit, scroll) never occur and no OS/global focus is
+  /// involved. Exactly one sequence per call, never replayed.
+  Future<Map<String, Object?>> _key(Map<String, dynamic> command) async {
+    const allowedKeys = {
+      'Enter', 'Escape', 'Tab', 'Backspace', 'Delete',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Home', 'End', 'PageUp', 'PageDown',
+    };
+    final id = _optionalString(command, 'identityId');
+    final ref = _optionalString(command, 'ref');
+    final documentId = _optionalString(command, 'documentId');
+    final key = _optionalString(command, 'key');
+    if (id == null || ref == null || documentId == null || key == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'key requires identityId, ref, documentId and key',
+      );
+    }
+    if (!allowedKeys.contains(key)) {
+      throw AutomationFailure(
+        'invalid_argument',
+        'key must be one of: ${allowedKeys.join(', ')} '
+            '(combos, modifiers and IME input are unsupported)',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the key dispatch',
+        status: 409,
+      );
+    }
+    final armed = _armClickNavigation(id);
+    final keyId =
+        'key-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domKey(
+        viewId,
+        id,
+        jsonEncode({'ref': ref, 'documentId': documentId, 'key': key}),
+      );
+    } on PlatformException catch (error) {
+      await armed.subscription.cancel();
+      const codes = {'target_changed', 'dom_key_failed', 'dom_key_timeout'};
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Key could not be dispatched',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> payload;
+    try {
+      final decoded =
+          jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'dom_key_failed',
+        'Native key dispatch returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      await armed.subscription.cancel();
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'Key could not run',
+        status: error == 'invalid_argument'
+            ? 400
+            : (error == 'not_found'
+                ? 404
+                : (error == 'key_failed' ? 500 : 409)),
+      );
+    }
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(clickNavObserveBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.subscription.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final outcome = _navigationOutcome(event);
+    final navigationStarted = armed.started() || event != null;
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'ref': ref,
+      'frame': payload['frame'],
+      'tag': payload['tag'],
+      'key': key,
+      'documentId': payload['documentId'],
+      // Synthetic KeyboardEvent sequence — declared, never implied:
+      // handlers observe it, native default actions do not occur.
+      'mechanism': 'synthetic_keyboard_events',
+      'isTrusted': false,
+      'eventsFired': payload['eventsFired'],
+      'keyId': keyId,
       'dispatched': true,
       'requestedAt': requestedAt.toIso8601String(),
       'dispatchedAt': dispatchedAt.toIso8601String(),
