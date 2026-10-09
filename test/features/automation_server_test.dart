@@ -298,6 +298,7 @@ void main() {
         'errors',
         'dom',
         'dom_find',
+        'dom_inspect',
         'windows',
         'window',
         'workspaces',

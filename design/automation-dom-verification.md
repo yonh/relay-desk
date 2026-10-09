@@ -38,3 +38,16 @@
 - 隐藏判定只查 `hidden` 属性+`aria-hidden`（`display:none` 的 CSS 隐藏未查——getComputedStyle 每节点代价高，已如实记录为覆盖缺口）。
 - 文本摘要有界（24 段/480 字符），不适合全文抽取场景。
 - 真实 uni-app 业务页面（南泥湾）不在本机；iframe 覆盖用夹具页验收。
+
+## 复审整改后实机回归（2026-10-09，构建于 3c965bc）
+
+修复 `walkEl`→`walkDoc`、统一 `isHiddenDeep`、TEXTAREA/INPUT 边界、`safeUrl`/`safeTitle` 与字节预算后，在最新源码 debug 构建（`RELAY_DESK_AUTOMATION=true`）上直接执行生产固定脚本回归：
+
+- `dom --identity Http-B`（http://127.0.0.1:8901/review.html，真实在开发页面）：`ok:true`，frames=1，documentId 与正文文本正常返回——walkDoc ReferenceError 已消除
+- `dom_find --identity Http-B --selector "h1,h2,li"`：`ok:true`，返回 `complete:true` 及匹配（首条 ref `0.8` h1，label 正常）
+- `dom_inspect --ref 0.8`（签发 ref）：`ok:true`，解析到 h1「自动更新 Spec 终审…」，role/visible 字段正常
+- `dom_inspect --ref 0.200`（未签发位置）：`ok:false`，`not_found`「Position was never issued as a ref」——签发纪律生效
+- `media` / `errors`（Http-B）：`ok:true`，`truncated:false`——转义修复后脚本正常执行
+- `activate_project --project VerifyHTTP`、`open_panel --identity Http-A/Http-B`：`ok:true`，写操作链无回归
+
+环境：macOS arm64 debug build @ `3c965bc`，夹具服务于 127.0.0.1:8901；六段生产脚本已 `node --check` 语法回归。

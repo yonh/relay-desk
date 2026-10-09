@@ -1100,6 +1100,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             probeDom(args, result: result)
         case "domFind":
             domFind(args, result: result)
+        case "domInspect":
+            domInspect(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -1839,6 +1841,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       // once the document changes shape.
       var MAX_SCAN = 2000;
       function walkDoc(doc, out, docIndex) {
+        doc.__rdDocNonce = docNonce;
         var all = doc.querySelectorAll('*');
         var scanned = Math.min(all.length, MAX_SCAN);
         if (all.length > MAX_SCAN) { skipped.nodes += all.length - MAX_SCAN; }
@@ -1865,6 +1868,10 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           }
           if (el.disabled) n.disabled = true;
           if (el.getAttribute('tabindex') !== null) n.tabindex = Number(el.getAttribute('tabindex')) || 0;
+          // Issued-ref marker: stamped only on elements actually emitted
+          // — dom_inspect distinguishes "never issued" from "position now
+          // holds a different element" instead of trusting any position.
+          el.__rdRef = n.ref;
           out.push(n);
         }
       }
@@ -2189,6 +2196,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       for (var fi2 = 0; fi2 < frames.length; fi2++) {
         var fr = frames[fi2];
         if (fr.reachable === false) { unreachableFrames++; continue; }
+        fr.doc.__rdDocNonce = docNonce;
         var all = fr.doc.querySelectorAll('*');
         var indexOf = new Map();
         var scanned = Math.min(all.length, MAX_SCAN);
@@ -2255,10 +2263,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (candidates.length < MAX_MATCH) {
             var mel2 = matched[mi];
             var hid = isHiddenDeep(mel2, win);
+            // Issued-ref marker: only elements actually returned get
+            // stamped — dom_inspect distinguishes "never issued" from
+            // "position now holds a different element".
+            var refStr = fr.index + '.' + indexOf.get(mel2);
+            mel2.__rdRef = refStr;
             // A hidden match is reported only with safe fields — its
             // subtree text never leaves the page.
             candidates.push({
-              ref: fr.index + '.' + indexOf.get(mel2),
+              ref: refStr,
               frame: fr.label,
               tag: mel2.tagName.toLowerCase(),
               role: roleOf(mel2),
@@ -2287,6 +2300,222 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         truncated: truncated || matchCount > candidates.length,
         matches: candidates
       });
+    """
+
+    /// Fixed read-only element-inspection probe (issue #22). Resolves the
+    /// `<frameIndex>.<position>` ref callers hand in via `__rdQuery`
+    /// (`{ref, documentId}`), then proves freshness through the
+    /// `__rdDocNonce`/`__rdRef` expandos the dom/dom_find probes stamp.
+    /// Any change to document shape shifts positions or replaces elements
+    /// — detected as `stale_element`, never silently re-aimed at whatever
+    /// now sits at the position. Read-only: no values, no innerHTML, no
+    /// password fields, no mutation.
+    private static let domInspectScriptTail = """
+      var Q = __rdQuery;
+      var MAX_DEPTH = 8, MAX_FRAMES = 16;
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      // Same hidden policy as dom/dom_find: attribute ancestors plus a
+      // per-ancestor computed-style walk; an exhausted budget or a thrown
+      // check means "unverifiable", which is treated as hidden.
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
+          if (node) return true;
+        } catch (e) { return true; }
+        return false;
+      }
+      // Same DFS frame order as the dom/dom_find probes — hidden iframes
+      // are skipped identically, so frame indices line up with the refs
+      // those probes issued. `hostEl`/`hostWin` keep the iframe element
+      // and its owning window so a frame whose host turned hidden after
+      // issuance can be refused at read time.
+      function frameDocs() {
+        var out = [];
+        function collect(doc, label, url, depth, hostEl, hostWin) {
+          if (out.length >= MAX_FRAMES) return;
+          var cur = { doc: doc, label: label, url: url, depth: depth,
+                      index: out.length, reachable: true,
+                      hostEl: hostEl || null, hostWin: hostWin || null };
+          out.push(cur);
+          if (depth >= MAX_DEPTH) return;
+          var iframes = doc.querySelectorAll('iframe');
+          for (var k = 0; k < iframes.length; k++) {
+            var el = iframes[k];
+            var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
+            var idoc = null, reachable = true;
+            try {
+              idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+              if (!idoc) reachable = false;
+            } catch (e) { reachable = false; }
+            if (reachable) {
+              collect(idoc, childLabel,
+                      (idoc.location && idoc.location.href) || el.src || null,
+                      depth + 1, el, doc.defaultView || window);
+            } else {
+              if (out.length >= MAX_FRAMES) continue;
+              out.push({ doc: null, label: childLabel, url: el.src || null,
+                         depth: depth + 1, index: out.length,
+                         reachable: false, hostEl: el,
+                         hostWin: doc.defaultView || window });
+            }
+          }
+        }
+        collect(document, 'main', location.href, 0, null, null);
+        return out;
+      }
+      var m = /^([0-9]+)\\.([0-9]+)$/.exec(String(Q.ref || ''));
+      if (!m) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref must look like <frame>.<position>' });
+      }
+      var frameIndex = parseInt(m[1], 10), position = parseInt(m[2], 10);
+      var frames = frameDocs();
+      if (frameIndex >= frames.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Frame no longer exists in the document' });
+      }
+      var fr = frames[frameIndex];
+      if (fr.reachable === false) {
+        return __rdResult({ error: 'frame_unreachable',
+                            message: 'Frame is not reachable (cross-origin)' });
+      }
+      var doc = fr.doc;
+      var wantNonce = String(Q.documentId || '').split(':')[0];
+      if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document changed since the ref was issued; re-probe' });
+      }
+      // Positions at/above the probes' scan bound could never have been
+      // issued as a ref — a genuine "no such element", distinct from stale.
+      if (position >= 2000) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      var all = doc.querySelectorAll('*');
+      if (position >= all.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document shrank; position is out of range' });
+      }
+      var el = all[position];
+      // Issued-ref discipline: the probes stamp `__rdRef` only on elements
+      // they actually emitted. A position whose element was never issued
+      // is `not_found`; a stamped element that moved is `stale_element`.
+      if (el.__rdRef === undefined) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      if (el.__rdRef !== Q.ref) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Position now resolves to a different element; re-probe' });
+      }
+      // Privacy re-check at read time — a ref issued for a visible element
+      // that has since become hidden, or landed on a SKIP tag, must not
+      // leak its text or attributes.
+      var win2 = doc.defaultView || window;
+      if (SKIP[el.tagName]) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Ref does not resolve to a readable element' });
+      }
+      var hiddenNow = isHiddenDeep(el, win2);
+      // A ref into a frame is also hidden when its host iframe is hidden
+      // now — checking only the element's own ancestors would keep
+      // serving content from a frame the page has concealed.
+      if (!hiddenNow && fr.hostEl) {
+        hiddenNow = isHiddenDeep(fr.hostEl, fr.hostWin || win2);
+      }
+      // Hidden content policy covers the WHOLE result, not just the
+      // name: a hidden element answers with the explicitly safe status
+      // allowlist — never name, attrs, aria-*, or rect, which could all
+      // carry content the page chose not to render.
+      if (hiddenNow) {
+        return __rdResult({
+          ref: Q.ref, frame: fr.label, frameIndex: frameIndex,
+          tag: el.tagName.toLowerCase(),
+          hidden: true, visible: false,
+          name: null, attrs: {}, rect: null, role: null,
+          disabled: !!el.disabled,
+          documentId: doc.__rdDocNonce + ':' + frameIndex,
+        });
+      }
+      function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
+      var INPUT_ROLES = { checkbox: 'checkbox', radio: 'radio', range: 'slider',
+                          button: 'button', submit: 'button', reset: 'button' };
+      var ROLE_MAP = { A: 'link', BUTTON: 'button', SELECT: 'combobox',
+                       TEXTAREA: 'textbox', SUMMARY: 'button',
+                       H1: 'heading', H2: 'heading', H3: 'heading', H4: 'heading',
+                       UL: 'list', OL: 'list', LI: 'listitem', TABLE: 'table',
+                       FORM: 'form', NAV: 'navigation', MAIN: 'main',
+                       IMG: 'img', INPUT: 'textbox' };
+      var role = (el.getAttribute && el.getAttribute('role')) || null;
+      if (role) role = String(role).split(/\\s+/)[0];
+      else if (el.tagName === 'INPUT')
+        role = INPUT_ROLES[(el.type || '').toLowerCase()] || 'textbox';
+      else role = ROLE_MAP[el.tagName] || null;
+      var name = '';
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        // Input content boundary: label only from aria-label/placeholder
+        // — never textContent (a TEXTAREA's content lives there).
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.getAttribute && el.getAttribute('placeholder'));
+      } else {
+        // innerText only — rendered visible text; a textContent fallback
+        // would surface hidden subtree text.
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.innerText);
+      }
+      if (name.length > 80) name = name.slice(0, 80);
+      // Whitelisted non-sensitive attributes only — never values,
+      // innerHTML, or password content.
+      var ATTRS = ['id', 'class', 'type', 'name', 'href', 'src', 'alt',
+                   'title', 'tabindex', 'target', 'rel', 'for', 'action',
+                   'method', 'placeholder'];
+      var attrs = {};
+      for (var ai = 0; ai < ATTRS.length; ai++) {
+        var av = el.getAttribute && el.getAttribute(ATTRS[ai]);
+        if (av !== null && av !== undefined) attrs[ATTRS[ai]] = String(av).slice(0, 200);
+      }
+      var aria = el.attributes || [];
+      for (var aj = 0; aj < aria.length; aj++) {
+        var an = aria[aj].name;
+        if (an.indexOf('aria-') === 0 && an !== 'aria-label' && attrs[an] === undefined) {
+          attrs[an] = String(aria[aj].value).slice(0, 200);
+        }
+      }
+      var r = el.getBoundingClientRect();
+      var result = {
+        ref: Q.ref,
+        frame: fr.label,
+        frameIndex: frameIndex,
+        tag: el.tagName.toLowerCase(),
+        role: role,
+        name: name,
+        visible: !!(el.offsetWidth || el.offsetHeight ||
+                    (el.getClientRects && el.getClientRects().length)),
+        disabled: !!el.disabled,
+        checked: el.checked === true || el.checked === false ? el.checked : null,
+        selected: el.selected === true || el.selected === false ? el.selected : null,
+        focused: doc.activeElement === el,
+        attrs: attrs,
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height,
+                coordinateSpace: 'frame',
+                note: 'Viewport-relative CSS pixels of the element own frame (' +
+                      fr.label + '); scroll and iframe offsets are not composed.' },
+        documentId: doc.__rdDocNonce + ':' + frameIndex,
+      };
+      return __rdResult(result);
     """
 
     /// Element search bound to [args]' target. `query` arrives as a JSON
@@ -2354,6 +2583,76 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 liveWindowNumber: liveView?.window?.windowNumber
             ), let webView else {
                 result(FlutterError(code: "target_changed", message: "Target changed during DOM find", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Element inspection bound to [args]' target. `query` is the JSON
+    /// `{ref, documentId}` literal embedded as data ahead of the fixed
+    /// inspect tail — same discipline as `domFind` (issue #22).
+    private func domInspect(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String,
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId, expectedIdentityId and query are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        guard let initialWindowNumber = webView.window?.windowNumber else {
+            result(FlutterError(code: "target_changed", message: "Target view is not in a window", details: nil))
+            return
+        }
+        let binding = SnapshotTargetBinding(
+            viewId: viewId,
+            identityId: expectedIdentityId,
+            instanceId: ObjectIdentifier(webView),
+            provisionalGeneration: navigationGenerations[viewId] ?? 0,
+            commitGeneration: navigationCommitGenerations[viewId] ?? 0,
+            windowNumber: initialWindowNumber,
+        )
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_inspect_timeout",
+                    message: "DOM inspect did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        let script = "var __rdQuery = \(query);\n" +
+            "var __rdResult = function (o) { return JSON.stringify(o); };\n" +
+            "(function () {\n" + Self.domInspectScriptTail + "\n})()"
+        webView.evaluateJavaScript(script) { [weak self, weak webView] value, error in
+            guard gate.claim() else { return }
+            guard let self else { return }
+            if let error {
+                result(FlutterError(code: "dom_inspect_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_inspect_failed", message: "DOM inspect returned no JSON payload", details: nil))
+                return
+            }
+            let liveView = self.webViews[viewId]
+            guard binding.isStillBound(
+                liveInstance: liveView,
+                liveIdentityId: self.identityIdFor(viewId: viewId),
+                liveProvisionalGeneration: self.navigationGenerations[viewId] ?? 0,
+                liveCommitGeneration: self.navigationCommitGenerations[viewId] ?? 0,
+                liveWindowNumber: liveView?.window?.windowNumber
+            ), let webView else {
+                result(FlutterError(code: "target_changed", message: "Target changed during DOM inspect", details: nil))
                 return
             }
             result([

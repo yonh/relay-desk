@@ -873,6 +873,35 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// DOM element inspection of the view bound to [viewId] (issue #22).
+  /// [query] is a JSON string of `{ref, documentId}` — embedded natively
+  /// as a data literal ahead of the fixed inspect script.
+  Future<Map<String, dynamic>> domInspect(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('domInspect', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+      'query': query,
+    });
+    final raw = await pending.timeout(
+      _snapshotTimeout,
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_inspect_timeout',
+          message: 'Native DOM inspect did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_inspect_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and

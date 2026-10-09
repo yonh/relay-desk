@@ -104,6 +104,14 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - A `ref` is `<frameIndex>.<document position>`; it identifies one element only while that document is unchanged — a navigation or DOM mutation shifts positions, so re-find instead of assuming stability. (Inspecting one ref is the dom_inspect stage.)
 - The op only reads — it never clicks, types, or returns input values.
 
+## DOM element inspect
+
+`relayctl dom_inspect --identity <uuid> --ref <f.p> --document-id <id>` (issue #22) resolves one ref issued by `dom`/`dom_find` and reports the element's live state: `tag`, `role`, `name`, `visible`, `disabled`, `checked`, `selected`, `focused`, whitelisted `attrs` (id/class/type/href/src/…—never values or innerHTML), and `rect` in **`frame` coordinate space** (viewport-relative CSS pixels of the element's own frame; scroll and iframe offsets are not composed).
+
+- `--document-id` is required: the probes stamp `__rdDocNonce`/`__rdRef` expandos so a changed document, reordered position or replaced element is `stale_element` — re-probe, never reuse an old ref. A position that was never issued is `not_found`; a cross-origin frame is `frame_unreachable`.
+- A failed navigation can leave `webView.url` pointing at the failed target while the old document survives — the ref then still resolves honestly to the old element.
+- Read-only: no clicks, no input, no attribute writes.
+
 ## Project activation (write op)
 
 `relayctl activate_project --project <uuid>` (issue #31) switches the app to an existing project — the same call the sidebar makes, so layout restore and panel sync are the UI's own. It is the first whitelisted **write** operation: `capabilities.readOnly` is now `false`, and writes are listed under `writeOperations` (reads stay under `operations`).
