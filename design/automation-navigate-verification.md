@@ -48,6 +48,13 @@ Devin Review 六项 finding 全部属实并已修复：
 
 附带：被取代语义——武装前后出现指向其他 URL 的 `loadStarted` → `status:cancelled` + `superseded`（替代原误判的 timeout/误归属）。
 
+### 第二轮实机复核（整改后 HEAD `c913e9a`，debug 构建 pid 7462，session automation-52776）
+
+- `hanging.html`（文档秒到、`<img>` 挂 8902 延迟端点）：**58ms 返回 `committed`**——旧实现会等 `didFinish` ~6s，证明完成=主文档提交。慢提交路径（8902 6s 延迟端点）仍 6.05s `committed`（< 8s 预算）。
+- 私网绕过写法在 priv=false 项目全部 `private_network_denied`：`http://[::ffff:127.0.0.1]:8901/`、`http://2130706433/`、`http://127.1/`；`http:/x` → `invalid_url`；`8.8.8.8` 正常放行至派发（`timeout`，无可达服务器——门控行为正确）。
+- `?session=tok888` 凭据导航后 webview.log 全文 **0 字节** `tok888`；`loadUrl`/`nav.didStart`/`nav.didCommit`/`nav.didFinish`/`dart.nativeEvent` 各事件日志 URL 均为脱敏裸路径，且日志可见 `loadStarted → loadCommitted → loadComplete` 完整事件链。
+- 武装-结算的残留事件忽略、superseded 路径由单元测试承载（实机不易稳定复现竞争时序，如实标注）。
+
 ## 测试
 
 `flutter test` 291 项全绿，其中 navigate 专项 19 例：参数校验（identityId/url/invalid_url 含空主机）、not_found、project_not_active、private_network_denied 正反、IPv4 写法变形拒绝（`[::ffff:127.0.0.1]`/`2130706433`/`0x7f000001`/`127.1`）、panel_not_open、no_native_view、navigation_in_flight、committed（finalUrl/canGoBack/时间字段/导航 ID）、主文档提交先于整页完成、同 URL、failed（脱敏错误）、cancelled、superseded、残留事件不误归属、timeout。
