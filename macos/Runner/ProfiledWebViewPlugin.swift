@@ -462,11 +462,20 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// The buffer lives inside the page document: it starts recording at
     /// injection time (honest `collectedAt` — no history before that exists),
     /// dies with the document on navigation or panel teardown, and a fresh
-    /// `bufferId` per document marks the navigation batch. Capped at 200
-    /// entries with an overflow counter; message/stack are truncated, and a
-    /// rejection's non-Error `reason` is reduced to its type tag — arbitrary
-    /// payloads are never serialized. Listeners only observe; they neither
-    /// swallow errors nor alter propagation.
+    /// `bufferId` per document marks the navigation batch. It is a true ring
+    /// buffer: the newest 200 entries are always kept and `overflow` counts
+    /// dropped older ones, so a flood of stale errors can never starve new
+    /// defects out of the sample.
+    ///
+    /// Text sanitization — applied to message AND stack AND primitive
+    /// rejection text before length-clipping (clipping is not redaction):
+    /// URLs are reduced to `origin + pathname` (query, hash and userinfo —
+    /// where tokens and credentials live — never leave the page), opaque
+    /// schemes collapse to `<opaque-url>`, and `key=value` pairs whose key
+    /// looks like token/secret/password/auth are replaced with
+    /// `key=<redacted>`. A rejection's non-Error `reason` is reduced to its
+    /// type tag — arbitrary payloads are never serialized. Listeners only
+    /// observe; they neither swallow errors nor alter propagation.
     private func addErrorCaptureScript(to configuration: WKWebViewConfiguration) {
         let source = """
         (function () {
@@ -480,18 +489,41 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
               overflow: 0,
               entries: []
             };
+            // Sanitize BEFORE length-clipping: embedded URLs keep only
+            // origin+pathname (query/hash/userinfo dropped), opaque
+            // schemes collapse entirely, and credential-looking
+            // key=value pairs are redacted wherever they appear in
+            // free text (messages, stacks, primitive rejections).
+            function scrub(s) {
+              if (s === null || s === undefined) return s;
+              s = String(s);
+              s = s.replace(/\b(data|blob|javascript|vbscript):[^\s'")\]]+/gi,
+                            '<opaque-url>');
+              s = s.replace(/\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s'")\]]+/g,
+                function (u) {
+                  try {
+                    var p = new URL(u);
+                    return p.origin + p.pathname;
+                  } catch (e) { return '<url>'; }
+                });
+              s = s.replace(/\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\s&'")]+)/gi,
+                            '$1=<redacted>');
+              return s;
+            }
             function clip(s, n) {
               if (s === null || s === undefined) return null;
-              s = String(s);
+              s = scrub(String(s));
               return s.length > n ? s.slice(0, n) + '\\u2026[' + (s.length - n) + ' chars]' : s;
             }
             function push(kind, message, source, line, col, stack) {
-              if (buf.entries.length >= MAX) { buf.overflow++; return; }
+              // Ring buffer: keep the newest MAX entries; `overflow`
+              // counts the older entries pushed out.
               buf.entries.push({
                 t: new Date().toISOString(), kind: kind,
                 message: clip(message, 1024), source: clip(source, 512),
                 line: line || null, col: col || null, stack: clip(stack, 4096)
               });
+              if (buf.entries.length > MAX) { buf.entries.shift(); buf.overflow++; }
             }
             Object.defineProperty(window, '__relayErrors', {
               configurable: true, enumerable: false, writable: false, value: buf
@@ -1332,10 +1364,13 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// `durationKind` marker so JSON output never carries an invalid number.
     /// The caller cannot inject script: this literal is the only thing run.
     /// Budgets: 4 levels deep, 32 frames and 32 media elements per frame cap
-    /// the work before the result is built — a pathological document can
-    /// never make the probe enumerate or serialize unboundedly. Anything cut
-    /// is reported via `truncated`/`skippedFrames`/`depthLimitSkipped`/
-    /// `mediaSkipped`, so a truncated walk is never mistaken for "no media".
+    /// the work before the result is built — the walk stops touching nodes
+    /// once spent (skipped counts come from collection lengths). URL fields
+    /// are length-capped and opaque-scheme URLs stripped in-page, before
+    /// serialization; a 200 KB total-byte budget then trims media entries
+    /// from the tail. Anything cut is reported via `truncated`/
+    /// `skippedFrames`/`depthLimitSkipped`/`mediaSkipped`/`mediaDropped`, so
+    /// a truncated walk is never mistaken for "no media".
     /// Nested same-origin iframes are recursed into with hierarchical labels
     /// (`main`, `f0`, `f0.f1`); an unreachable frame at any depth is listed
     /// `reachable:false` and its own subtree is marked unexplored, never
@@ -1343,8 +1378,18 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private static let mediaProbeScript = """
     (function () {
       var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_MEDIA = 32;
+      var MAX_URL = 512, MAX_BYTES = 200000;
       var frames = [];
-      var skippedFrames = 0, depthLimitSkipped = 0;
+      var skippedFrames = 0, depthLimitSkipped = 0, mediaSkippedTotal = 0;
+      // URL fields are bounded and stripped before they ever reach
+      // JSON.stringify — a huge data: payload never allocates into the
+      // result or the platform channel.
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\u2026' : u;
+      }
       function seekableRanges(m) {
         var ranges = [];
         try {
@@ -1373,15 +1418,16 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       function collect(doc, label, url, depth) {
         if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
-        var frame = { index: frames.length, label: label, url: url,
+        var frame = { index: frames.length, label: label, url: safeUrl(url),
                       depth: depth, reachable: true, media: [], mediaSkipped: 0 };
         var els = doc.querySelectorAll('video, audio');
-        for (var i = 0; i < els.length; i++) {
-          if (frame.media.length < MAX_MEDIA) {
-            frame.media.push(mediaEntry(els[i], i));
-          } else {
-            frame.mediaSkipped++;
-          }
+        // Budget-bounded: only the first MAX_MEDIA elements are touched;
+        // the skipped count is computed from the collection length.
+        var take = Math.min(els.length, MAX_MEDIA);
+        for (var i = 0; i < take; i++) frame.media.push(mediaEntry(els[i], i));
+        if (els.length > take) {
+          frame.mediaSkipped = els.length - take;
+          mediaSkippedTotal += frame.mediaSkipped;
         }
         frame.mediaCount = els.length;
         frames.push(frame);
@@ -1393,6 +1439,12 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           return;
         }
         for (var k = 0; k < iframes.length; k++) {
+          // Stop before touching the remaining iframe elements — the
+          // budget is spent, so skipped count comes from list length.
+          if (frames.length >= MAX_FRAMES) {
+            skippedFrames += iframes.length - k;
+            break;
+          }
           var el = iframes[k];
           var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
           try {
@@ -1405,19 +1457,41 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           } catch (e) {
             if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
             frames.push({ index: frames.length, label: childLabel,
-                          url: el.src || null, depth: depth + 1,
+                          url: safeUrl(el.src), depth: depth + 1,
                           reachable: false, reason: 'unavailable',
                           media: [], mediaCount: 0 });
           }
         }
       }
       collect(document, 'main', location.href, 0);
-      return JSON.stringify({
+      var result = {
         frames: frames,
-        truncated: skippedFrames > 0 || depthLimitSkipped > 0,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0 ||
+                   mediaSkippedTotal > 0,
         skippedFrames: skippedFrames,
-        depthLimitSkipped: depthLimitSkipped
-      });
+        depthLimitSkipped: depthLimitSkipped,
+        mediaSkipped: mediaSkippedTotal
+      };
+      // Total response-byte budget: media entries are dropped from the
+      // tail until the serialized result fits; the drop is reported.
+      var out = JSON.stringify(result);
+      var bytesDropped = 0;
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fm = frames[bi].media;
+          if (fm && fm.length) { fm.pop(); bytesDropped++; dropped = true;
+                                 frames[bi].mediaSkipped++; break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (bytesDropped) {
+        result.mediaDropped = bytesDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
     })()
     """
 
@@ -1500,38 +1574,86 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// unreachable frames are marked `reachable:false`. `installed:false`
     /// distinguishes a view created without the capture flag from a genuine
     /// empty buffer — "no errors recorded" is never conflated with "cannot
-    /// observe". The drain is read-only: entries persist for later samples.
+    /// observe". Nested same-origin iframes recurse depth-first with
+    /// hierarchical labels (`f0`, `f0.f1`) bounded at 4 levels / 32 frames;
+    /// an unreachable frame's subtree is reported unexplored. URL fields are
+    /// capped and opaque schemes stripped in-page, and a 200 KB byte budget
+    /// drops error entries from the tail (`errorsDropped` + `truncated`).
+    /// The drain is read-only: entries persist for later samples.
     private static let errorsDrainScript = """
     (function () {
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_BYTES = 200000;
       var frames = [];
-      function read(doc, label, url) {
+      var skippedFrames = 0, depthLimitSkipped = 0, errorsDropped = 0;
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function read(doc, label, url, depth) {
+        if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
         var b = (doc.defaultView || window).__relayErrors || null;
-        var f = { index: frames.length, label: label, url: url,
-                  reachable: true, installed: !!b, errors: [] };
+        var f = { index: frames.length, label: label, url: safeUrl(url),
+                  depth: depth, reachable: true, installed: !!b, errors: [] };
         if (b) {
           f.bufferId = b.bufferId; f.collectedAt = b.startedAt;
           f.overflow = b.overflow; f.count = b.entries.length;
           f.errors = b.entries.slice();
         }
         frames.push(f);
-      }
-      read(document, 'main', location.href);
-      var iframes = document.querySelectorAll('iframe');
-      for (var k = 0; k < iframes.length; k++) {
-        var el = iframes[k];
-        try {
-          var idoc = el.contentDocument ||
-                     (el.contentWindow && el.contentWindow.document);
-          if (!idoc) { throw new Error('unavailable'); }
-          read(idoc, 'iframe' + k,
-               (idoc.location && idoc.location.href) || el.src || null);
-        } catch (e) {
-          frames.push({ index: frames.length, label: 'iframe' + k,
-                        url: el.src || null, reachable: false,
-                        reason: 'unavailable', installed: false, errors: [] });
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) {
+          if (iframes.length) { depthLimitSkipped += iframes.length; }
+          return;
+        }
+        for (var k = 0; k < iframes.length; k++) {
+          if (frames.length >= MAX_FRAMES) {
+            skippedFrames += iframes.length - k;
+            break;
+          }
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            read(idoc, childLabel,
+                 (idoc.location && idoc.location.href) || el.src || null,
+                 depth + 1);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: safeUrl(el.src), depth: depth + 1,
+                          reachable: false, reason: 'unavailable',
+                          installed: false, errors: [] });
+          }
         }
       }
-      return JSON.stringify({ frames: frames });
+      read(document, 'main', location.href, 0);
+      var result = {
+        frames: frames,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0,
+        skippedFrames: skippedFrames,
+        depthLimitSkipped: depthLimitSkipped
+      };
+      var out = JSON.stringify(result);
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fe = frames[bi].errors;
+          if (fe && fe.length) { fe.pop(); errorsDropped++; dropped = true;
+                                 break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (errorsDropped) {
+        result.errorsDropped = errorsDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
     })()
     """
 
@@ -1622,8 +1744,22 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private static let domProbeScript = """
     (function () {
       var MAX_DEPTH = 8, MAX_FRAMES = 16, MAX_NODES = 300, MAX_TEXT = 80;
+      var MAX_URL = 512, MAX_TITLE = 200, MAX_BYTES = 200000;
       var docNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
       var frames = [], nodeBudget = MAX_NODES;
+      // URL fields are capped and opaque schemes stripped in-page, before
+      // the result is built — payload URLs never reach the channel.
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function safeTitle(t) {
+        if (!t) return null;
+        t = String(t);
+        return t.length > MAX_TITLE ? t.slice(0, MAX_TITLE) + '\\u2026' : t;
+      }
       var skipped = { nodes: 0, frames: 0, hidden: 0, textTruncated: 0 };
       var INTEREST = { A: 1, BUTTON: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1,
                        OPTION: 1, SUMMARY: 1, LABEL: 1,
@@ -1637,6 +1773,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       function labelFor(el) {
         var tag = el.tagName;
+        // Privacy boundary: INPUT/TEXTAREA labels come only from
+        // aria-label/placeholder — never textContent/innerText, which for
+        // TEXTAREA is the field's (possibly user-typed or default) content.
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+          var a = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+          a = a.replace(/\\s+/g, ' ').trim();
+          if (a.length > MAX_TEXT) { skipped.textTruncated++; a = a.slice(0, MAX_TEXT); }
+          return a;
+        }
         var l = el.getAttribute('aria-label') || el.innerText || el.textContent || '';
         l = l.replace(/\\s+/g, ' ').trim();
         if (l.length > MAX_TEXT) { skipped.textTruncated++; l = l.slice(0, MAX_TEXT); }
@@ -1645,6 +1790,19 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       function isHidden(el) {
         if (el.hidden) return true;
         if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+        return false;
+      }
+      // Full hidden-ancestor check: a [hidden]/aria-hidden ancestor hides
+      // the whole subtree, and CSS display:none/visibility:hidden hides it
+      // without any attribute.
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var cs = (win || window).getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden' ||
+              cs.visibility === 'collapse') return true;
+        } catch (e) {}
         return false;
       }
       // Canonical ordering shared by dom/dom_find/dom_inspect: the element's
@@ -1658,7 +1816,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         if (all.length > MAX_SCAN) { skipped.nodes += all.length - MAX_SCAN; }
         for (var i = 0; i < scanned; i++) {
           var el = all[i];
-          if (isHidden(el) || (el.closest && el.closest('[hidden],[aria-hidden="true"]'))) {
+          if (isHiddenDeep(el, doc.defaultView)) {
             skipped.hidden++; continue;
           }
           var tag = el.tagName;
@@ -1672,7 +1830,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           if (role) n.role = role;
           var label = labelFor(el);
           if (label) n.label = label;
-          if (tag === 'A' && el.getAttribute('href')) n.href = el.getAttribute('href');
+          if (tag === 'A' && el.getAttribute('href')) n.href = safeUrl(el.getAttribute('href'));
           if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'OPTION') {
             n.inputType = el.type || tag.toLowerCase();
             if (el.name) n.name = String(el.name);
@@ -1684,28 +1842,35 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       function collect(doc, label, url, depth, frameEl) {
         if (frames.length >= MAX_FRAMES) { skipped.frames++; return; }
-        var f = { index: frames.length, label: label, url: url,
+        var f = { index: frames.length, label: label, url: safeUrl(url),
                   documentId: docNonce + ':' + frames.length,
                   depth: depth, reachable: true, elements: [] };
         frames.push(f);
         var texts = [];
         try {
+          var win = doc.defaultView || window;
           var walker = doc.createTreeWalker(doc.body || doc.documentElement,
                                             4 /* SHOW_TEXT */, null);
           var node, gathered = 0;
           while ((node = walker.nextNode()) && gathered < 24 && texts.join(' ').length < 480) {
+            var pe = node.parentElement;
+            var ptag = pe && pe.tagName;
+            // TEXTAREA holds the field's content as a text node — never
+            // collected, same boundary as element labels.
+            if (ptag === 'TEXTAREA') { skipped.hidden++; continue; }
             var s = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
-            if (s && !SKIP[node.parentElement && node.parentElement.tagName] &&
-                !(node.parentElement && isHidden(node.parentElement))) {
+            if (s && !SKIP[ptag] && !(pe && isHiddenDeep(pe, win))) {
               if (s.length > 120) s = s.slice(0, 120);
               texts.push(s); gathered++;
+            } else if (s) {
+              skipped.hidden++;
             }
           }
           if (walker.nextNode()) skipped.textTruncated++;
         } catch (e) {}
         f.text = texts.join(' ').slice(0, 480);
-        f.title = doc.title || null;
-        if (doc.body) walkEl(doc.body, f.elements, f.index, 0);
+        f.title = safeTitle(doc.title);
+        if (doc.body) walkDoc(doc, f.elements, f.index);
         f.elementCount = f.elements.length;
         var iframes = doc.querySelectorAll('iframe');
         if (depth >= MAX_DEPTH) { skipped.frames += iframes.length; return; }
@@ -1722,7 +1887,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           } catch (e) {
             if (frames.length >= MAX_FRAMES) { skipped.frames++; continue; }
             frames.push({ index: frames.length, label: childLabel,
-                          url: el.src || null,
+                          url: safeUrl(el.src),
                           documentId: docNonce + ':' + frames.length,
                           depth: depth + 1, reachable: false,
                           reason: 'unavailable',
@@ -1731,14 +1896,34 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
       }
       collect(document, 'main', location.href, 0, null);
-      return JSON.stringify({
+      var result = {
         documentId: docNonce,
-        title: document.title || null,
-        url: location.href,
+        title: safeTitle(document.title),
+        url: safeUrl(location.href),
         frames: frames,
         truncated: skipped.nodes > 0 || skipped.frames > 0 || skipped.textTruncated > 0,
         skipped: skipped
-      });
+      };
+      // Total response-byte budget: element entries drop from the tail
+      // until the serialized result fits; the drop is reported.
+      var out = JSON.stringify(result);
+      var elementsDropped = 0;
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fe = frames[bi].elements;
+          if (fe && fe.length) { fe.pop(); elementsDropped++; dropped = true;
+                                 frames[bi].elementCount--; break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (elementsDropped) {
+        result.elementsDropped = elementsDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
     })()
     """
 
