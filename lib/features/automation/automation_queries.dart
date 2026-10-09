@@ -2274,7 +2274,7 @@ class AutomationQueries {
         id,
         jsonEncode({
           'documentId': documentId,
-          if (ref != null) 'ref': ref,
+          'ref': ?ref,
           'mode': mode,
           'dx': ?command['dx'],
           'dy': ?command['dy'],
