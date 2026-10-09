@@ -64,6 +64,13 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
     // normal cache semantics (issue #28).
     reloadPanel: (identityId) =>
         ref.read(workspaceControllerProvider.notifier).reload(identityId),
+    // The same goBack the toolbar/side-button path calls — WK
+    // backForwardList traversal on the app's own path (issue #29).
+    backPanel: (identityId) =>
+        ref.read(workspaceControllerProvider.notifier).back(identityId),
+    canGoBackPanel: (identityId) =>
+        adapter.navInfoFor(identityId).canGoBack,
+    pullHistoryState: (identityId) => adapter.pullHistoryState(identityId),
     isNavigating: (identityId) => adapter.navInfoFor(identityId).loading,
     navigationEvents: () => adapter.events,
   );

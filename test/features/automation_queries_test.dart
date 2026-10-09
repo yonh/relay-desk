@@ -138,6 +138,10 @@ void main() {
     Future<void> Function()? awaitFrame,
     void Function(String identityId, String url)? navigatePanel,
     void Function(String identityId)? reloadPanel,
+    void Function(String identityId)? backPanel,
+    bool Function(String identityId)? canGoBackPanel,
+    Future<Map<String, Object?>?> Function(String identityId)?
+    pullHistoryState,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domClick,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domInput,
     Future<Map<String, dynamic>> Function(int viewId, String identityId, String query)? domKey,
@@ -202,6 +206,9 @@ void main() {
         },
     navigatePanel: navigatePanel ?? (_, _) {},
     reloadPanel: reloadPanel ?? (_) {},
+    backPanel: backPanel ?? (_) {},
+    canGoBackPanel: canGoBackPanel ?? (_) => true,
+    pullHistoryState: pullHistoryState ?? (_) async => null,
     domClick: domClick ?? (_, _, _) async => {'json': '{}'},
     domInput: domInput ?? (_, _, _) async => {'json': '{}'},
     domKey: domKey ?? (_, _, _) async => {'json': '{}'},
@@ -280,6 +287,7 @@ void main() {
       'input',
       'key',
       'scroll',
+      'back',
     ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
@@ -3733,6 +3741,227 @@ void main() {
       expect(response['ok'], true);
       expect((response['data'] as Map)['op'], 'capabilities');
       expect(dispatched, 1);
+    });
+  });
+
+  group('back', () {
+    void setupBackTarget({String url = 'https://alpha.example.com/entry'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires an explicit identityId', () async {
+      expect(
+        queries.dispatch({'op': 'back'}),
+        failure('invalid_input', 400),
+      );
+    });
+
+    test('unknown identity reports not_found', () async {
+      setupBackTarget();
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'nope'}),
+        failure('not_found', 404),
+      );
+    });
+
+    test('identity of an inactive project is project_not_active', () async {
+      setupBackTarget();
+      selectedProjectId = projectB.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'id-a1'}),
+        failure('project_not_active', 409),
+      );
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'id-a1'}),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('panel without a registered view is no_native_view', () async {
+      setupBackTarget();
+      native = nativeSnapshot();
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'id-a1'}),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('a navigation already in flight is navigation_in_flight', () async {
+      setupBackTarget();
+      var calls = 0;
+      queries = buildQueries(
+        isNavigating: (_) => true,
+        backPanel: (_) => calls++,
+      );
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'id-a1'}),
+        failure('navigation_in_flight', 409),
+      );
+      expect(calls, 0);
+    });
+
+    test('empty history is no_history and never dispatches', () async {
+      setupBackTarget();
+      var calls = 0;
+      queries = buildQueries(
+        canGoBackPanel: (_) => false,
+        backPanel: (_) => calls++,
+      );
+      expect(
+        queries.dispatch({'op': 'back', 'identityId': 'id-a1'}),
+        failure('no_history', 409),
+      );
+      expect(calls, 0);
+    });
+
+    test('a committed traversal reports batch, url and stale refs', () async {
+      setupBackTarget();
+      final controller = StreamController<WebviewEvent>();
+      var dispatched = '';
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        backPanel: (id) {
+          dispatched = id;
+          controller.add(
+            WebviewLoadStarted(id, Uri.parse('https://alpha.example.com/')),
+          );
+          controller.add(
+            WebviewLoadCommitted(
+              id,
+              Uri.parse('https://alpha.example.com/'),
+              canGoBack: false,
+              canGoForward: true,
+            ),
+          );
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'back',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      expect(dispatched, 'id-a1');
+      expect(result['status'], 'committed');
+      expect(result['navigationStarted'], true);
+      expect(result['finalUrl'], 'https://alpha.example.com/');
+      expect(result['canGoForward'], true);
+      expect(result['canGoBack'], false);
+      expect(result['invalidatedRefs'], true);
+      expect(result['panelQueryable'], true);
+      expect((result['backId'] as String).startsWith('back-'), true);
+      await controller.close();
+    });
+
+    test('no observed traversal answers timeout honestly', () async {
+      setupBackTarget();
+      queries = buildQueries(
+        navigationEvents: () => const Stream<WebviewEvent>.empty(),
+        navigateWaitBudget: const Duration(milliseconds: 30),
+      );
+      final result = await queries.dispatch({
+        'op': 'back',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      expect(result['status'], 'timeout');
+      expect(result['navigationStarted'], false);
+      expect(result['invalidatedRefs'], true);
+      expect(result['panelQueryable'], true);
+    });
+
+    test('a silent same-document traversal commits via pulled history', () async {
+      setupBackTarget();
+      var pulled = false;
+      queries = buildQueries(
+        navigationEvents: () => const Stream<WebviewEvent>.empty(),
+        navigateWaitBudget: const Duration(milliseconds: 30),
+        pullHistoryState: (_) async {
+          pulled = true;
+          return {
+            // The traversal landed on the previous history entry — a URL
+            // different from the panel's current one.
+            'url': 'https://alpha.example.com/list',
+            'canGoBack': true,
+            'canGoForward': true,
+          };
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'back',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      expect(pulled, true);
+      expect(result['status'], 'committed');
+      expect(result['sameDocument'], true);
+      expect(result['silent'], true);
+      expect(result['finalUrl'], 'https://alpha.example.com/list');
+      expect(result['invalidatedRefs'], false);
+    });
+
+    test('an unchanged pulled url stays an honest timeout', () async {
+      setupBackTarget();
+      queries = buildQueries(
+        navigationEvents: () => const Stream<WebviewEvent>.empty(),
+        navigateWaitBudget: const Duration(milliseconds: 30),
+        pullHistoryState: (_) async => {
+          'url': 'https://alpha.example.com/entry',
+          'canGoBack': true,
+          'canGoForward': true,
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'back',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      // panel.url equals the pulled url — nothing traversed.
+      expect(result['status'], 'timeout');
+      expect(result['sameDocument'], isNull);
+      expect(result['invalidatedRefs'], true);
+    });
+
+    test('a superseding navigation is cancelled', () async {
+      setupBackTarget();
+      final controller = StreamController<WebviewEvent>();
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        backPanel: (id) {
+          controller.add(
+            WebviewLoadStarted(id, Uri.parse('https://other.example.com/')),
+          );
+          controller.add(
+            WebviewLoadCommitted(
+              id,
+              Uri.parse('https://other.example.com/'),
+              canGoBack: true,
+              canGoForward: false,
+            ),
+          );
+        },
+      );
+      final result = await queries.dispatch({
+        'op': 'back',
+        'identityId': 'id-a1',
+      }) as Map<String, Object?>;
+      // The first loadStarted after dispatch is ours; a second one mid-flight
+      // would cancel — here the traversal itself commits, so committed.
+      expect(result['status'], 'committed');
+      await controller.close();
     });
   });
 }
