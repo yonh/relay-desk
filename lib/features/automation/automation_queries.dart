@@ -864,7 +864,13 @@ class AutomationQueries {
       );
     }
     final count = payload['count'];
-    if (count is! int || count == 0) {
+    final complete = payload['complete'] != false;
+    if (count is! int) {
+      throw const AutomationFailure('not_found', 'No element matches', status: 404);
+    }
+    // A zero-count is `not_found` only when the walk actually covered the
+    // searchable range — an incomplete scan must never claim "no match".
+    if (count == 0 && complete) {
       throw const AutomationFailure('not_found', 'No element matches', status: 404);
     }
     final matches = <Map<String, dynamic>>[
@@ -880,6 +886,14 @@ class AutomationQueries {
       'url': _stripUrl(probed['url'] as String? ?? ''),
       'documentId': payload['documentId'],
       'matchCount': count,
+      // Coverage honesty: `complete:false` means candidates may exist
+      // beyond the scanned range — `matchCount` is then a lower bound and
+      // an empty list is not "no match".
+      'complete': complete,
+      if (!complete) 'countIsLowerBound': true,
+      'scannedTotal': payload['scannedTotal'],
+      'scanTruncated': payload['scanTruncated'] == true,
+      'unreachableFrames': payload['unreachableFrames'],
       'truncated': payload['truncated'] == true,
       'matches': matches,
     };
@@ -1022,7 +1036,19 @@ class AutomationQueries {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       settled = readWorkspace().selectedProjectId == id;
     }
+    // Final sample must prove BOTH the UI selection and the workspace
+    // marker are still bound to the requested project — a settled flag
+    // sampled before a user switch (or another automation write) is
+    // stale and must not be reported.
     final ui = _captureUiState();
+    if (ui.projectId != id) {
+      throw AutomationFailure(
+        'target_changed',
+        'UI selection moved to ${ui.projectId ?? 'none'} during activation',
+        status: 409,
+      );
+    }
+    settled = settled && ui.workspace.selectedProjectId == id;
     final native = await readNativeWindows();
     final views = _nativeList(native, 'views');
     final selection = await _selection(ui.workspace, ui.projectId);
@@ -1085,6 +1111,19 @@ class AutomationQueries {
     }
     final project = await projects.getById(identity.projectId);
     if (project == null) throw _notFound('project');
+    // Critical section: re-validate the active project immediately before
+    // the mutation — the repository awaits above are suspension points
+    // where a user switch (or another automation write) can move the
+    // selection, and `ensurePanel` writes workspace.selectedProjectId =
+    // project.id, which would split the UI/workspace markers onto
+    // different projects.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the panel mutation',
+        status: 409,
+      );
+    }
     final before = readWorkspace().panels[id];
     final alreadyOpen =
         before != null &&
@@ -1098,6 +1137,15 @@ class AutomationQueries {
       await awaitFrame().timeout(const Duration(seconds: 4));
     } on TimeoutException {
       frameSeen = false;
+    }
+    // Drift check: a user-driven project switch during the frame wait must
+    // not be reported as a successful open of the old project's panel.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the panel was opening',
+        status: 409,
+      );
     }
     final workspace = readWorkspace();
     final panel = workspace.panels[id];

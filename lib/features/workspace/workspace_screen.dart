@@ -12,6 +12,7 @@ library;
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -2169,10 +2170,10 @@ Map<String, Object?> panelCreationParams(
         ? preset!.viewportHeight
         : (follows ? runtime.layout.height.round() : null),
     // Installs the page-side JS error buffer the automation `errors` op
-    // reads. Only builds compiled with RELAY_DESK_AUTOMATION get it — the
-    // const define must be baked at build time, so panels in any other
-    // build never carry the listeners or the buffer.
-    'automationErrorCapture':
+    // reads. Same gate as the automation server itself — debug macOS
+    // build AND the baked-in define — so a release binary that happens
+    // to carry the define still never installs the listeners.
+    'automationErrorCapture': kDebugMode &&
         const bool.fromEnvironment('RELAY_DESK_AUTOMATION'),
     'viewportFollowsSurface': follows,
   };
