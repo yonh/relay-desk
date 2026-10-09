@@ -462,11 +462,20 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// The buffer lives inside the page document: it starts recording at
     /// injection time (honest `collectedAt` — no history before that exists),
     /// dies with the document on navigation or panel teardown, and a fresh
-    /// `bufferId` per document marks the navigation batch. Capped at 200
-    /// entries with an overflow counter; message/stack are truncated, and a
-    /// rejection's non-Error `reason` is reduced to its type tag — arbitrary
-    /// payloads are never serialized. Listeners only observe; they neither
-    /// swallow errors nor alter propagation.
+    /// `bufferId` per document marks the navigation batch. It is a true ring
+    /// buffer: the newest 200 entries are always kept and `overflow` counts
+    /// dropped older ones, so a flood of stale errors can never starve new
+    /// defects out of the sample.
+    ///
+    /// Text sanitization — applied to message AND stack AND primitive
+    /// rejection text before length-clipping (clipping is not redaction):
+    /// URLs are reduced to `origin + pathname` (query, hash and userinfo —
+    /// where tokens and credentials live — never leave the page), opaque
+    /// schemes collapse to `<opaque-url>`, and `key=value` pairs whose key
+    /// looks like token/secret/password/auth are replaced with
+    /// `key=<redacted>`. A rejection's non-Error `reason` is reduced to its
+    /// type tag — arbitrary payloads are never serialized. Listeners only
+    /// observe; they neither swallow errors nor alter propagation.
     private func addErrorCaptureScript(to configuration: WKWebViewConfiguration) {
         let source = """
         (function () {
@@ -480,18 +489,41 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
               overflow: 0,
               entries: []
             };
+            // Sanitize BEFORE length-clipping: embedded URLs keep only
+            // origin+pathname (query/hash/userinfo dropped), opaque
+            // schemes collapse entirely, and credential-looking
+            // key=value pairs are redacted wherever they appear in
+            // free text (messages, stacks, primitive rejections).
+            function scrub(s) {
+              if (s === null || s === undefined) return s;
+              s = String(s);
+              s = s.replace(/\b(data|blob|javascript|vbscript):[^\s'")\]]+/gi,
+                            '<opaque-url>');
+              s = s.replace(/\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s'")\]]+/g,
+                function (u) {
+                  try {
+                    var p = new URL(u);
+                    return p.origin + p.pathname;
+                  } catch (e) { return '<url>'; }
+                });
+              s = s.replace(/\b(token|secret|password|passwd|api[_-]?key|access[_-]?key|auth(?:orization)?|credential|session|sig(?:nature)?)=([^\s&'")]+)/gi,
+                            '$1=<redacted>');
+              return s;
+            }
             function clip(s, n) {
               if (s === null || s === undefined) return null;
-              s = String(s);
+              s = scrub(String(s));
               return s.length > n ? s.slice(0, n) + '\\u2026[' + (s.length - n) + ' chars]' : s;
             }
             function push(kind, message, source, line, col, stack) {
-              if (buf.entries.length >= MAX) { buf.overflow++; return; }
+              // Ring buffer: keep the newest MAX entries; `overflow`
+              // counts the older entries pushed out.
               buf.entries.push({
                 t: new Date().toISOString(), kind: kind,
                 message: clip(message, 1024), source: clip(source, 512),
                 line: line || null, col: col || null, stack: clip(stack, 4096)
               });
+              if (buf.entries.length > MAX) { buf.entries.shift(); buf.overflow++; }
             }
             Object.defineProperty(window, '__relayErrors', {
               configurable: true, enumerable: false, writable: false, value: buf
@@ -1538,38 +1570,86 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     /// unreachable frames are marked `reachable:false`. `installed:false`
     /// distinguishes a view created without the capture flag from a genuine
     /// empty buffer — "no errors recorded" is never conflated with "cannot
-    /// observe". The drain is read-only: entries persist for later samples.
+    /// observe". Nested same-origin iframes recurse depth-first with
+    /// hierarchical labels (`f0`, `f0.f1`) bounded at 4 levels / 32 frames;
+    /// an unreachable frame's subtree is reported unexplored. URL fields are
+    /// capped and opaque schemes stripped in-page, and a 200 KB byte budget
+    /// drops error entries from the tail (`errorsDropped` + `truncated`).
+    /// The drain is read-only: entries persist for later samples.
     private static let errorsDrainScript = """
     (function () {
+      var MAX_DEPTH = 4, MAX_FRAMES = 32, MAX_URL = 512, MAX_BYTES = 200000;
       var frames = [];
-      function read(doc, label, url) {
+      var skippedFrames = 0, depthLimitSkipped = 0, errorsDropped = 0;
+      function safeUrl(u) {
+        if (!u) return null;
+        u = String(u);
+        if (/^(data|blob|javascript):/i.test(u)) return '<opaque-url>';
+        return u.length > MAX_URL ? u.slice(0, MAX_URL) + '\\u2026' : u;
+      }
+      function read(doc, label, url, depth) {
+        if (frames.length >= MAX_FRAMES) { skippedFrames++; return; }
         var b = (doc.defaultView || window).__relayErrors || null;
-        var f = { index: frames.length, label: label, url: url,
-                  reachable: true, installed: !!b, errors: [] };
+        var f = { index: frames.length, label: label, url: safeUrl(url),
+                  depth: depth, reachable: true, installed: !!b, errors: [] };
         if (b) {
           f.bufferId = b.bufferId; f.collectedAt = b.startedAt;
           f.overflow = b.overflow; f.count = b.entries.length;
           f.errors = b.entries.slice();
         }
         frames.push(f);
-      }
-      read(document, 'main', location.href);
-      var iframes = document.querySelectorAll('iframe');
-      for (var k = 0; k < iframes.length; k++) {
-        var el = iframes[k];
-        try {
-          var idoc = el.contentDocument ||
-                     (el.contentWindow && el.contentWindow.document);
-          if (!idoc) { throw new Error('unavailable'); }
-          read(idoc, 'iframe' + k,
-               (idoc.location && idoc.location.href) || el.src || null);
-        } catch (e) {
-          frames.push({ index: frames.length, label: 'iframe' + k,
-                        url: el.src || null, reachable: false,
-                        reason: 'unavailable', installed: false, errors: [] });
+        var iframes = doc.querySelectorAll('iframe');
+        if (depth >= MAX_DEPTH) {
+          if (iframes.length) { depthLimitSkipped += iframes.length; }
+          return;
+        }
+        for (var k = 0; k < iframes.length; k++) {
+          if (frames.length >= MAX_FRAMES) {
+            skippedFrames += iframes.length - k;
+            break;
+          }
+          var el = iframes[k];
+          var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+          try {
+            var idoc = el.contentDocument ||
+                       (el.contentWindow && el.contentWindow.document);
+            if (!idoc) { throw new Error('unavailable'); }
+            read(idoc, childLabel,
+                 (idoc.location && idoc.location.href) || el.src || null,
+                 depth + 1);
+          } catch (e) {
+            if (frames.length >= MAX_FRAMES) { skippedFrames++; continue; }
+            frames.push({ index: frames.length, label: childLabel,
+                          url: safeUrl(el.src), depth: depth + 1,
+                          reachable: false, reason: 'unavailable',
+                          installed: false, errors: [] });
+          }
         }
       }
-      return JSON.stringify({ frames: frames });
+      read(document, 'main', location.href, 0);
+      var result = {
+        frames: frames,
+        truncated: skippedFrames > 0 || depthLimitSkipped > 0,
+        skippedFrames: skippedFrames,
+        depthLimitSkipped: depthLimitSkipped
+      };
+      var out = JSON.stringify(result);
+      while (out.length > MAX_BYTES) {
+        var dropped = false;
+        for (var bi = frames.length - 1; bi >= 0; bi--) {
+          var fe = frames[bi].errors;
+          if (fe && fe.length) { fe.pop(); errorsDropped++; dropped = true;
+                                 break; }
+        }
+        if (!dropped) break;
+        out = JSON.stringify(result);
+      }
+      if (errorsDropped) {
+        result.errorsDropped = errorsDropped;
+        result.truncated = true;
+        out = JSON.stringify(result);
+      }
+      return out;
     })()
     """
 
