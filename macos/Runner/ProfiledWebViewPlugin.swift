@@ -1823,7 +1823,11 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 cs.visibility === 'collapse') return true;
             node = node.parentElement;
           }
-        } catch (e) {}
+          // Guard exhausted with ancestors still unchecked — visibility
+          // is unproven, so the element is treated as hidden: content is
+          // never read on an "indeterminate" verdict.
+          if (node) return true;
+        } catch (e) { return true; /* unverifiable == hidden */ }
         return false;
       }
       // Canonical ordering shared by dom/dom_find/dom_inspect: the element's
@@ -1872,8 +1876,12 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           var win = doc.defaultView || window;
           var walker = doc.createTreeWalker(doc.body || doc.documentElement,
                                             4 /* SHOW_TEXT */, null);
-          var node, gathered = 0;
-          while ((node = walker.nextNode()) && gathered < 24 && texts.join(' ').length < 480) {
+          var node, gathered = 0, visited = 0;
+          // visited bounds the actual work, not just the output: huge
+          // hidden/empty subtrees gather nothing yet still cost a walk.
+          var MAX_TEXT_VISITS = 2000;
+          while ((node = walker.nextNode()) && visited++ < MAX_TEXT_VISITS &&
+                 gathered < 24 && texts.join(' ').length < 480) {
             var pe = node.parentElement;
             var ptag = pe && pe.tagName;
             // TEXTAREA holds the field's content as a text node — never
@@ -1887,7 +1895,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
               skipped.hidden++;
             }
           }
-          if (walker.nextNode()) skipped.textTruncated++;
+          if (visited >= MAX_TEXT_VISITS || walker.nextNode())
+            skipped.textTruncated++;
         } catch (e) {}
         f.text = texts.join(' ').slice(0, 480);
         f.title = safeTitle(doc.title);
