@@ -9,10 +9,8 @@ import 'dart:math';
 
 typedef AutomationDispatch = Future<Object?> Function(Map<String, dynamic>);
 
-/// P0 serves read-only metadata only (design/automation-roadmap.md).
-/// Both this transport — which rejects anything else before dispatch — and
-/// the query layer share this list so mutation requests can never reach an
-/// execution path.
+/// Read operations: pure snapshots, never mutate workspace, UI selection or
+/// native state (design/automation-roadmap.md).
 const automationReadOperations = <String>{
   'capabilities',
   'state',
@@ -29,6 +27,20 @@ const automationReadOperations = <String>{
   'screenshot',
   'media',
   'errors',
+};
+
+/// Write operations admitted by this transport (issue #31). Each one mutates
+/// exactly one existing resource through the same code path the UI uses —
+/// never through data-layer shortcuts. Anything not listed here is rejected
+/// before dispatch, so unlisted mutations can never reach an execution path.
+const automationWriteOperations = <String>{
+  'activate_project',
+};
+
+/// Every operation the transport serves.
+const automationOperations = <String>{
+  ...automationReadOperations,
+  ...automationWriteOperations,
 };
 
 class AutomationFailure implements Exception {
@@ -176,14 +188,22 @@ class AutomationServer {
           'op must be a string',
         );
       }
-      // Reject non-read operations before they can reach dispatch.
-      if (!automationReadOperations.contains(op)) {
+      // Reject operations outside the read+write whitelist before they can
+      // reach dispatch.
+      if (!automationOperations.contains(op)) {
         throw const AutomationFailure(
           'unsupported_operation',
-          'P0 transport only serves read operations',
+          'Operation is not on the automation whitelist',
         );
       }
-      final key = decoded['identityId']?.toString() ?? '_inventory';
+      // Lock key per target kind. Project activation is serialized under one
+      // key regardless of which project is requested: two concurrent
+      // activations must not last-writer-wins silently, so the second gets
+      // panel_busy rather than an ambiguous double success.
+      final key = switch (op) {
+        'activate_project' => '_project',
+        _ => decoded['identityId']?.toString() ?? '_inventory',
+      };
       if (!busy.add(key)) {
         throw const AutomationFailure(
           'panel_busy',

@@ -1,12 +1,16 @@
-/// P0 read-only metadata queries for the local automation transport.
-/// Implements the contract in design/automation-roadmap.md "P0 协议 v1：读取".
+/// Automation queries for the local automation transport.
+/// Implements the contract in design/automation-roadmap.md "P0 协议 v1：读取"
+/// plus the write slices added per issue (issue #31: activate_project).
 ///
-/// Every operation is a pure read: repositories, UI selection, browser
-/// profiles and native windows are never mutated here. All workspace and
-/// native data enters through injected snapshot callbacks so the query layer
-/// stays testable and free of provider/global state.
+/// Read operations are pure snapshots: repositories, UI selection, browser
+/// profiles and native windows are never mutated by them. Write operations
+/// mutate exactly the same provider entry points the UI calls — never the
+/// data layer directly. All workspace and native data enters through
+/// injected callbacks so the query layer stays testable and free of
+/// provider/global state.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
@@ -39,6 +43,9 @@ class AutomationQueries {
     required this.captureScreenshot,
     required this.sampleMedia,
     required this.drainJsErrors,
+    required this.selectProject,
+    required this.awaitFrame,
+    this.settleBudget = const Duration(seconds: 2),
   });
 
   final ProjectRepository projects;
@@ -82,6 +89,21 @@ class AutomationQueries {
   )
   drainJsErrors;
 
+  /// Switches the UI's selected project — wired to the very provider call
+  /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
+  /// to a data-layer shortcut. Injected so tests can observe the call.
+  final void Function(String projectId) selectProject;
+
+  /// Waits for the UI to present the next frame after a mutation. In the
+  /// app this is `SchedulerBinding.instance.endOfFrame`; the workspace
+  /// post-frame sync (layout restore + panel ensure) runs inside it.
+  final Future<void> Function() awaitFrame;
+
+  /// Extra settle budget after the first frame for the workspace marker
+  /// (`WorkspaceState.selectedProjectId`) to catch up with the UI
+  /// selection; layout restore reads the repository asynchronously.
+  final Duration settleBudget;
+
   /// Decoded PNG size bound for `screenshot`: a full-viewport capture should
   /// stay far below this; anything larger is refused rather than shipped
   /// over the transport unboundedly.
@@ -92,10 +114,10 @@ class AutomationQueries {
     if (op is! String) {
       throw const AutomationFailure('invalid_argument', 'op must be a string');
     }
-    if (!automationReadOperations.contains(op)) {
+    if (!automationOperations.contains(op)) {
       throw const AutomationFailure(
         'unsupported_operation',
-        'P0 only serves read operations',
+        'Operation is not on the automation whitelist',
       );
     }
     switch (op) {
@@ -132,25 +154,32 @@ class AutomationQueries {
         return _media(command);
       case 'errors':
         return _errors(command);
+      case 'activate_project':
+        return _activateProject(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
-      'P0 only serves read operations',
+      'Operation is not on the automation whitelist',
     );
   }
 
   // ---- operations ----
 
   Map<String, Object?> _capabilities() => {
-    'protocolVersion': 1,
-    'readOnly': true,
+    'protocolVersion': 2,
+    // The transport is no longer read-only since issue #31; `operations`
+    // stays the read list for consumers that enumerate pure queries, and
+    // writes are listed separately so nothing confuses the two.
+    'readOnly': false,
     'engine': 'WKWebView',
     'operations': automationReadOperations.toList(),
+    'writeOperations': automationWriteOperations.toList(),
     'limitations': {
       'dom': false,
       'screenshot': true,
       'media': true,
       'errors': true,
+      'projectActivation': true,
       'eval': false,
       'actions': false,
       'console': false,
@@ -613,6 +642,91 @@ class AutomationQueries {
       'skippedFrames': payload['skippedFrames'] ?? 0,
       'depthLimitSkipped': payload['depthLimitSkipped'] ?? 0,
       'errorsDropped': payload['errorsDropped'] ?? 0,
+    };
+  }
+
+  /// Switches the UI to an existing project (issue #31).
+  ///
+  /// The mutation is the same provider call the sidebar click makes, so
+  /// layout restore, panel sync and all other activation semantics are the
+  /// UI's own. Validation is explicit: no `projectId` is
+  /// `invalid_argument`, an unknown id is `not_found`, and an activation
+  /// already in flight is rejected by the transport's `_project` lock as
+  /// `panel_busy` — a concurrent switch can never silently last-writer-wins
+  /// here.
+  ///
+  /// After the provider call the workspace converges asynchronously
+  /// (post-frame sync + repository read in `restoreProjectLayoutMode`). The
+  /// op waits one UI frame plus [settleBudget] for the workspace marker to
+  /// reach the requested id and reports `settled` honestly — a false
+  /// `settled` is "still converging, re-query", never a failure claim
+  /// either way. Native focus is reported separately because it need not
+  /// follow the UI selection.
+  Future<Map<String, Object?>> _activateProject(
+    Map<String, dynamic> command,
+  ) async {
+    final id = _optionalString(command, 'projectId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'activate_project requires an explicit projectId',
+      );
+    }
+    final project = await projects.getById(id);
+    if (project == null) throw _notFound('project');
+    final alreadyActive = readSelectedProjectId() == id;
+    if (!alreadyActive) selectProject(id);
+    // One frame lets the post-frame workspace sync run; the workspace
+    // marker can still lag on the repository read inside
+    // restoreProjectLayoutMode, so poll briefly past it.
+    var frameSeen = true;
+    try {
+      await awaitFrame().timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      frameSeen = false;
+    }
+    var settled = readWorkspace().selectedProjectId == id;
+    final deadline = DateTime.now().add(settleBudget);
+    while (!settled && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      settled = readWorkspace().selectedProjectId == id;
+    }
+    // Final sample must prove BOTH the UI selection and the workspace
+    // marker are still bound to the requested project — a settled flag
+    // sampled before a user switch (or another automation write) is
+    // stale and must not be reported.
+    final ui = _captureUiState();
+    if (ui.projectId != id) {
+      throw AutomationFailure(
+        'target_changed',
+        'UI selection moved to ${ui.projectId ?? 'none'} during activation',
+        status: 409,
+      );
+    }
+    settled = settled && ui.workspace.selectedProjectId == id;
+    final native = await readNativeWindows();
+    final views = _nativeList(native, 'views');
+    final selection = await _selection(ui.workspace, ui.projectId);
+    return {
+      'projectId': id,
+      'project': _projectJson(project),
+      'alreadyActive': alreadyActive,
+      'activatedAt': DateTime.now().toUtc().toIso8601String(),
+      'selectedProjectId': ui.projectId,
+      'workspaceSelectedProjectId': ui.workspace.selectedProjectId,
+      'selectedPanelId': ui.workspace.selectedPanelId,
+      'selectionConsistent': selection.consistent,
+      // Native focus is a different signal from UI selection; it may still
+      // point at a panel of the previous project or nothing at all.
+      'focusedIdentityId': _focusedIdentityId(views),
+      'frameSettled': frameSeen,
+      'settled': settled,
+      // Resident panels as they stand right now — panels of the previous
+      // project may still be listed until the sync finishes re-keying.
+      'panels': [
+        for (final panel in ui.workspace.panels.values)
+          await _panelJson(panel, ui.workspace, views),
+      ],
     };
   }
 

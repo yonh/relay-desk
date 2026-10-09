@@ -84,8 +84,18 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Rejection reasons are type-tagged (`[object Object]`), never serialized payloads; frame `url` and entry `source` are URL-sanitized like all transport fields.
 - The drain is read-only and does not clear the buffer — repeat calls on the same document return the same entries; compare `bufferId`+`count` for increments.
 
+## Project activation (write op)
+
+`relayctl activate_project --project <uuid>` (issue #31) switches the app to an existing project — the same call the sidebar makes, so layout restore and panel sync are the UI's own. It is the first whitelisted **write** operation: `capabilities.readOnly` is now `false`, and writes are listed under `writeOperations` (reads stay under `operations`).
+
+- `--project` is required — never a project name, never the current selection.
+- Activation is asynchronous in the app: the response reports `selectedProjectId` (provider), `workspaceSelectedProjectId` (workspace marker, lags on restore), `frameSettled` and `settled`. `settled:false` means "still converging — re-query `state`", not failure and not success.
+- `panels` in the response is the resident set at that moment and can still list the previous project's panels; `selectedPanelId`/`focusedIdentityId` are reported as-is — UI selection, native focus and the switch's end state are three different signals.
+- Unknown projectId → `not_found`; a concurrent activation → `panel_busy` (409), retry after it finishes — never read a busy as the other project's state.
+- After activation, `state`/`panels`/`screenshot`/`media`/`errors` address the new project's identities as usual.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling and the page error buffer; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling and the page error buffer, plus the write operation `activate_project`; they expose no page DOM, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.

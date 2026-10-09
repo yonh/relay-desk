@@ -116,6 +116,9 @@ void main() {
       String expectedIdentityId,
     )?
     errorsDrainer,
+    void Function(String projectId)? selectProject,
+    Future<void> Function()? awaitFrame,
+    Duration? settleBudget,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -132,6 +135,18 @@ void main() {
     drainJsErrors:
         errorsDrainer ??
         (viewId, identityId) async => throw UnimplementedError(),
+    // Mimic what the real wiring does: the provider selection flips
+    // immediately and the workspace marker catches up inside the same
+    // settle window. Tests that want a permanently-lagging workspace
+    // (settled:false) pass a selectProject that leaves `workspace` alone.
+    selectProject:
+        selectProject ??
+        (id) {
+          selectedProjectId = id;
+          workspace = workspace.copyWith(selectedProjectId: id);
+        },
+    awaitFrame: awaitFrame ?? () async {},
+    settleBudget: settleBudget ?? const Duration(milliseconds: 100),
   );
 
   Matcher failure(String code, int status) => throwsA(
@@ -186,10 +201,15 @@ void main() {
 
   tearDown(() => db.close());
 
-  test('capabilities reports the read-only P0 contract', () async {
+  test('capabilities reports the read + whitelisted-write contract', () async {
     final data = await run({'op': 'capabilities'});
-    expect(data['protocolVersion'], 1);
-    expect(data['readOnly'], true);
+    expect(data['protocolVersion'], 2);
+    expect(data['readOnly'], false);
+    expect(data['writeOperations'], ['activate_project']);
+    expect(
+      (data['limitations'] as Map)['projectActivation'],
+      true,
+    );
     expect(data['engine'], 'WKWebView');
     expect(
       data['operations'],
@@ -939,8 +959,13 @@ void main() {
           (caps['operations'] as List).cast<String>(),
           contains('screenshot'),
         );
-        // And read-only claims stay true — no navigate/eval slipped in.
-        expect(caps['readOnly'], isTrue);
+        // Read ops stay enumerable apart from the whitelisted writes —
+        // screenshot is a read, never a write entry.
+        expect(caps['readOnly'], isFalse);
+        expect(
+          (caps['writeOperations'] as List).cast<String>(),
+          isNot(contains('screenshot')),
+        );
         expect((caps['limitations'] as Map)['eval'], isFalse);
         expect((caps['limitations'] as Map)['actions'], isFalse);
       },
@@ -1221,6 +1246,130 @@ void main() {
       final caps = await run({'op': 'capabilities'});
       expect((caps['limitations'] as Map)['errors'], isTrue);
       expect((caps['operations'] as List).cast<String>(), contains('errors'));
+    });
+  });
+
+  group('activate_project', () {
+    test('requires an explicit projectId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'activate_project'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('unknown project is not_found and selects nothing', () async {
+      var calls = 0;
+      queries = buildQueries(selectProject: (_) => calls++);
+      expect(
+        queries.dispatch({'op': 'activate_project', 'projectId': 'nope'}),
+        failure('not_found', 404),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+      expect(selectedProjectId, isNull);
+    });
+
+    test('activates through the UI entry point and reports settled state',
+        () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1')},
+        selectedPanelId: 'id-a1',
+        selectedProjectId: projectA.id,
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83, hasKeyboardFocus: true)],
+      );
+      final calls = <String>[];
+      queries = buildQueries(
+        selectProject: (id) {
+          calls.add(id);
+          selectedProjectId = id;
+          workspace = workspace.copyWith(selectedProjectId: id);
+        },
+      );
+      final data = await run({
+        'op': 'activate_project',
+        'projectId': projectB.id,
+      });
+      expect(calls, [projectB.id]);
+      expect(data['projectId'], projectB.id);
+      expect(data['alreadyActive'], false);
+      expect(data['selectedProjectId'], projectB.id);
+      expect(data['workspaceSelectedProjectId'], projectB.id);
+      expect(data['settled'], true);
+      expect(data['frameSettled'], true);
+      // The stale UI selection of project A's panel is reported, never
+      // silently re-attributed to project B.
+      expect(data['selectedPanelId'], 'id-a1');
+      expect(data['selectionConsistent'], false);
+      // Native focus is a separate signal from UI selection.
+      expect(data['focusedIdentityId'], 'id-a1');
+      final panels = (data['panels'] as List).cast<Map<String, dynamic>>();
+      expect(panels.single['identityId'], 'id-a1');
+      expect(panels.single['nativeViewId'], 9);
+      expect(jsonEncode(data), isNot(contains('secret')));
+      expect(jsonEncode(data), isNot(contains('token')));
+    });
+
+    test('re-activating the current project is idempotent', () async {
+      workspace = WorkspaceState(selectedProjectId: projectA.id);
+      selectedProjectId = projectA.id;
+      var calls = 0;
+      queries = buildQueries(selectProject: (_) => calls++);
+      final data = await run({
+        'op': 'activate_project',
+        'projectId': projectA.id,
+      });
+      expect(data['alreadyActive'], true);
+      expect(data['settled'], true);
+      // No redundant provider call: an idempotent activate leaves the UI
+      // untouched instead of re-running project-switch side effects.
+      expect(calls, 0);
+    });
+
+    test(
+      'reports settled:false when the workspace marker stays behind',
+      () async {
+        selectedProjectId = null;
+        // selectProject updates only the provider-level selection; the
+        // workspace marker never catches up inside the settle budget.
+        queries = buildQueries(
+          selectProject: (id) => selectedProjectId = id,
+          settleBudget: const Duration(milliseconds: 150),
+        );
+        final data = await run({
+          'op': 'activate_project',
+          'projectId': projectB.id,
+        });
+        expect(data['selectedProjectId'], projectB.id);
+        expect(data['workspaceSelectedProjectId'], isNull);
+        expect(data['settled'], false);
+        expect(data['frameSettled'], true);
+      },
+    );
+
+    test('write ops are no longer rejected as unsupported_operation', () async {
+      queries = buildQueries();
+      final data = await run({
+        'op': 'activate_project',
+        'projectId': projectB.id,
+      });
+      expect(data['projectId'], projectB.id);
+    });
+
+    test('capabilities lists activate_project as a write operation', () async {
+      final caps = await run({'op': 'capabilities'});
+      expect(
+        (caps['writeOperations'] as List).cast<String>(),
+        contains('activate_project'),
+      );
+      expect(
+        (caps['operations'] as List).cast<String>(),
+        isNot(contains('activate_project')),
+      );
+      expect((caps['limitations'] as Map)['projectActivation'], isTrue);
     });
   });
 
