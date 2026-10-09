@@ -136,7 +136,11 @@ void main() {
     void Function(String projectId)? selectProject,
     void Function(Identity identity, Project project)? ensurePanel,
     Future<void> Function()? awaitFrame,
+    void Function(String identityId, String url)? navigatePanel,
+    bool Function(String identityId)? isNavigating,
+    Stream<WebviewEvent> Function()? navigationEvents,
     Duration? settleBudget,
+    Duration? navigateWaitBudget,
   }) => AutomationQueries(
     projects: projects,
     identities: identities,
@@ -190,6 +194,12 @@ void main() {
             selectedProjectId: project.id,
           );
         },
+    navigatePanel: navigatePanel ?? (_, _) {},
+    isNavigating: isNavigating ?? (_) => false,
+    navigationEvents:
+        navigationEvents ?? () => const Stream<WebviewEvent>.empty(),
+    navigateWaitBudget:
+        navigateWaitBudget ?? const Duration(milliseconds: 100),
   );
 
   Matcher failure(String code, int status) => throwsA(
@@ -248,7 +258,11 @@ void main() {
     final data = await run({'op': 'capabilities'});
     expect(data['protocolVersion'], 2);
     expect(data['readOnly'], false);
-    expect(data['writeOperations'], ['activate_project', 'open_panel']);
+    expect(data['writeOperations'], [
+      'activate_project',
+      'open_panel',
+      'navigate',
+    ]);
     expect(
       (data['limitations'] as Map)['projectActivation'],
       true,
@@ -836,7 +850,7 @@ void main() {
   );
 
   test('mutation and unknown operations never enter dispatch', () async {
-    for (final op in ['navigate', 'eval', 'click', 'nope']) {
+    for (final op in ['eval', 'click', 'nope']) {
       expect(
         queries.dispatch({'op': op}),
         failure('unsupported_operation', 400),
@@ -2006,6 +2020,317 @@ void main() {
     });
   });
 
+  group('navigate', () {
+    void setupTarget({String url = 'https://alpha.example.com/old'}) {
+      workspace = WorkspaceState(
+        panels: {
+          'id-a1': makePanel('id-a1', url: url, state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot(
+        views: [nativeView(9, 'id-a1', windowId: 83)],
+      );
+    }
+
+    test('requires an explicit identityId', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'navigate', 'url': 'https://x.example.com'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('requires an explicit url', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({'op': 'navigate', 'identityId': 'id-a1'}),
+        failure('invalid_argument', 400),
+      );
+    });
+
+    test('a non-http URL is invalid_url', () async {
+      setupTarget();
+      queries = buildQueries();
+      for (final url in ['ftp://x.example.com', 'javascript:alert(1)']) {
+        expect(
+          queries.dispatch({
+            'op': 'navigate',
+            'identityId': 'id-a1',
+            'url': url,
+          }),
+          failure('invalid_url', 400),
+          reason: url,
+        );
+      }
+    });
+
+    test('unknown identity is not_found', () async {
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'navigate',
+          'identityId': 'nope',
+          'url': 'https://x.example.com',
+        }),
+        failure('not_found', 404),
+      );
+    });
+
+    test('identity of an inactive project is project_not_active', () async {
+      selectedProjectId = projectA.id;
+      var calls = 0;
+      queries = buildQueries(navigatePanel: (_, _) => calls++);
+      expect(
+        queries.dispatch({
+          'op': 'navigate',
+          'identityId': 'id-b1',
+          'url': 'https://x.example.com',
+        }),
+        failure('project_not_active', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+    });
+
+    test('private host without allowPrivateNetwork is denied', () async {
+      setupTarget();
+      var calls = 0;
+      queries = buildQueries(navigatePanel: (_, _) => calls++);
+      for (final url in ['http://127.0.0.1:8901/a.html', 'localhost:8901/x']) {
+        expect(
+          queries.dispatch({
+            'op': 'navigate',
+            'identityId': 'id-a1',
+            'url': url,
+          }),
+          failure('private_network_denied', 403),
+          reason: url,
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+    });
+
+    test('private host passes when the project allows it', () async {
+      final projectC = await projects.create(
+        name: 'Priv',
+        targetUrl: 'http://127.0.0.1:8901',
+        allowPrivateNetwork: true,
+      );
+      await identities.create(
+        id: 'id-c1',
+        projectId: projectC.id,
+        name: 'C1',
+        color: '#333333',
+        isolationMode: IsolationMode.nativeProfile,
+      );
+      workspace = WorkspaceState(
+        panels: {
+          'id-c1': makePanel('id-c1', state: WebviewState.embedded),
+        },
+        selectedPanelId: 'id-c1',
+      );
+      selectedProjectId = projectC.id;
+      native = nativeSnapshot(views: [nativeView(9, 'id-c1')]);
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) => controller.add(
+          WebviewLoadComplete(id, Uri.parse(url)),
+        ),
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-c1',
+        'url': 'http://127.0.0.1:8901/a.html',
+      });
+      expect(data['status'], 'committed');
+    });
+
+    test('closed panel is panel_not_open', () async {
+      workspace = const WorkspaceState();
+      selectedProjectId = projectA.id;
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'navigate',
+          'identityId': 'id-a1',
+          'url': 'https://x.example.com',
+        }),
+        failure('panel_not_open', 409),
+      );
+    });
+
+    test('panel without a registered view is no_native_view', () async {
+      workspace = WorkspaceState(
+        panels: {'id-a1': makePanel('id-a1')},
+        selectedPanelId: 'id-a1',
+      );
+      selectedProjectId = projectA.id;
+      native = nativeSnapshot();
+      queries = buildQueries();
+      expect(
+        queries.dispatch({
+          'op': 'navigate',
+          'identityId': 'id-a1',
+          'url': 'https://x.example.com',
+        }),
+        failure('no_native_view', 409),
+      );
+    });
+
+    test('a navigation already in flight is navigation_in_flight', () async {
+      setupTarget();
+      var calls = 0;
+      queries = buildQueries(
+        isNavigating: (_) => true,
+        navigatePanel: (_, _) => calls++,
+      );
+      expect(
+        queries.dispatch({
+          'op': 'navigate',
+          'identityId': 'id-a1',
+          'url': 'https://x.example.com',
+        }),
+        failure('navigation_in_flight', 409),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+    });
+
+    test('commit reports finalUrl, flags and timing fields', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      final dispatched = <String>[];
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) {
+          dispatched.add('$id|$url');
+          controller.add(
+            WebviewLoadComplete(
+              id,
+              Uri.parse('https://docs.example.com/landing'),
+              canGoBack: true,
+            ),
+          );
+        },
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'docs.example.com/landing?token=abc#frag',
+      });
+      // Bare host normalized to https — same rule as the address bar.
+      expect(dispatched, ['id-a1|https://docs.example.com/landing?token=abc#frag']);
+      expect(data['status'], 'committed');
+      expect(data['finalUrl'], 'https://docs.example.com/landing');
+      expect(data['canGoBack'], true);
+      expect(data['canGoForward'], false);
+      expect(data['sameUrl'], false);
+      expect(data['nativeViewId'], 9);
+      expect(data['windowId'], 83);
+      expect(data['panelQueryable'], true);
+      expect(data['settledAt'], isNotNull);
+      expect(data['navigationId'] as String, startsWith('nav-'));
+      // The request URL never leaves the interface raw — query/fragment
+      // are stripped; the committed URL is what the page became.
+      expect(jsonEncode(data), isNot(contains('token=abc')));
+      expect(jsonEncode(data), isNot(contains('frag')));
+    });
+
+    test('same-URL navigation is flagged and still dispatched', () async {
+      setupTarget(url: 'https://docs.example.com/x');
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      var calls = 0;
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) {
+          calls++;
+          controller.add(WebviewLoadComplete(id, Uri.parse(url)));
+        },
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://docs.example.com/x',
+      });
+      expect(calls, 1);
+      expect(data['sameUrl'], true);
+      expect(data['status'], 'committed');
+    });
+
+    test('a blocked navigation reports failed with a scrubbed error', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) => controller.add(
+          WebviewNavigationBlocked(
+            id,
+            Uri.parse(url),
+            'cannot open https://badsite.example.com/p?token=abc — refused',
+          ),
+        ),
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://badsite.example.com/p?token=abc',
+      });
+      expect(data['status'], 'failed');
+      expect(data['error'], isA<String>());
+      // The error text keeps its prose but the embedded URL is stripped
+      // of its query — credentials never ride along.
+      expect(data['error'] as String, contains('https://badsite.example.com/p'));
+      expect(data['error'] as String, isNot(contains('token=abc')));
+      expect(data['settledAt'], isNotNull);
+    });
+
+    test('a closing panel reports cancelled', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (id, url) => controller.add(
+          WebviewStateChanged(id, WebviewState.closing),
+        ),
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://x.example.com',
+      });
+      expect(data['status'], 'cancelled');
+      expect(data['panelQueryable'], true);
+    });
+
+    test('no settling event within the budget reports timeout', () async {
+      setupTarget();
+      final controller = StreamController<WebviewEvent>();
+      addTearDown(controller.close);
+      queries = buildQueries(
+        navigationEvents: () => controller.stream,
+        navigatePanel: (_, _) {},
+        navigateWaitBudget: const Duration(milliseconds: 50),
+      );
+      final data = await run({
+        'op': 'navigate',
+        'identityId': 'id-a1',
+        'url': 'https://slow.example.com',
+      });
+      expect(data['status'], 'timeout');
+      expect(data['settledAt'], isNull);
+      expect(data['panelQueryable'], true);
+    });
+  });
+
   group('transport whitelist', () {
     late Directory directory;
     late AutomationServer server;
@@ -2053,7 +2378,7 @@ void main() {
     });
 
     test('rejects non-read operations before dispatch', () async {
-      for (final op in ['navigate', 'reload', 'eval', 'click']) {
+      for (final op in ['reload', 'eval', 'click']) {
         final response = await post({'op': op, 'identityId': 'id-a1'});
         expect(response['status'], 400, reason: op);
         expect(response['ok'], false);

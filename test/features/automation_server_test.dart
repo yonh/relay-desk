@@ -306,7 +306,11 @@ void main() {
       });
       // Writes are a separate, explicit whitelist (issue #31) — they pass
       // the transport gate but stay enumerable apart from reads.
-      expect(automationWriteOperations, {'activate_project', 'open_panel'});
+      expect(automationWriteOperations, {
+        'activate_project',
+        'open_panel',
+        'navigate',
+      });
     });
 
     test('serves whitelisted writes and serializes activations', () async {
@@ -395,7 +399,6 @@ void main() {
 
       for (final op in <String>[
         'eval',
-        'navigate',
         'reload',
         'click',
         'console',

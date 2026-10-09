@@ -39,6 +39,7 @@ const automationReadOperations = <String>{
 const automationWriteOperations = <String>{
   'activate_project',
   'open_panel',
+  'navigate',
 };
 
 /// Every operation the transport serves.

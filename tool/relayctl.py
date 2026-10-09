@@ -58,6 +58,10 @@ COMMANDS = {
     'open_panel': (
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
     ),
+    'navigate': (
+        ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
+        ('--url', 'url', None, 'http(s) URL; bare hosts normalize like the address bar'),
+    ),
     'dom': (
         ('--identity', 'identityId', None, 'Exact identityId; required, no selection fallback'),
     ),
@@ -100,6 +104,7 @@ SELECTOR_HELP = {
     'errors': 'Buffered page JS errors of one identity panel; --identity required',
     'activate_project': 'Switch the app to an existing project; --project required',
     'open_panel': 'Open the panel of an existing identity; --identity required',
+    'navigate': 'Navigate an open panel to a URL; --identity and --url required',
     'dom': 'Bounded DOM summary of one identity panel; --identity required',
     'dom_find': 'Find elements by text/role/selector; --identity plus one criterion',
     'dom_inspect': 'Inspect one element by ref; --identity --ref --document-id required',
@@ -178,7 +183,10 @@ def build_parser():
             # every other selector stays optional and defers to the
             # backend's current selection.
             p.add_argument(flag, type=kind, help=help,
-                          required=op == 'screenshot' or (op in ('media', 'errors', 'open_panel', 'dom') and flag == '--identity') or (op == 'activate_project' and flag == '--project'))
+                          required=(op == 'screenshot'
+                                    or (op in ('media', 'errors', 'open_panel', 'dom', 'navigate') and flag == '--identity')
+                                    or (op == 'activate_project' and flag == '--project')
+                                    or (op == 'navigate' and flag == '--url')))
     return parser
 
 

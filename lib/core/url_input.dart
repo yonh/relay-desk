@@ -39,6 +39,12 @@ bool _hasExplicitScheme(String text) {
   return !_looksLikeHost(head) || !_portAndRest.hasMatch(match.group(2)!);
 }
 
+/// Whether [host] is a loopback/private/link-local address — the same rule
+/// the address-bar normalization uses for its `http://` default, exported so
+/// the automation interface can gate private-network navigation on the
+/// project's `allowPrivateNetwork` flag.
+bool isLocalNetworkHost(String host) => _isLocalHost(host);
+
 final _ipv4 = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');
 
 bool _looksLikeHost(String host) =>
