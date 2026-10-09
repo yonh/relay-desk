@@ -2465,7 +2465,7 @@ void main() {
     test('requires an explicit identityId', () async {
       expect(
         queries.dispatch({'op': 'reload'}),
-        failure('invalid_input', 400),
+        failure('invalid_argument', 400),
       );
     });
 
