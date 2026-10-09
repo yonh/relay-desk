@@ -685,7 +685,19 @@ class AutomationQueries {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       settled = readWorkspace().selectedProjectId == id;
     }
+    // Final sample must prove BOTH the UI selection and the workspace
+    // marker are still bound to the requested project — a settled flag
+    // sampled before a user switch (or another automation write) is
+    // stale and must not be reported.
     final ui = _captureUiState();
+    if (ui.projectId != id) {
+      throw AutomationFailure(
+        'target_changed',
+        'UI selection moved to ${ui.projectId ?? 'none'} during activation',
+        status: 409,
+      );
+    }
+    settled = settled && ui.workspace.selectedProjectId == id;
     final native = await readNativeWindows();
     final views = _nativeList(native, 'views');
     final selection = await _selection(ui.workspace, ui.projectId);
