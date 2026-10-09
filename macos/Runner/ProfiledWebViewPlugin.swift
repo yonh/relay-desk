@@ -2380,12 +2380,32 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       var hiddenNow = false;
       try {
         if (el.closest && el.closest('[hidden],[aria-hidden="true"]')) hiddenNow = true;
+        // Same ancestor walk as the probes: a descendant's own computed
+        // style never reveals a display:none ancestor.
         if (!hiddenNow) {
-          var cs = win2.getComputedStyle(el);
-          if (cs.display === 'none' || cs.visibility === 'hidden' ||
-              cs.visibility === 'collapse') hiddenNow = true;
+          var node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = win2.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') { hiddenNow = true; break; }
+            node = node.parentElement;
+          }
         }
       } catch (e) {}
+      // Hidden content policy covers the WHOLE result, not just the
+      // name: a hidden element answers with the explicitly safe status
+      // allowlist — never name, attrs, aria-*, or rect, which could all
+      // carry content the page chose not to render.
+      if (hiddenNow) {
+        return __rdResult({
+          ref: Q.ref, frame: fr.label, frameIndex: frameIndex,
+          tag: el.tagName.toLowerCase(),
+          hidden: true, visible: false,
+          name: null, attrs: {}, rect: null, role: null,
+          disabled: !!el.disabled,
+          documentId: doc.__rdDocNonce + ':' + frameIndex,
+        });
+      }
       function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
       var INPUT_ROLES = { checkbox: 'checkbox', radio: 'radio', range: 'slider',
                           button: 'button', submit: 'button', reset: 'button' };
@@ -2401,16 +2421,16 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         role = INPUT_ROLES[(el.type || '').toLowerCase()] || 'textbox';
       else role = ROLE_MAP[el.tagName] || null;
       var name = '';
-      if (!hiddenNow) {
-        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          // Input content boundary: label only from aria-label/placeholder
-          // — never textContent (a TEXTAREA's content lives there).
-          name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
-                 norm(el.getAttribute && el.getAttribute('placeholder'));
-        } else {
-          name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
-                 norm(el.innerText) || norm(el.textContent);
-        }
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        // Input content boundary: label only from aria-label/placeholder
+        // — never textContent (a TEXTAREA's content lives there).
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.getAttribute && el.getAttribute('placeholder'));
+      } else {
+        // innerText only — rendered visible text; a textContent fallback
+        // would surface hidden subtree text.
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.innerText);
       }
       if (name.length > 80) name = name.slice(0, 80);
       // Whitelisted non-sensitive attributes only — never values,
@@ -2438,8 +2458,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         tag: el.tagName.toLowerCase(),
         role: role,
         name: name,
-        hidden: hiddenNow || undefined,
-        visible: !hiddenNow && !!(el.offsetWidth || el.offsetHeight ||
+        visible: !!(el.offsetWidth || el.offsetHeight ||
                     (el.getClientRects && el.getClientRects().length)),
         disabled: !!el.disabled,
         checked: el.checked === true || el.checked === false ? el.checked : null,
