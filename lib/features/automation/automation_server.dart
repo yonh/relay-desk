@@ -46,6 +46,7 @@ const automationWriteOperations = <String>{
   'key',
   'scroll',
   'back',
+  'forward',
 };
 
 /// Every operation the transport serves.
