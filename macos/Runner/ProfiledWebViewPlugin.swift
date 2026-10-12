@@ -18,6 +18,23 @@ import WebKit
 //     by the UI (rewrite-plan §4.8).
 //
 // Remote business pages never receive a JavaScript/Method Channel handle.
+
+/// scheme://host[:port]/path — userinfo, query and fragment never reach the
+/// diagnostic log: page URLs can carry playback sessions and tokens.
+private func sanitizedLogUrl(_ raw: String?) -> String {
+    guard let raw, let url = URL(string: raw),
+          var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let scheme = parts.scheme, let host = parts.host, !host.isEmpty else {
+        return ""
+    }
+    parts.user = nil
+    parts.password = nil
+    parts.query = nil
+    parts.fragment = nil
+    let port = parts.port.map { ":\($0)" } ?? ""
+    return "\(scheme)://\(host)\(port)\(parts.percentEncodedPath)"
+}
+
 final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler, WKScriptMessageHandler {
     static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -208,7 +225,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "reason": reason,
             "isLoading": webView.isLoading,
             "estimatedProgress": webView.estimatedProgress,
-            "url": webView.url?.absoluteString ?? "",
+            "url": sanitizedLogUrl(webView.url?.absoluteString),
             "hasWindow": webView.window != nil,
             "hasSuperview": webView.superview != nil,
             "canGoBack": webView.canGoBack,
@@ -924,7 +941,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 DiagnosticsLog.shared.log("loadUrlRejected", fields: [
                     "viewId": viewId,
                     "identityId": identityId ?? "",
-                    "url": urlString,
+                    "url": sanitizedLogUrl(urlString),
                     "hasView": webViews[viewId] != nil,
                 ])
                 // Emit loadFailed too: the Dart adapter treats the returned
@@ -945,7 +962,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             DiagnosticsLog.shared.log("loadUrl", fields: [
                 "viewId": viewId,
                 "identityId": identityId ?? "",
-                "url": urlString,
+                "url": sanitizedLogUrl(urlString),
             ])
             armLoadWatchdog(viewId: viewId, identityId: identityId ?? "", reason: "loadUrl")
             webView.load(URLRequest(url: url))
@@ -2719,7 +2736,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "action": action,
             "viewId": viewId,
             "identityId": identityId ?? "",
-            "url": webView.url?.absoluteString ?? "",
+            "url": sanitizedLogUrl(webView.url?.absoluteString),
         ])
         if action == "reload" || action == "goBack" || action == "goForward" {
             armLoadWatchdog(viewId: viewId, identityId: identityId ?? "", reason: action)
@@ -2984,7 +3001,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         DiagnosticsLog.shared.log("teardownWebView", fields: [
             "viewId": viewId,
             "identityId": identityIdFor(viewId: viewId) ?? "",
-            "url": webView.url?.absoluteString ?? "",
+            "url": sanitizedLogUrl(webView.url?.absoluteString),
             "wasLoading": webView.isLoading,
         ])
         disarmLoadWatchdog(viewId: viewId)
@@ -3579,7 +3596,7 @@ final class NavigationDelegate: NSObject, WKNavigationDelegate {
         var fields: [String: Any] = [
             "identityId": identityId,
             "viewId": plugin?.viewId(of: webView) ?? -1,
-            "url": webView.url?.absoluteString ?? "",
+            "url": sanitizedLogUrl(webView.url?.absoluteString),
         ]
         for (k, v) in extra { fields[k] = v }
         return fields
@@ -3649,6 +3666,16 @@ final class NavigationDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         plugin?.bumpNavigationCommitGeneration(for: webView)
         DiagnosticsLog.shared.log("nav.didCommit", fields: logFields(webView))
+        // The main-document commit is a distinct milestone from didFinish:
+        // callers that mean "navigation committed" must not wait for every
+        // subresource — a still-loading page is already navigated.
+        plugin?.emit([
+            "event": "loadCommitted",
+            "identityId": identityId,
+            "url": webView.url?.absoluteString ?? "",
+            "canGoBack": webView.canGoBack,
+            "canGoForward": webView.canGoForward,
+        ])
     }
 
     func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {

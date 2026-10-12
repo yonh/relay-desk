@@ -202,6 +202,19 @@ const List<_Command> _commands = <_Command>[
     <_Selector>[_requiredIdentitySelector],
   ),
   _Command(
+    'navigate',
+    'Navigate an open panel to a URL; --identity and --url required',
+    <_Selector>[
+      _requiredIdentitySelector,
+      _Selector(
+        '--url',
+        'url',
+        'http(s) URL; bare hosts normalize like the address bar',
+        required: true,
+      ),
+    ],
+  ),
+  _Command(
     'dom',
     'Bounded DOM summary of one identity panel; --identity required',
     <_Selector>[_requiredIdentitySelector],

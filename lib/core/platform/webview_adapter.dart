@@ -73,6 +73,22 @@ class WebviewLoadComplete extends WebviewEvent {
   });
 }
 
+/// The main document committed (didCommitNavigation): the new document
+/// started loading, before resources finish. Distinct from
+/// [WebviewLoadComplete] which fires at didFinish — "navigation complete"
+/// for callers that mean the commit, not a fully rendered page.
+class WebviewLoadCommitted extends WebviewEvent {
+  final Uri uri;
+  final bool canGoBack;
+  final bool canGoForward;
+  WebviewLoadCommitted(
+    super.identityId,
+    this.uri, {
+    this.canGoBack = false,
+    this.canGoForward = false,
+  });
+}
+
 class WebviewLoadStarted extends WebviewEvent {
   final Uri uri;
   WebviewLoadStarted(super.identityId, this.uri);

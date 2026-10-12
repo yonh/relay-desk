@@ -132,8 +132,19 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - Unknown identityId → `not_found`; a concurrent open on the same identity → `panel_busy` (409).
 - After it returns, `screenshot`/`media`/`errors`/`dom` can address the panel's view as usual.
 
+## Navigation (write op)
+
+`relayctl navigate --identity <uuid> --url <url>` (issue #23) navigates an **open** panel to a URL — dispatched through the same `WorkspaceController.navigate` the address bar calls, so normalization and loading bookkeeping are the app's own.
+
+- `--identity` + `--url` are both required; the identity must belong to the active project (`project_not_active`, 409) and its panel must be open (`panel_not_open`, 409) with a registered view (`no_native_view`, 409).
+- URL rules follow the address bar: bare hosts get `https://`, local/private hosts get `http://`; only http(s) is accepted (`invalid_url`). Loopback/private hosts are refused unless the project has `allowPrivateNetwork` → `private_network_denied` (403).
+- "Complete" means the **main-document commit**, not page-loaded: the answer carries `status` — `committed` (finalUrl can differ from requestedUrl after redirects — the observed URL is the truth), `failed` (navigation blocked, `error` is the platform reason), `cancelled` (panel closed/closing), or `timeout` (no commit inside the bounded wait — the navigation may still be in flight; re-query `panels`/`state` rather than retrying blindly).
+- `sameUrl: true` flags navigating to the panel's current URL (still dispatched — same as re-entering the address bar).
+- A navigation already in flight (whether from this interface or the address bar) → `navigation_in_flight` (409); a concurrent call on the same identity → `panel_busy` (409).
+- The response also carries `navigationId` (batch identifier), `requestedAt`/`dispatchedAt`/`settledAt`, `nativeViewId`, `windowId`, and `canGoBack`/`canGoForward` on commit. `requestedUrl`/`finalUrl` are sanitized — query strings, fragments and credentials never leave the interface.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project` and `open_panel`; they expose no element inspect, script evaluation, navigation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel` and `navigate`; they expose no script evaluation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.

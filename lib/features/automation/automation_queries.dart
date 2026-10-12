@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/platform/domain.dart';
 import '../../core/platform/webview_adapter.dart';
+import '../../core/url_input.dart';
 import '../../data/repositories/project_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
 import '../workspace/workspace_controller.dart';
@@ -50,7 +51,11 @@ class AutomationQueries {
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
+    required this.navigatePanel,
+    required this.isNavigating,
+    required this.navigationEvents,
     this.settleBudget = const Duration(seconds: 2),
+    this.navigateWaitBudget = const Duration(seconds: 8),
   });
 
   final ProjectRepository projects;
@@ -136,6 +141,30 @@ class AutomationQueries {
   /// post-frame sync (layout restore + panel ensure) runs inside it.
   final Future<void> Function() awaitFrame;
 
+  /// Issues a navigation to an existing panel — wired to the very
+  /// `WorkspaceController.navigate` the address bar calls, never to the
+  /// native adapter directly, so automation cannot bypass the app's own
+  /// URL normalization/panel bookkeeping. Injected so tests observe it.
+  final void Function(String identityId, String url) navigatePanel;
+
+  /// Whether a navigation is currently in flight for `identityId` (the
+  /// adapter's navInfo `loading` flag). Covers navigations issued outside
+  /// this interface (the address bar), which the command lock cannot see.
+  final bool Function(String identityId) isNavigating;
+
+  /// The adapter's webview event stream — subscribed before dispatch so a
+  /// fast commit cannot slip between dispatch and subscription.
+  final Stream<WebviewEvent> Function() navigationEvents;
+
+  /// Bounded wait for the navigation commit, well below the server's
+  /// command timeout so a slow page answers with a structured
+  /// `status: timeout` result instead of the transport's 504.
+  final Duration navigateWaitBudget;
+
+  /// Sequence component of `navigationId` — makes the batch identifier
+  /// unique even for navigations dispatched inside the same millisecond.
+  int _navSequence = 0;
+
   /// Extra settle budget after the first frame for the workspace marker
   /// (`WorkspaceState.selectedProjectId`) to catch up with the UI
   /// selection; layout restore reads the repository asynchronously.
@@ -201,6 +230,8 @@ class AutomationQueries {
         return _activateProject(command);
       case 'open_panel':
         return _openPanel(command);
+      case 'navigate':
+        return _navigate(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1184,6 +1215,298 @@ class AutomationQueries {
     };
   }
 
+  /// Navigates an existing panel to an explicit URL (issue #23).
+  ///
+  /// `identityId` and `url` are both required; the identity must belong to
+  /// the active project (`project_not_active`, 409) and the panel must
+  /// already be open — navigation never creates panels/identities and never
+  /// switches projects. The dispatch goes through `navigatePanel` — the
+  /// address bar's own `WorkspaceController.navigate` entry point — so
+  /// normalization, the panel `loading` flag and nav bookkeeping are the
+  /// app's own, never a second channel.
+  ///
+  /// "Complete" is the main-document commit (`loadComplete`) — not
+  /// page-loaded, not video-playable. The wait is bounded
+  /// ([navigateWaitBudget], kept below the transport's command timeout):
+  /// on expiry the command answers 200 with `status:'timeout'` and the
+  /// in-flight navigation simply continues in the app — the target stays
+  /// queryable. Distinguishable outcomes:
+  ///   - `committed`  — loadComplete for this identity (`finalUrl` may
+  ///     differ from `requestedUrl` after redirects or a superseding
+  ///     navigation — the observed URL is the truth, never the request)
+  ///   - `failed`     — loadFailed → WebviewNavigationBlocked
+  ///   - `cancelled`  — the view closed/closing/failed before committing
+  ///   - `timeout`    — nothing settled within the budget
+  /// `sameUrl` flags when the request equals the panel's current URL (still
+  /// dispatched — the address bar reloads on same-URL input).
+  ///
+  /// A navigation already in flight — whether issued through this
+  /// interface (serialized by the transport lock) or the address bar
+  /// (invisible to the lock) — answers `navigation_in_flight` (409) rather
+  /// than racing two commits on one view.
+  ///
+  /// Private-network rule: the project's `allowPrivateNetwork` flag gates
+  /// loopback/private/link-local hosts (`private_network_denied`, 403).
+  /// URL output is always `_stripUrl`'d; the raw request URL is never
+  /// echoed back or logged.
+  Future<Map<String, Object?>> _navigate(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    if (id == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'navigate requires an explicit identityId',
+      );
+    }
+    final urlInput = _optionalString(command, 'url');
+    if (urlInput == null || urlInput.trim().isEmpty) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'navigate requires an explicit url',
+      );
+    }
+    final normalized = normalizeUrlInput(urlInput);
+    final uri = normalized == null ? null : Uri.tryParse(normalized);
+    if (normalized == null ||
+        uri == null ||
+        !const {'http', 'https'}.contains(uri.scheme) ||
+        uri.host.isEmpty) {
+      throw const AutomationFailure(
+        'invalid_url',
+        'URL must normalize to a valid http(s) URL with a host',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    final project = await projects.getById(identity.projectId);
+    if (project == null) throw _notFound('project');
+    if (!project.allowPrivateNetwork && isLocalNetworkHost(uri.host)) {
+      throw const AutomationFailure(
+        'private_network_denied',
+        'Navigation to a private/loopback host is not allowed for this project',
+        status: 403,
+      );
+    }
+    // Critical section: re-validate the active project immediately before
+    // the mutation — the repository awaits above are suspension points.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the navigation dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    if (view == null) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    // Second critical section: the native inventory await above is another
+    // suspension point — a project switch landing here would navigate the
+    // OLD project's panel, so the active project is re-verified after it.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the navigation dispatch',
+        status: 409,
+      );
+    }
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
+    // Subscribe BEFORE the dispatch so a fast commit cannot slip between
+    // the channel call and the subscription. The listener is armed only by
+    // THIS navigation's loadStarted — events an earlier navigation left
+    // queued on the broadcast stream must not be attributed to this batch.
+    bool isOurUrl(String raw) {
+      // The platform may append a trailing slash to a bare-authority URL;
+      // that is the one tolerated normalization difference.
+      return raw == normalized || raw == '$normalized/';
+    }
+
+    var armed = false;
+    // A loadStarted for a different URL before ours may be a stale event
+    // carrying the OLD page's address or a genuinely competing navigation
+    // — record it as a supersession candidate but keep waiting for ours
+    // until the budget, instead of cancelling a navigation that may still
+    // commit (Devin Review BUG_0001). A post-arm NavigationBlocked may
+    // likewise belong to the previous navigation's late failure rather
+    // than ours — give a commit a bounded grace to win (BUG_0003).
+    String? supersededBy;
+    Timer? blockedGrace;
+    final settled = Completer<WebviewEvent>();
+    void completeOnce(WebviewEvent event) {
+      blockedGrace?.cancel();
+      if (!settled.isCompleted) settled.complete(event);
+    }
+
+    final sub = navigationEvents().listen((event) {
+      if (settled.isCompleted || event.identityId != id) return;
+      if (!armed) {
+        switch (event) {
+          case WebviewLoadStarted(:final uri):
+            if (isOurUrl(uri.toString())) {
+              armed = true;
+            } else {
+              supersededBy ??= uri.toString();
+            }
+          // No loadStarted yet: a dispatch-time failure (dead native view,
+          // refused load) surfaces as a block for OUR url — decisive now,
+          // reporting timeout for a known failure would be a lie
+          // (BUG_0002). A block carrying a DIFFERENT address is a stale
+          // event from an earlier navigation — not ours to report.
+          case WebviewNavigationBlocked(:final uri):
+            if (isOurUrl(uri.toString())) completeOnce(event);
+          case WebviewStateChanged(:final state):
+            if (state == WebviewState.closed ||
+                state == WebviewState.closing ||
+                state == WebviewState.failed) {
+              completeOnce(event);
+            }
+          default:
+            break;
+        }
+        return;
+      }
+      switch (event) {
+        case WebviewLoadCommitted():
+        case WebviewLoadComplete():
+          completeOnce(event);
+        case WebviewNavigationBlocked():
+          // Grace: a commit can still win over a stale failure event
+          // (BUG_0003) — if none arrives inside the bound, this failure
+          // is ours.
+          blockedGrace?.cancel();
+          // A quarter of the outer budget: long enough for a real commit to
+          // beat a stale failure, short enough to always land inside it.
+          blockedGrace = Timer(
+            navigateWaitBudget ~/ 4,
+            () => completeOnce(event),
+          );
+        case WebviewLoadStarted():
+          // A different navigation superseded ours mid-flight.
+          if (!isOurUrl(event.uri.toString())) completeOnce(event);
+        case WebviewStateChanged():
+          if (event.state == WebviewState.closed ||
+              event.state == WebviewState.closing ||
+              event.state == WebviewState.failed) {
+            completeOnce(event);
+          }
+        default:
+          break;
+      }
+    });
+    final navigationId =
+        'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    try {
+      navigatePanel(id, normalized);
+    } catch (_) {
+      await sub.cancel();
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    WebviewEvent? event;
+    try {
+      event = await settled.future.timeout(navigateWaitBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      blockedGrace?.cancel();
+      await sub.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final String status;
+    String? error;
+    bool? canGoBack;
+    bool? canGoForward;
+    String? finalUrl;
+    switch (event) {
+      case WebviewLoadCommitted():
+        status = 'committed';
+        finalUrl = _stripUrl(event.uri.toString());
+        canGoBack = event.canGoBack;
+        canGoForward = event.canGoForward;
+      case WebviewLoadComplete():
+        status = 'committed';
+        finalUrl = _stripUrl(event.uri.toString());
+        canGoBack = event.canGoBack;
+        canGoForward = event.canGoForward;
+      case WebviewNavigationBlocked():
+        status = 'failed';
+        // Platform error text can embed the URL — scrub credentials/query
+        // out of any embedded locator before it leaves the interface.
+        error = _scrubUrlsInText(event.reason);
+      case WebviewLoadStarted():
+        status = 'cancelled';
+        error =
+            'superseded by a navigation to ${_stripUrl(event.uri.toString())}';
+      case WebviewStateChanged():
+        status = 'cancelled';
+        error = 'panel state became ${event.state.name}';
+      case null:
+        // The budget elapsed. If a competing loadStarted was seen while we
+        // waited for ours, this is a supersession, not a silent timeout —
+        // report it as such (BUG_0001).
+        if (supersededBy != null) {
+          status = 'cancelled';
+          error =
+              'superseded by a navigation to ${_stripUrl(supersededBy!)}';
+        } else {
+          status = 'timeout';
+        }
+      default:
+        status = 'timeout';
+    }
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': view['viewId'],
+      'windowId': view['windowId'],
+      'navigationId': navigationId,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'status': status,
+      if (supersededBy != null) 'supersededBy': _stripUrl(supersededBy!),
+      'sameUrl': panel.url == normalized,
+      'requestedUrl': _stripUrl(normalized),
+      'finalUrl': finalUrl,
+      'canGoBack': ?canGoBack,
+      'canGoForward': ?canGoForward,
+      'error': ?error,
+      // After any outcome — including timeout — the target stays queryable:
+      // the caller re-reads panels/state/navInfo rather than trusting a
+      // terminal claim baked into this answer.
+      'panelQueryable': true,
+    };
+  }
+
   // ---- selection ----
 
   /// The UI-selected identity, or null when the selection is empty or stale.
@@ -1404,6 +1727,19 @@ class AutomationQueries {
   /// separated from a host, or a relative reference with no path such as
   /// `?token=secret` — redacts to the empty string, because echoing the input
   /// would publish the very query, fragment or credentials being removed.
+  /// Replaces every embedded http(s) URL in free text (platform error
+  /// messages) with its `_stripUrl` form so query strings, fragments and
+  /// credentials never ride along. Bounded to keep error payloads sane.
+  static final _embeddedUrl = RegExp(r'https?://[^\s"<>]+');
+
+  String _scrubUrlsInText(String text) {
+    final scrubbed = text.replaceAllMapped(
+      _embeddedUrl,
+      (m) => _stripUrl(m.group(0)!),
+    );
+    return scrubbed.length <= 500 ? scrubbed : scrubbed.substring(0, 500);
+  }
+
   String _stripUrl(String value) {
     final uri = Uri.tryParse(value);
     if (uri == null) return '';

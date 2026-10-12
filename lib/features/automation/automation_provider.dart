@@ -49,6 +49,15 @@ final automationServerProvider = FutureProvider<AutomationServer?>((ref) async {
         .read(workspaceControllerProvider.notifier)
         .ensurePanel(identity, project),
     awaitFrame: () => SchedulerBinding.instance.endOfFrame,
+    // The same navigate the address bar calls — URL normalization and the
+    // panel loading flag stay on the app's own path (issue #23).
+    navigatePanel: (identityId, url) =>
+        ref.read(workspaceControllerProvider.notifier).navigate(
+              identityId,
+              url,
+            ),
+    isNavigating: (identityId) => adapter.navInfoFor(identityId).loading,
+    navigationEvents: () => adapter.events,
   );
   if (!ref.mounted) return null;
 
