@@ -150,7 +150,7 @@ class HeadlessWebviewAdapter implements WebviewAdapter {
   }
 
   @override
-  Future<void> detach(String identityId) async {
+  Future<void> detach(String identityId, {NativeBounds? bounds}) async {
     _log('detach($identityId)');
     _setState(identityId, WebviewState.detaching);
     _setState(identityId, WebviewState.detached);

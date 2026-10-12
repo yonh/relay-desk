@@ -1023,7 +1023,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             ] as [String: Any])
         case "detach":
             let identityId = args["identityId"] as? String ?? ""
-            detach(identityId: identityId, result: result)
+            // Optional persisted geometry (live-layout restore, issue #50):
+            // when present the detached window opens at the saved frame
+            // instead of the default 120,120/900x640.
+            var frame: CGRect? = nil
+            if let x = args["x"] as? Double, let y = args["y"] as? Double,
+               let w = args["width"] as? Double, let h = args["height"] as? Double {
+                frame = CGRect(x: x, y: y, width: w, height: h)
+            }
+            detach(identityId: identityId, frame: frame, result: result)
         case "attach":
             let identityId = args["identityId"] as? String ?? ""
             attach(identityId: identityId, result: result)
@@ -1351,7 +1359,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
     // MARK: - Detach / attach (embedded/detached state machine)
 
-    private func detach(identityId: String, result: @escaping FlutterResult) {
+    private func detach(identityId: String, frame: CGRect? = nil, result: @escaping FlutterResult) {
         guard let viewId = viewIdByIdentity[identityId],
               let webView = webViews[viewId] else {
             result(FlutterError(code: "no_webview", message: "identity \(identityId)", details: nil))
@@ -1369,6 +1377,7 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             // Mobile presets detach into a phone-sized window so the emulated
             // CSS viewport survives detaching.
             contentSize: identityViewports[identityId],
+            frame: frame,
             onClose: { [weak self] in
                 // User closed the detached window — write back `closed` so the
                 // Dart state machine does not keep a ghost detached state
@@ -1395,6 +1404,18 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 ])
             }
         )
+        controller.onBoundsChanged = { [weak self] windowFrame in
+            // User moved/resized the detached window — write the geometry
+            // back so Dart persists it as the live layout (issue #50).
+            self?.emit([
+                "event": "boundsChanged",
+                "identityId": identityId,
+                "x": windowFrame.origin.x,
+                "y": windowFrame.origin.y,
+                "width": windowFrame.width,
+                "height": windowFrame.height,
+            ])
+        }
         detachedWindows[identityId] = controller
         controller.show()
         emitState(identityId: identityId, state: "detached")
@@ -2067,6 +2088,8 @@ final class DetachedWindowController: NSWindow, NSWindowDelegate {
     let identityId: String
     let webView: WKWebView
     private let onClose: () -> Void
+    /// Called after the user moves or resizes the window (issue #50 write-back).
+    var onBoundsChanged: ((CGRect) -> Void)?
     /// Set for programmatic closes (reattach, teardown, identity close) where
     /// the user-close state writeback must not run.
     var suppressOnClose = false
@@ -2075,13 +2098,14 @@ final class DetachedWindowController: NSWindow, NSWindowDelegate {
         identityId: String,
         webView: WKWebView,
         contentSize: CGSize? = nil,
+        frame: CGRect? = nil,
         onClose: @escaping () -> Void
     ) {
         self.identityId = identityId
         self.webView = webView
         self.onClose = onClose
         let size = contentSize ?? CGSize(width: 900, height: 640)
-        let frame = CGRect(x: 120, y: 120, width: size.width, height: size.height)
+        let frame = frame ?? CGRect(x: 120, y: 120, width: size.width, height: size.height)
         super.init(
             contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -2108,6 +2132,14 @@ final class DetachedWindowController: NSWindow, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         if suppressOnClose { return }
         onClose()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        onBoundsChanged?(frame)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        onBoundsChanged?(frame)
     }
 }
 

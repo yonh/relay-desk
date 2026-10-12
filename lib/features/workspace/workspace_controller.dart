@@ -186,10 +186,76 @@ class WorkspaceController extends Notifier<WorkspaceState> {
   List<DevicePreset> get _customPresets =>
       ref.read(customDevicePresetsProvider).valueOrEmpty;
 
+  // ---- live layout persistence (issue #50) ----
+
+  /// Last-known layout per identity for the active project — authoritative
+  /// in-memory copy of the reserved `__live__` workspace row. Loaded in
+  /// [restoreProjectLayoutMode], updated on every committed geometry change,
+  /// and consulted by [ensurePanel] so close→reopen, project switches and
+  /// app restarts restore the arrangement instead of re-staggering.
+  Map<String, PanelLayout> _liveLayouts = {};
+  String? _liveProjectId;
+  Timer? _livePersistTimer;
+  Future<void> _livePersistChain = Future.value();
+  bool _livePersistQueued = false;
+
+  /// Identities whose persisted layout says `detached` — consumed in
+  /// [registerView] once the native view exists to re-create the window.
+  final Set<String> _pendingDetach = {};
+
+  void _scheduleLivePersist() {
+    _livePersistTimer?.cancel();
+    _livePersistTimer = Timer(
+      const Duration(milliseconds: 400),
+      _persistLive,
+    );
+  }
+
+  /// Serializes live-row writes; a new change while a write is in flight
+  /// queues one trailing write (debounced coalescing, no lost updates).
+  void _persistLive() {
+    _livePersistTimer = null;
+    final projectId = _liveProjectId;
+    if (projectId == null) return;
+    if (_livePersistQueued) return;
+    _livePersistQueued = true;
+    _livePersistChain = _livePersistChain.then((_) async {
+      try {
+        final repo = await ref.read(workspaceRepositoryProvider.future);
+        await repo.saveLive(
+          projectId,
+          state.layoutMode,
+          _liveLayouts.values.toList(),
+        );
+      } catch (_) {
+        // Persistence is best-effort: a failed write must not break the
+        // workspace interaction; the next change retries.
+      } finally {
+        _livePersistQueued = false;
+        if (_livePersistTimer == null && _liveDirty) {
+          _liveDirty = false;
+          _scheduleLivePersist();
+        }
+      }
+    });
+  }
+
+  bool _liveDirty = false;
+
+  void _recordLiveLayout(String identityId, PanelLayout layout) {
+    if (_liveProjectId == null) return;
+    _liveLayouts[identityId] = layout;
+    _liveDirty = true;
+    _scheduleLivePersist();
+  }
+
   @override
   WorkspaceState build() {
     _eventSub = _adapter.events.listen(_onEvent);
-    ref.onDispose(() => _eventSub?.cancel());
+    ref.onDispose(() {
+      _eventSub?.cancel();
+      _livePersistTimer?.cancel();
+    });
     return const WorkspaceState();
   }
 
@@ -198,6 +264,20 @@ class WorkspaceController extends Notifier<WorkspaceState> {
     final existing = panels[event.identityId];
     if (existing == null) return;
     switch (event) {
+      case WebviewBoundsChanged(:final bounds):
+        // Detached window moved/resized by the user — write the geometry
+        // back into the panel layout (finalCommit semantics: persist).
+        updateBounds(
+          event.identityId,
+          existing.layout.copyWith(
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+          ),
+          finalCommit: true,
+        );
+        return;
       case WebviewStateChanged(:final state):
         if (state == WebviewState.closed &&
             existing.state == WebviewState.detached) {
@@ -212,6 +292,15 @@ class WorkspaceController extends Notifier<WorkspaceState> {
           );
         } else {
           panels[event.identityId] = existing.copyWith(state: state);
+          if (state == WebviewState.detached ||
+              state == WebviewState.embedded) {
+            _recordLiveLayout(
+              event.identityId,
+              existing.layout.copyWith(
+                detached: state == WebviewState.detached,
+              ),
+            );
+          }
         }
         break;
       case WebviewLoadStarted(:final uri):
@@ -284,14 +373,21 @@ class WorkspaceController extends Notifier<WorkspaceState> {
         existing != null && existing.configUrl == url && existing.url.isNotEmpty
         ? existing.url
         : url;
+    // Live-layout precedence: a persisted arrangement (close→reopen,
+    // project switch, restart) beats the stagger default.
+    final persisted = existing == null ? _liveLayouts[identity.id] : null;
     final layout =
         existing?.layout ??
+        persisted ??
         _defaultPanelLayout(
           identity.id,
           state.layoutMode,
           state.panels.length,
           preset: preset,
         );
+    if (persisted != null && persisted.detached) {
+      _pendingDetach.add(identity.id);
+    }
     panels[identity.id] = PanelRuntime(
       identityId: identity.id,
       layout: layout,
@@ -326,9 +422,27 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       panels[identityId] = existing.copyWith(state: WebviewState.embedded);
       state = state.copyWith(panels: panels);
     }
+    if (_pendingDetach.remove(identityId)) {
+      final l = _liveLayouts[identityId];
+      unawaited(
+        _adapter.detach(
+          identityId,
+          bounds: l == null
+              ? null
+              : NativeBounds(l.x, l.y, l.width, l.height),
+        ),
+      );
+    }
   }
 
   void removePanel(String identityId) {
+    // Keep the last-known layout in the live map: closing a panel must not
+    // lose where it was — reopening restores it (issue #50).
+    final closing = state.panels[identityId];
+    if (closing != null && _liveProjectId != null) {
+      _liveLayouts.putIfAbsent(identityId, () => closing.layout);
+      _scheduleLivePersist();
+    }
     _adapter.close(identityId);
     final panels = Map<String, PanelRuntime>.from(state.panels);
     panels.remove(identityId);
@@ -364,6 +478,14 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       }
     }
     state = state.copyWith(layoutMode: mode, panels: panels);
+    // A reflow commits every panel's layout — persist the result.
+    for (final p in panels.values) {
+      _liveLayouts[p.identityId] = p.layout;
+    }
+    if (_liveProjectId != null) {
+      _liveDirty = true;
+      _scheduleLivePersist();
+    }
     final projectId = state.selectedProjectId;
     if (projectId == null) return;
     try {
@@ -388,8 +510,20 @@ class WorkspaceController extends Notifier<WorkspaceState> {
         ref.read(selectedProjectIdProvider) != projectId) {
       return;
     }
+    // Load the live layout row before panels are ensured (issue #50).
+    final live = await (await ref.read(
+      workspaceRepositoryProvider.future,
+    )).getLive(projectId);
+    if (generation != _projectRestoreGeneration ||
+        ref.read(selectedProjectIdProvider) != projectId) {
+      return;
+    }
+    _liveProjectId = projectId;
+    _liveLayouts = {
+      for (final p in live?.panels ?? const <PanelLayout>[]) p.identityId: p,
+    };
     state = WorkspaceState(
-      layoutMode: project.defaultLayoutMode,
+      layoutMode: live?.layoutMode ?? project.defaultLayoutMode,
       panels: state.panels,
       selectedPanelId: state.selectedPanelId,
       selectedProjectId: projectId,
@@ -427,6 +561,14 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       nextRevision,
       NativeBounds(layout.x, layout.y, layout.width, layout.height),
     );
+    if (finalCommit) {
+      _recordLiveLayout(
+        identityId,
+        layout.copyWith(
+          detached: panels[identityId]!.state == WebviewState.detached,
+        ),
+      );
+    }
   }
 
   // ---- navigation ----
@@ -553,9 +695,25 @@ class WorkspaceController extends Notifier<WorkspaceState> {
 
   // ---- embedded/detached state machine ----
 
-  void detach(String identityId) => _adapter.detach(identityId);
-  void attach(String identityId) =>
-      _adapter.attach(identityId, _defaultBounds(identityId));
+  void detach(String identityId) {
+    final l = state.panels[identityId]?.layout ?? _liveLayouts[identityId];
+    _adapter.detach(
+      identityId,
+      bounds: l == null
+          ? null
+          : NativeBounds(l.x, l.y, l.width, l.height),
+    );
+  }
+
+  void attach(String identityId) {
+    final l = _liveLayouts[identityId];
+    _adapter.attach(
+      identityId,
+      l == null
+          ? _defaultBounds(identityId)
+          : NativeBounds(l.x, l.y, l.width, l.height),
+    );
+  }
 
   // ---- device emulation ----
 
@@ -704,6 +862,13 @@ class WorkspaceController extends Notifier<WorkspaceState> {
       selectedWorkspaceId: id,
       selectedProjectId: projectId,
     );
+    // Loading a named snapshot makes it the live arrangement — persist it
+    // as the live row too, so reopen/restart restore what is on screen.
+    if (_liveProjectId == projectId) {
+      _liveLayouts = {for (final p in ws.panels) p.identityId: p};
+      _liveDirty = true;
+      _scheduleLivePersist();
+    }
     ref.read(selectedProjectIdProvider.notifier).select(projectId);
   }
 

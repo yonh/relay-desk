@@ -13,10 +13,30 @@ class WorkspaceRepository {
 
   WorkspaceRepository(this._db, [Uuid? uuid]) : _uuid = uuid ?? const Uuid();
 
+  /// Reserved workspace name/id for the per-project live (active) layout.
+  /// Lives in the same tables so panel rows get the same CHECK constraints
+  /// and cascade behavior; filtered out of every named-workspace listing.
+  static const liveWorkspaceName = '__live__';
+  static String liveWorkspaceId(String projectId) => '__live__-$projectId';
+
+  /// SavedPanelLayouts CHECK constraints: x>=0, y>=0, w>=320, h>=240.
+  /// Canvas drags can legitimately produce negative origins, so values are
+  /// normalized before insert rather than rejected.
+  static PanelLayout clampPanel(PanelLayout p) => p.copyWith(
+    x: p.x < 0 ? 0 : p.x,
+    y: p.y < 0 ? 0 : p.y,
+    width: p.width < 320 ? 320 : p.width,
+    height: p.height < 240 ? 240 : p.height,
+  );
+
   Future<List<WorkspaceLayout>> getByProject(String projectId) async {
     final wsRows = await (_db.select(
       _db.savedWorkspaces,
-    )..where((t) => t.projectId.equals(projectId))).get();
+    )..where(
+      (t) =>
+          t.projectId.equals(projectId) &
+          t.name.isNotValue(liveWorkspaceName),
+    )).get();
     final result = <WorkspaceLayout>[];
     for (final ws in wsRows) {
       final panels = await (_db.select(
@@ -26,6 +46,30 @@ class WorkspaceRepository {
     }
     return result;
   }
+
+  /// The project's live layout row, or null when nothing was ever
+  /// persisted (fresh project — callers fall back to default layouts).
+  Future<WorkspaceLayout?> getLive(String projectId) =>
+      getById(liveWorkspaceId(projectId));
+
+  /// Persist the project's current live arrangement: one reserved row that
+  /// tracks the real-time layout (not a named snapshot). [panels] may
+  /// include closed identities — their last-known layout is what a reopen
+  /// should restore.
+  Future<WorkspaceLayout> saveLive(
+    String projectId,
+    LayoutMode layoutMode,
+    List<PanelLayout> panels,
+  ) => save(
+    WorkspaceLayout(
+      id: liveWorkspaceId(projectId),
+      projectId: projectId,
+      name: liveWorkspaceName,
+      layoutMode: layoutMode,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      panels: panels.map(clampPanel).toList(),
+    ),
+  );
 
   Future<WorkspaceLayout?> getById(String id) async {
     final ws = await (_db.select(
