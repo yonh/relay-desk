@@ -48,6 +48,7 @@ class AutomationQueries {
     required this.probeDom,
     required this.domFind,
     required this.domInspect,
+    required this.domClick,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -57,6 +58,7 @@ class AutomationQueries {
     required this.navigationEvents,
     this.settleBudget = const Duration(seconds: 2),
     this.navigateWaitBudget = const Duration(seconds: 8),
+    this.clickNavObserveBudget = const Duration(seconds: 2),
   });
 
   final ProjectRepository projects;
@@ -127,6 +129,17 @@ class AutomationQueries {
   )
   domInspect;
 
+  /// Synthetic element click on the view bound to `viewId`. The third
+  /// argument is a JSON string of `{ref, documentId}`; the native side
+  /// resolves the ref, re-checks interactivity and dispatches a single
+  /// untrusted `el.click()` — never coordinates, never arbitrary script.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domClick;
+
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
   /// to a data-layer shortcut. Injected so tests can observe the call.
@@ -165,6 +178,13 @@ class AutomationQueries {
   /// command timeout so a slow page answers with a structured
   /// `status: timeout` result instead of the transport's 504.
   final Duration navigateWaitBudget;
+
+  /// After a `click` dispatch, how long to watch for a navigation it may
+  /// have started (didStartProvisionalNavigation surfaces almost
+  /// immediately). Shorter than [navigateWaitBudget] on purpose: most
+  /// clicks never navigate, and the honest answer "none observed" must
+  /// not hold the transport for the full navigation budget.
+  final Duration clickNavObserveBudget;
 
   /// Sequence component of `navigationId` — makes the batch identifier
   /// unique even for navigations dispatched inside the same millisecond.
@@ -239,6 +259,8 @@ class AutomationQueries {
         return _navigate(command);
       case 'reload':
         return _reload(command);
+      case 'click':
+        return _click(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1516,6 +1538,248 @@ class AutomationQueries {
       'error': ?outcome.error,
       'panelQueryable': true,
     };
+  }
+
+  /// Synthetic element click for an explicit `identityId` (issue #24).
+  /// `identityId`, `ref` (`<frame>.<position>`) and `documentId` are all
+  /// required — the ref is only meaningful inside the document nonce that
+  /// issued it. The fixed native script re-resolves the ref, re-checks
+  /// the document and interactivity (hidden/disabled/geometry →
+  /// `not_interactable`, never a coordinate fallback) and dispatches one
+  /// untrusted `el.click()`; `isTrusted:false` is reported honestly.
+  /// One dispatch, no replay. Afterwards the event stream is observed
+  /// for [clickNavObserveBudget]: a click-started navigation reports its
+  /// batch (`navigationStarted`/`navStatus`/`navigationId`/`finalUrl`)
+  /// so a navigation click can be re-located by the DOM ops. The answer
+  /// states dispatch facts only — business outcome is read afterwards
+  /// via dom/screenshot, never asserted here.
+  Future<Map<String, Object?>> _click(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    final ref = _optionalString(command, 'ref');
+    final documentId = _optionalString(command, 'documentId');
+    if (id == null || ref == null || documentId == null) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'click requires identityId, ref and documentId',
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    // Critical section before the mutation — the repository await above
+    // is a suspension point.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the click dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    // Second critical section after the native inventory await.
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the click dispatch',
+        status: 409,
+      );
+    }
+    // A navigation already in flight — user-driven or another batch —
+    // would land its load events inside this click's observe window and be
+    // misattributed as click-caused (Devin Review #44 BUG_0002).
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
+    // Subscribe before dispatch — a click-triggered provisional load can
+    // fire within the same runloop turn.
+    final armed = _armClickNavigation(id);
+    final clickId =
+        'clk-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domClick(
+        viewId,
+        id,
+        jsonEncode({'ref': ref, 'documentId': documentId}),
+      );
+    } on PlatformException catch (error) {
+      await armed.subscription.cancel();
+      const codes = {
+        'target_changed',
+        'dom_click_failed',
+        'dom_click_timeout',
+      };
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Click could not be dispatched',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    // The click already ran inside the await above — if the active project
+    // switched during it, the element belonged to the OLD project. The
+    // dispatch cannot be undone, so report the drift rather than claim a
+    // clean result (Devin Review #44 SEC_0002).
+    if (readSelectedProjectId() != identity.projectId) {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the click was dispatching',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'dom_click_failed',
+        'Native click returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      await armed.subscription.cancel();
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'Click could not run',
+        status: error == 'invalid_argument'
+            ? 400
+            : (error == 'not_found'
+                ? 404
+                : (error == 'click_failed' ? 500 : 409)),
+      );
+    }
+    // Observe for a navigation this click may have started. A timeout is
+    // NOT a click failure — the click already dispatched; it just did not
+    // produce a main-document load within the observe window.
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(clickNavObserveBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.subscription.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final outcome = _navigationOutcome(event);
+    final navigationStarted = armed.started() || event != null;
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'ref': ref,
+      'frame': payload['frame'],
+      'tag': payload['tag'],
+      'role': ?payload['role'],
+      'name': ?payload['name'],
+      'documentId': payload['documentId'],
+      // The mechanism is declared, not implied: one untrusted synthetic
+      // `HTMLElement.click()`. Scenarios requiring trusted input are
+      // unsupported by this interface.
+      'mechanism': 'synthetic_dom_click',
+      'isTrusted': false,
+      'clickId': clickId,
+      'dispatched': true,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'navigationStarted': navigationStarted,
+      if (navigationStarted)
+        'navigationId':
+            'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}',
+      if (navigationStarted) 'navStatus': outcome.status,
+      'finalUrl': ?outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'navError': ?outcome.error,
+      'panelQueryable': true,
+    };
+  }
+
+  /// Click follow-up watch: the first `loadStarted` on this view (any
+  /// URL — the click chooses it) begins the observed batch; a commit /
+  /// complete / block / second start / terminal state settles it. Unlike
+  /// [_armNavigation] there is no expected URL to arm on.
+  ({
+    Completer<WebviewEvent> settled,
+    StreamSubscription<WebviewEvent> subscription,
+    bool Function() started,
+  }) _armClickNavigation(String identityId) {
+    var started = false;
+    var armed = false;
+    final settled = Completer<WebviewEvent>();
+    final subscription = navigationEvents().listen((event) {
+      if (settled.isCompleted || event.identityId != identityId) return;
+      if (!armed) {
+        if (event is WebviewLoadStarted) {
+          armed = true;
+          started = true;
+        }
+        return;
+      }
+      switch (event) {
+        case WebviewLoadCommitted():
+        case WebviewLoadComplete():
+        case WebviewNavigationBlocked():
+          settled.complete(event);
+        case WebviewLoadStarted():
+          // A different navigation superseded the click's mid-flight.
+          settled.complete(event);
+        case WebviewStateChanged():
+          if (event.state == WebviewState.closed ||
+              event.state == WebviewState.closing ||
+              event.state == WebviewState.failed) {
+            settled.complete(event);
+          }
+        default:
+          break;
+      }
+    });
+    return (
+      settled: settled,
+      subscription: subscription,
+      started: () => started,
+    );
   }
 
   /// Armed navigation wait, shared by navigate/reload: the listener ignores

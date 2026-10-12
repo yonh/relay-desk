@@ -1119,6 +1119,8 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             domFind(args, result: result)
         case "domInspect":
             domInspect(args, result: result)
+        case "domClick":
+            domClick(args, result: result)
         case "setBounds":
             // The Flutter AppKitView/PlatformView container is already placed
             // by Flutter from Positioned(left/top/width/height) in Canvas
@@ -2670,6 +2672,242 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                 liveWindowNumber: liveView?.window?.windowNumber
             ), let webView else {
                 result(FlutterError(code: "target_changed", message: "Target changed during DOM inspect", details: nil))
+                return
+            }
+            result([
+                "json": json,
+                "url": webView.url?.absoluteString as Any,
+                "windowId": self.orNull(webView.window?.windowNumber),
+            ])
+        }
+    }
+
+    /// Element click tail (issue #24). Same ref/frame/nonce resolution as
+    /// the inspect tail, then interactivity re-checks and a single
+    /// `el.click()`. Synthetic: the event is untrusted (`isTrusted:false`)
+    /// exactly like `HTMLElement.click()` in a console — the payload says
+    /// so; trusted-input scenarios are out of scope for this interface.
+    private static let domClickScriptTail = """
+      var Q = __rdQuery;
+      var MAX_DEPTH = 8, MAX_FRAMES = 16;
+      var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1,
+                   SVG: 1, CANVAS: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1 };
+      function isHiddenDeep(el, win) {
+        if (!el || !el.closest) return true;
+        if (el.closest('[hidden],[aria-hidden="true"]')) return true;
+        try {
+          var w = win || window, node = el, guard = 0;
+          while (node && guard++ < 40) {
+            var cs = w.getComputedStyle(node);
+            if (cs.display === 'none' || cs.visibility === 'hidden' ||
+                cs.visibility === 'collapse') return true;
+            node = node.parentElement;
+          }
+          if (node) return true;
+        } catch (e) { return true; }
+        return false;
+      }
+      // Same DFS frame order as the other probes — a ref is meaningless
+      // if the frame order diverges from what issued it.
+      function frameDocs() {
+        var out = [];
+        function collect(doc, label, url, depth, hostEl, hostWin) {
+          if (out.length >= MAX_FRAMES) return;
+          out.push({ doc: doc, label: label, url: url, depth: depth,
+                     index: out.length, reachable: true,
+                     hostEl: hostEl || null, hostWin: hostWin || null });
+          if (depth >= MAX_DEPTH) return;
+          var iframes = doc.querySelectorAll('iframe');
+          for (var k = 0; k < iframes.length; k++) {
+            var el = iframes[k];
+            var childLabel = label === 'main' ? 'f' + k : label + '.f' + k;
+            try {
+              if (isHiddenDeep(el, doc.defaultView || window)) continue;
+            } catch (e) {}
+            var idoc = null, reachable = true;
+            try {
+              idoc = el.contentDocument ||
+                     (el.contentWindow && el.contentWindow.document);
+              if (!idoc) reachable = false;
+            } catch (e) { reachable = false; }
+            if (reachable) {
+              collect(idoc, childLabel,
+                      (idoc.location && idoc.location.href) || el.src || null,
+                      depth + 1, el, doc.defaultView || window);
+            } else {
+              if (out.length >= MAX_FRAMES) continue;
+              out.push({ doc: null, label: childLabel, url: el.src || null,
+                         depth: depth + 1, index: out.length,
+                         reachable: false, hostEl: el,
+                         hostWin: doc.defaultView || window });
+            }
+          }
+        }
+        collect(document, 'main', location.href, 0, null, null);
+        return out;
+      }
+      var m = /^([0-9]+)\\.([0-9]+)$/.exec(String(Q.ref || ''));
+      if (!m) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref must look like <frame>.<position>' });
+      }
+      var frameIndex = parseInt(m[1], 10), position = parseInt(m[2], 10);
+      var frames = frameDocs();
+      if (frameIndex >= frames.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Frame no longer exists in the document' });
+      }
+      var fr = frames[frameIndex];
+      if (fr.reachable === false) {
+        return __rdResult({ error: 'frame_unreachable',
+                            message: 'Frame is not reachable (cross-origin)' });
+      }
+      var doc = fr.doc;
+      var didParts = String(Q.documentId || '').split(':');
+      var wantNonce = didParts[0];
+      var wantFrame = didParts.length > 1 ? didParts[1] : null;
+      // A ref is only meaningful against the documentId issued for ITS
+      // frame — passing another frame's documentId (same probe batch, same
+      // nonce) must not silently act on the wrong frame's element.
+      if (wantFrame !== null && wantFrame !== '' &&
+          parseInt(wantFrame, 10) !== frameIndex) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref frame does not match documentId frame' });
+      }
+      if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document changed since the ref was issued; re-probe' });
+      }
+      if (position >= 2000) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      var all = doc.querySelectorAll('*');
+      if (position >= all.length) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Document shrank; position is out of range' });
+      }
+      var el = all[position];
+      if (el.__rdRef === undefined) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Position was never issued as a ref' });
+      }
+      if (el.__rdRef !== Q.ref) {
+        return __rdResult({ error: 'stale_element',
+                            message: 'Position now resolves to a different element; re-probe' });
+      }
+      // Interactivity re-check at action time — a ref issued for a
+      // visible, enabled element must be refused if either changed. No
+      // silent fallback to coordinates.
+      var win2 = doc.defaultView || window;
+      if (SKIP[el.tagName]) {
+        return __rdResult({ error: 'not_found',
+                            message: 'Ref does not resolve to a readable element' });
+      }
+      var hiddenNow = isHiddenDeep(el, win2);
+      if (!hiddenNow && fr.hostEl) {
+        hiddenNow = isHiddenDeep(fr.hostEl, fr.hostWin || win2);
+      }
+      if (hiddenNow) {
+        return __rdResult({ error: 'not_interactable', reason: 'hidden',
+                            ref: Q.ref, tag: el.tagName.toLowerCase(),
+                            message: 'Element is hidden (attribute or computed ancestor)' });
+      }
+      if (el.disabled) {
+        return __rdResult({ error: 'not_interactable', reason: 'disabled',
+                            ref: Q.ref, tag: el.tagName.toLowerCase(),
+                            message: 'Element is disabled' });
+      }
+      var rects = el.getClientRects ? el.getClientRects().length : 0;
+      if (!(el.offsetWidth || el.offsetHeight || rects)) {
+        return __rdResult({ error: 'not_interactable', reason: 'invisible',
+                            ref: Q.ref, tag: el.tagName.toLowerCase(),
+                            message: 'Element has no rendered geometry' });
+      }
+      function norm(s) { return (s || '').replace(/\\s+/g, ' ').trim(); }
+      var role = (el.getAttribute && el.getAttribute('role')) || null;
+      if (role) role = String(role).split(/\\s+/)[0];
+      var name = '';
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.getAttribute && el.getAttribute('placeholder'));
+      } else {
+        name = norm(el.getAttribute && el.getAttribute('aria-label')) ||
+               norm(el.innerText);
+      }
+      if (name.length > 80) name = name.slice(0, 80);
+      // One dispatch, no replay: the page sees exactly one synthetic click
+      // in this evaluation turn. An error thrown by a handler surfaces as
+      // click_failed — the click may already have partially taken effect.
+      // Page exceptions can embed URLs carrying queries/credentials —
+      // strip every embedded locator to scheme://host/path before the
+      // message leaves the interface (same rule as navigation errors).
+      function scrubText(s) {
+        return String(s).replace(/https?:\/\/[^\s"'<>]+/g, function (u) {
+          try {
+            var p = new URL(u);
+            return p.protocol + '//' + p.host + p.pathname;
+          } catch (_) { return '<url>'; }
+        });
+      }
+      try {
+        el.click();
+      } catch (e) {
+        return __rdResult({ error: 'click_failed', ref: Q.ref,
+                            tag: el.tagName.toLowerCase(),
+                            message: 'click() threw: ' + scrubText(e && e.message || e).slice(0, 200) });
+      }
+      return __rdResult({
+        ref: Q.ref,
+        frame: fr.label,
+        frameIndex: frameIndex,
+        tag: el.tagName.toLowerCase(),
+        role: role,
+        name: name,
+        dispatched: true,
+        synthetic: true,
+        documentId: doc.__rdDocNonce + ':' + frameIndex,
+      });
+    """
+
+    /// Synthetic element click bound to [args]' target (issue #24). `query`
+    /// is the JSON `{ref, documentId}` literal embedded as data. Unlike the
+    /// read probes there is NO post-call binding check: a navigation the
+    /// click legitimately started must not flip a dispatched click into a
+    /// `target_changed` failure — the result is the page-side fact.
+    private func domClick(_ args: [String: Any], result: @escaping FlutterResult) {
+        guard let viewId = (args["viewId"] as? NSNumber)?.int64Value,
+              let expectedIdentityId = args["expectedIdentityId"] as? String,
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "invalid_argument", message: "viewId, expectedIdentityId and query are required", details: nil))
+            return
+        }
+        guard let webView = webViews[viewId],
+              identityIdFor(viewId: viewId) == expectedIdentityId else {
+            result(FlutterError(code: "target_changed", message: "Target is not bound to a live web view", details: nil))
+            return
+        }
+        let gate = SnapshotCompletionGate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + SnapshotPolicy.deadline) {
+            if gate.claim() {
+                result(FlutterError(
+                    code: "dom_click_timeout",
+                    message: "DOM click did not complete within \(Int(SnapshotPolicy.deadline)) s",
+                    details: nil,
+                ))
+            }
+        }
+        let script = "var __rdQuery = \(query);\n" +
+            "var __rdResult = function (o) { return JSON.stringify(o); };\n" +
+            "(function () {\n" + Self.domClickScriptTail + "\n})()"
+        webView.evaluateJavaScript(script) { value, error in
+            guard gate.claim() else { return }
+            if let error {
+                result(FlutterError(code: "dom_click_failed", message: error.localizedDescription, details: nil))
+                return
+            }
+            guard let json = value as? String else {
+                result(FlutterError(code: "dom_click_failed", message: "DOM click returned no JSON payload", details: nil))
                 return
             }
             result([
