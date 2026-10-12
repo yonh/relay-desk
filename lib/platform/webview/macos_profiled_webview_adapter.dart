@@ -1027,6 +1027,40 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Synthetic key dispatch on one element of the view bound to [viewId]
+  /// (issue #26). [query] is a JSON string of `{ref, documentId, key}`.
+  /// The element receives a synthetic `keydown` (+`keypress` for
+  /// printable keys) + `keyup` `KeyboardEvent` sequence — untrusted, no
+  /// OS/global focus involved.
+  Future<Map<String, dynamic>> domKey(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('domKey', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+      'query': query,
+    });
+    final raw = await pending.timeout(
+      // Six seconds keeps the key wait plus the 2 s navigation observe
+      // window below the transport's 10 s command bound (same bound as
+      // domClick/domInput — Devin Review #46).
+      const Duration(seconds: 6),
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_key_timeout',
+          message: 'Native DOM key dispatch did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_key_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and

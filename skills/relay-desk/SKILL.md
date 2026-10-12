@@ -170,8 +170,16 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - The submitted text is **never echoed or logged** — the answer carries only `valueLength` + `eventsFired` + `mode`. Same rule for `password` fields; field content does not appear in later `dom`/`dom_inspect` output either.
 - Same ref semantics as `click`: `stale_element` / `not_found` / `frame_unreachable` / `not_interactable`, one dispatch, never replayed; post-write navigation is reported via `navigationStarted`/`navStatus`/`navigationId`.
 
+## Key (write op)
+
+`relayctl key --identity <uuid> --ref <ref> --document-id <id> --key <name>` (issue #26) dispatches one synthetic `KeyboardEvent` sequence on an element.
+
+- Whitelist only: `Enter Escape Tab Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown`; combos, modifiers, IME composition and free text → `invalid_argument` (unsupported by design).
+- Mechanism, declared (`mechanism:'synthetic_keyboard_events'`, `isTrusted:false`): synthetic `keydown` (+`keypress` for printable keys and Enter) + `keyup` on the element itself — page handlers observe it; **native default actions never occur** (Tab does not move focus, Enter does not natively submit a form, no scrolling) and no OS/global-desktop focus is touched. Anything needing trusted input is unsupported.
+- Hidden/disabled targets refuse (`not_interactable`); stale refs, unreachable frames and never-issued positions map the same as `click`. Exactly one sequence per call, never replayed; key-started navigation (e.g. Enter on a search control) is reported via `navigationStarted`/`navStatus`/`navigationId`.
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate`, `reload`, `click` (untrusted synthetic DOM click) and `input` (framework-observable text write); they expose no script evaluation, trusted/native input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate`, `reload`, `click` (untrusted synthetic DOM click) and `input`/`key` (framework-observable writes; synthetic, untrusted); they expose no script evaluation, trusted/native input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
