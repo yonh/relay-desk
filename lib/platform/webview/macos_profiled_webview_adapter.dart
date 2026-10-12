@@ -258,6 +258,19 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
           ),
         );
         break;
+      case 'boundsChanged':
+        _events.add(
+          WebviewBoundsChanged(
+            identityId,
+            NativeBounds(
+              (payload['x'] as num?)?.toDouble() ?? 0,
+              (payload['y'] as num?)?.toDouble() ?? 0,
+              (payload['width'] as num?)?.toDouble() ?? 0,
+              (payload['height'] as num?)?.toDouble() ?? 0,
+            ),
+          ),
+        );
+        break;
     }
   }
 
@@ -545,14 +558,22 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
   }
 
   @override
-  Future<void> detach(String identityId) async {
+  Future<void> detach(String identityId, {NativeBounds? bounds}) async {
     final viewId = _viewIdByIdentity[identityId];
     if (viewId == null) return;
     _stateByIdentity[identityId] = WebviewState.detaching;
     _events.add(WebviewStateChanged(identityId, WebviewState.detaching));
     _log('detach', {'identityId': identityId, 'viewId': viewId});
     try {
-      await _channel.invokeMethod('detach', {'identityId': identityId});
+      await _channel.invokeMethod('detach', {
+        'identityId': identityId,
+        if (bounds != null) ...{
+          'x': bounds.x,
+          'y': bounds.y,
+          'width': bounds.width,
+          'height': bounds.height,
+        },
+      });
     } on PlatformException {
       _stateByIdentity[identityId] = WebviewState.failed;
       _events.add(WebviewStateChanged(identityId, WebviewState.failed));

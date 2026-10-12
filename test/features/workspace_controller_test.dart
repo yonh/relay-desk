@@ -939,4 +939,159 @@ void main() {
     expect(params['viewportWidth'], isNull);
     expect(params['devicePresetId'], 'bogus-preset');
   });
+
+  group('live layout persistence (issue #50)', () {
+    test(
+      'saveLive/getLive round-trip: clamps to CHECK bounds and getByProject '
+      'excludes the reserved __live__ row',
+      () async {
+        final projRepo = await container.read(
+          projectRepositoryProvider.future,
+        );
+        final wsRepo = await container.read(
+          workspaceRepositoryProvider.future,
+        );
+        final project = await projRepo.create(
+          name: 'P',
+          targetUrl: 'https://example.com',
+        );
+        final identity = await (await container.read(identityRepositoryProvider.future)).create(
+          projectId: project.id,
+          name: 'A',
+          color: '#FF0000',
+          isolationMode: IsolationMode.nativeProfile,
+        );
+        await wsRepo.saveLive(project.id, LayoutMode.canvas, [
+          PanelLayout(
+            identityId: identity.id,
+            x: -40,
+            y: -10,
+            width: 100,
+            height: 50,
+          ),
+        ]);
+        final live = await wsRepo.getLive(project.id);
+        expect(live, isNotNull);
+        expect(live!.name, '__live__');
+        expect(live.layoutMode, LayoutMode.canvas);
+        expect(live.panels, hasLength(1));
+        final p = live.panels.single;
+        expect(p.x, 0);
+        expect(p.y, 0);
+        expect(p.width, 320);
+        expect(p.height, 240);
+        expect(await wsRepo.getByProject(project.id), isEmpty);
+      },
+    );
+
+    test(
+      'restoreProjectLayoutMode loads live layouts; ensurePanel prefers '
+      'persisted geometry over the stagger default',
+      () async {
+        final projRepo = await container.read(
+          projectRepositoryProvider.future,
+        );
+        final wsRepo = await container.read(
+          workspaceRepositoryProvider.future,
+        );
+        final project = await projRepo.create(
+          name: 'P',
+          targetUrl: 'https://example.com',
+        );
+        final identity = await (await container.read(identityRepositoryProvider.future)).create(
+          projectId: project.id,
+          name: 'A',
+          color: '#FF0000',
+          isolationMode: IsolationMode.nativeProfile,
+        );
+        await wsRepo.saveLive(project.id, LayoutMode.canvas, [
+          PanelLayout(
+            identityId: identity.id,
+            x: 55,
+            y: 66,
+            width: 400,
+            height: 320,
+          ),
+        ]);
+        container.read(selectedProjectIdProvider.notifier).select(project.id);
+        final controller = container.read(
+          workspaceControllerProvider.notifier,
+        );
+        await controller.restoreProjectLayoutMode(project.id);
+        controller.ensurePanel(identity, project);
+        final layout = container
+            .read(workspaceControllerProvider)
+            .panels[identity.id]!
+            .layout;
+        expect(layout.x, 55);
+        expect(layout.y, 66);
+        expect(layout.width, 400);
+        expect(layout.height, 320);
+      },
+    );
+
+    test(
+      'updateBounds(finalCommit) persists the live row; close→reopen '
+      'restores the committed layout',
+      () async {
+        final projRepo = await container.read(
+          projectRepositoryProvider.future,
+        );
+        final wsRepo = await container.read(
+          workspaceRepositoryProvider.future,
+        );
+        final project = await projRepo.create(
+          name: 'P',
+          targetUrl: 'https://example.com',
+        );
+        final identity = await (await container.read(identityRepositoryProvider.future)).create(
+          projectId: project.id,
+          name: 'A',
+          color: '#FF0000',
+          isolationMode: IsolationMode.nativeProfile,
+        );
+        container.read(selectedProjectIdProvider.notifier).select(project.id);
+        final controller = container.read(
+          workspaceControllerProvider.notifier,
+        );
+        await controller.restoreProjectLayoutMode(project.id);
+        controller.ensurePanel(identity, project);
+        controller.updateBounds(
+          identity.id,
+          PanelLayout(
+            identityId: identity.id,
+            x: 200,
+            y: 300,
+            width: 640,
+            height: 480,
+          ),
+          finalCommit: true,
+        );
+        // Debounced persist — wait out the timer.
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        final live = await wsRepo.getLive(project.id);
+        expect(live, isNotNull);
+        final persisted = live!.panels
+            .where((p) => p.identityId == identity.id)
+            .single;
+        expect(persisted.x, 200);
+        expect(persisted.y, 300);
+        expect(persisted.width, 640);
+        expect(persisted.height, 480);
+
+        // Close then reopen in the same session: the live map restores the
+        // committed geometry instead of re-staggering.
+        controller.removePanel(identity.id);
+        controller.ensurePanel(identity, project);
+        final layout = container
+            .read(workspaceControllerProvider)
+            .panels[identity.id]!
+            .layout;
+        expect(layout.x, 200);
+        expect(layout.y, 300);
+        expect(layout.width, 640);
+        expect(layout.height, 480);
+      },
+    );
+  });
 }

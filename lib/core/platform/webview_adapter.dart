@@ -108,6 +108,13 @@ class WebviewMeasureModeChanged extends WebviewEvent {
   WebviewMeasureModeChanged(super.identityId, this.enabled);
 }
 
+/// User moved or resized a detached window — native geometry written back
+/// so the panel layout tracks the real window (issue #50).
+class WebviewBoundsChanged extends WebviewEvent {
+  final NativeBounds bounds;
+  WebviewBoundsChanged(super.identityId, this.bounds);
+}
+
 /// Abstract WebView adapter. Platform implementations provide the actual
 /// WKWebView/WebView2 embedding. Remote pages cannot call any method here.
 abstract interface class WebviewAdapter {
@@ -118,7 +125,9 @@ abstract interface class WebviewAdapter {
     int revision,
     NativeBounds bounds,
   );
-  Future<void> detach(String identityId);
+  /// [bounds]: persisted window geometry for a live-layout restore — the
+  /// detached window opens there instead of the platform default.
+  Future<void> detach(String identityId, {NativeBounds? bounds});
   Future<void> attach(String identityId, NativeBounds bounds);
   Future<void> close(String identityId);
   Future<void> navigate(String identityId, Uri uri);
