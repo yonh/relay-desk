@@ -40,6 +40,7 @@ const automationWriteOperations = <String>{
   'activate_project',
   'open_panel',
   'navigate',
+  'reload',
 };
 
 /// Every operation the transport serves.
