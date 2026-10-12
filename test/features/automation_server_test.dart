@@ -314,6 +314,7 @@ void main() {
         'click',
         'input',
         'key',
+        'scroll',
       });
     });
 
