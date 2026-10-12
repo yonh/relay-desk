@@ -2084,6 +2084,15 @@ class AutomationQueries {
         status: 409,
       );
     }
+    // An in-flight navigation's events would land inside the observe
+    // window and be misattributed to this key (same class as click/input).
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
     final armed = _armClickNavigation(id);
     final keyId =
         'key-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
@@ -2108,6 +2117,16 @@ class AutomationQueries {
       rethrow;
     }
     final dispatchedAt = DateTime.now().toUtc();
+    // The write already ran — a project switch that landed inside the
+    // await is reported, not swallowed (same binding rule as click/input).
+    if (readSelectedProjectId() != identity.projectId) {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the key was dispatching',
+        status: 409,
+      );
+    }
     final Map<String, dynamic> payload;
     try {
       final decoded =

@@ -3269,7 +3269,16 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
                             message: 'Frame is not reachable (cross-origin)' });
       }
       var doc = fr.doc;
-      var wantNonce = String(Q.documentId || '').split(':')[0];
+      var didParts = String(Q.documentId || '').split(':');
+      var wantNonce = didParts[0];
+      var wantFrame = didParts.length > 1 ? didParts[1] : null;
+      // Same binding contract as click/input: acting on a ref whose frame
+      // differs from the documentId's frame must not silently proceed.
+      if (wantFrame !== null && wantFrame !== '' &&
+          parseInt(wantFrame, 10) !== frameIndex) {
+        return __rdResult({ error: 'invalid_argument',
+                            message: 'ref frame does not match documentId frame' });
+      }
       if (!doc.__rdDocNonce || doc.__rdDocNonce !== wantNonce) {
         return __rdResult({ error: 'stale_element',
                             message: 'Document changed since the ref was issued; re-probe' });
