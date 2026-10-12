@@ -33,3 +33,13 @@
 ## 范围外（按 issue 未实现）
 
 `forward`（#30 待 `back` 稳定后实施）、`goTo` 任意历史项、鼠标侧键之外的历史 API、任意 JS/CDP/MCP——仅 `back`。
+
+## 评审整改（第三轮）—— 看门狗 arm-reason 感知
+
+Devin + Codex 双复核：KVO 解除仅覆盖 URL 变化与 `canGoForward` 变化——**URL 与两标志均不变**的栈中部同文档遍历（同 URL pushState 链）两观察者都不触发，`goBack/goForward` 武装的看门狗 75s 后仍发出伪 `WATCHDOG loadFailed`，可被后续同 URL 命令的 `preArmGrace` 误归属为 failed。
+
+**修复（arm-reason 感知，方案①）**：`loadWatchdogFired` 时若 reason 仍为 `goBack`/`goForward` —— 真实跨文档遍历必经 `didStartProvisionalNavigation` 以 `didStart` 重新武装并取消原武装项 —— 则该发射只可能是静默同文档遍历或空转，只记日志不发事件。`loadUrl`/`reload`/`initialLoad`/`didStart` 武装的看门狗照常发射（对应路径 Dart 侧置了 `loading`）。
+
+### 已知限制（如实声明）—— 静默遍历判定的非因果性
+
+超时后 pull 的差值（URL 或 `canGoBack`/`canGoForward` 变化）是 WKWebView 上唯一可得的信号，**不具因果性**：等待窗内页面自身并发调用 `history.pushState`/`replaceState`/`back` 也会满足差值，被误判为本 op 已遍历。WKWebView 事件不带导航事务句柄，无更强证据可取——调用方对"同文档遍历是否由本次 back 引发"需知此边界。

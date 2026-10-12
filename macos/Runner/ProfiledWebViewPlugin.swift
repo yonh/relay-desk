@@ -235,6 +235,15 @@ final class ProfiledWebViewPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
             "canGoBack": webView.canGoBack,
             "canGoForward": webView.canGoForward,
         ])
+        // A watchdog still armed with a history-traversal reason means no
+        // navigation callbacks ever arrived — a real cross-document
+        // traversal re-arms via didStartProvisionalNavigation, so this can
+        // only be a silent same-document traversal (or a no-op history
+        // step). Emitting loadFailed here would misattribute the settled
+        // state to later same-URL commands; log-only.
+        if reason == "goBack" || reason == "goForward" {
+            return
+        }
         // Unlatch the Dart-side loading flag. The navigation itself is NOT
         // cancelled — if it eventually completes, didFinish still reports.
         emit([
