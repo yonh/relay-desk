@@ -2417,6 +2417,16 @@ void main() {
         'http://2130706433/',
         'http://0x7f000001/',
         'http://127.1/',
+        // 0.0.0.0/8 (unspecified) routes to loopback on this stack.
+        'http://0.0.0.0/',
+        'http://0/',
+        'http://0.0/',
+        'http://0x0/',
+        'http://[::ffff:0.0.0.0]/',
+        'http://[0:0:0:0:0:ffff:0.0.0.0]/',
+        'http://[::]/',
+        'http://[::ffff:0:127.0.0.1]/',
+        'http://[::127.0.0.1]/',
       ]) {
         await expectLater(
           run({'op': 'navigate', 'identityId': 'id-a1', 'url': url}),

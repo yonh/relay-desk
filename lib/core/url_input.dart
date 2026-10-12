@@ -68,6 +68,9 @@ bool _isLocalHost(String host) {
 }
 
 bool _isPrivateIpv4(List<int> parts) =>
+    // 0.0.0.0/8 is unspecified: on this stack it routes to loopback, so it
+    // must be denied the same way (covers `0`, `0.0`, `0x0`, `0.0.0.0`).
+    parts[0] == 0 ||
     parts[0] == 127 ||
     parts[0] == 10 ||
     (parts[0] == 192 && parts[1] == 168) ||
@@ -118,7 +121,20 @@ List<int>? _numericIpv4(String host) {
 /// IPv4-mapped (::ffff:a.b.c.d) addresses.
 bool _isLocalIpv6(String host) {
   final address = host.replaceAll('[', '').replaceAll(']', '').toLowerCase();
-  if (address == '::1') return true;
+  // `::` (unspecified) is the v6 counterpart of 0.0.0.0 — same loopback
+  // reachability concern.
+  if (address == '::1' || address == '::') return true;
+  // Any `::…a.b.c.d` tail form (IPv4-compatible `::x`, translated
+  // `::ffff:0:x`, mapped `::ffff:x`) carries the dotted quad in the last
+  // group — deny by that address regardless of the v6 envelope.
+  if (address.startsWith('::') && address.contains('.')) {
+    final last = address.split(':').last;
+    final ipv4 = _numericIpv4(last) ??
+        (_ipv4.hasMatch(last)
+            ? last.split('.').map(int.parse).toList()
+            : null);
+    if (ipv4 != null && _isPrivateIpv4(ipv4)) return true;
+  }
   // IPv4-mapped IPv6 — `[::ffff:127.0.0.1]` or the hex form `[::ffff:7f00:1]`
   // — is the same private host with a different notation. Everything before
   // the `ffff:` group must be zeros and separators (`::` or `0:0:...:`).
@@ -126,7 +142,10 @@ bool _isLocalIpv6(String host) {
   final isMapped = fIdx >= 0 &&
       RegExp(r'^[0:]+$').hasMatch(address.substring(0, fIdx));
   if (isMapped) {
-    final tail = address.substring(fIdx + 5);
+    var tail = address.substring(fIdx + 5);
+    // IPv4-translated `::ffff:0:a.b.c.d` — one extra zero group before the
+    // dotted tail; treat it as the same mapped host.
+    if (tail.startsWith('0:')) tail = tail.substring(2);
     if (tail.contains('.')) {
       final ipv4 = _numericIpv4(tail) ??
           (_ipv4.hasMatch(tail)

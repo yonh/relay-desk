@@ -58,3 +58,13 @@ Devin Review 六项 finding 全部属实并已修复：
 ## 测试
 
 `flutter test` 291 项全绿，其中 navigate 专项 19 例：参数校验（identityId/url/invalid_url 含空主机）、not_found、project_not_active、private_network_denied 正反、IPv4 写法变形拒绝（`[::ffff:127.0.0.1]`/`2130706433`/`0x7f000001`/`127.1`）、panel_not_open、no_native_view、navigation_in_flight、committed（finalUrl/canGoBack/时间字段/导航 ID）、主文档提交先于整页完成、同 URL、failed（脱敏错误）、cancelled、superseded、残留事件不误归属、timeout。
+
+## 评审整改（第三轮）—— 0/8 未指定地址族绕过
+
+Devin + Codex 双复核实测：`http://0.0.0.0/`、`http://0/`、`http://0.0/`、`http://0x0/` 对 127.0.0.1 绑定服务返回 200——`_isPrivateIpv4` 漏列 0.0.0.0/8。
+
+修复：`_isPrivateIpv4` 增 `parts[0] == 0`（全族按私网处理，覆盖全部非规范写法）；`_isLocalIpv6` 增 `::`（v6 未指定地址）与任意 `::…a.b.c.d` 尾缀形式统一按尾段 IPv4 判定——同时覆盖 mapped `::ffff:0.0.0.0`、translated `::ffff:0:x`、compatible `::x`。测试补 9 例全部 `private_network_denied`。
+
+### 已知限制（如实声明）—— 同 URL 陈旧事件归因窗口
+
+武装-结算只对**本批 `loadStarted` 之后**到达的事件归因，但同一面板接连两次导航到**同一 URL** 时，上一批滞留的 `loadFailed`/`loadComplete`（URL 与当前批相同）在 `preArmGrace` 窗口内无法与陈旧事件区分——窗口上限即导航完成事件的原生派发延迟（实机 < 1s）。该边界是 WKWebView 事件模型的固有限制：事件不带导航事务句柄，无更强因果证据可取。
