@@ -1009,7 +1009,10 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
       'query': query,
     });
     final raw = await pending.timeout(
-      _snapshotTimeout,
+      // Six seconds keeps the input wait plus the 2 s navigation observe
+      // window below the transport's 10 s command bound (same bound as
+      // domClick — Devin Review #45).
+      const Duration(seconds: 6),
       onTimeout: () {
         pending.ignore();
         throw PlatformException(
