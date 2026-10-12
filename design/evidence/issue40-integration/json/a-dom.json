@@ -1,0 +1,295 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:43:49.671184Z",
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "documentId": "07ex158372ytmv10nlhf",
+    "title": "自动更新 Spec 终审（第二轮修复后） · 圆桌讨论",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+        "documentId": "07ex158372ytmv10nlhf:0",
+        "depth": 0,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "0.8",
+            "tag": "h1",
+            "label": "自动更新 Spec 终审（第二轮修复后）"
+          },
+          {
+            "ref": "0.17",
+            "tag": "button",
+            "label": "P1 P1 ● opencode fledge-alpha-free ◆ high"
+          },
+          {
+            "ref": "0.26",
+            "tag": "button",
+            "label": "P2 P2 ● opencode ling-3.1-flash-free ◆ high"
+          },
+          {
+            "ref": "0.35",
+            "tag": "button",
+            "label": "P3 P3 ● opencode longcat-2.5-preview-free ◆ high"
+          },
+          {
+            "ref": "0.44",
+            "tag": "button",
+            "label": "P4 P4 ● opencode opencode/mimo-v2.6-flash-free ◆ high"
+          },
+          {
+            "ref": "0.57",
+            "tag": "h1",
+            "label": "自动更新 Spec 终审（第二轮修复后）"
+          },
+          {
+            "ref": "0.58",
+            "tag": "h2",
+            "label": "背景"
+          },
+          {
+            "ref": "0.63",
+            "tag": "h2",
+            "label": "讨论目标"
+          },
+          {
+            "ref": "0.68",
+            "tag": "h2",
+            "label": "约束"
+          },
+          {
+            "ref": "0.73",
+            "tag": "h2",
+            "label": "上下文入口"
+          },
+          {
+            "ref": "0.89",
+            "tag": "h2",
+            "label": "焦点问题"
+          },
+          {
+            "ref": "0.95",
+            "tag": "h2",
+            "label": "产出要求"
+          },
+          {
+            "ref": "0.110",
+            "tag": "h2",
+            "label": "立场"
+          },
+          {
+            "ref": "0.114",
+            "tag": "h2",
+            "label": "论点"
+          },
+          {
+            "ref": "0.150",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.164",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.181",
+            "tag": "h2",
+            "label": "立场"
+          },
+          {
+            "ref": "0.183",
+            "tag": "h2",
+            "label": "论点"
+          },
+          {
+            "ref": "0.191",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.208",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.223",
+            "tag": "h2",
+            "label": "立场"
+          },
+          {
+            "ref": "0.228",
+            "tag": "h2",
+            "label": "论点"
+          },
+          {
+            "ref": "0.256",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.273",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.292",
+            "tag": "h2",
+            "label": "立场"
+          },
+          {
+            "ref": "0.294",
+            "tag": "h2",
+            "label": "论点"
+          },
+          {
+            "ref": "0.333",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.344",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.363",
+            "tag": "h2",
+            "label": "交锋"
+          },
+          {
+            "ref": "0.374",
+            "tag": "h2",
+            "label": "立场更新"
+          },
+          {
+            "ref": "0.383",
+            "tag": "h2",
+            "label": "新观点"
+          },
+          {
+            "ref": "0.398",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.407",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.422",
+            "tag": "h2",
+            "label": "立场"
+          },
+          {
+            "ref": "0.426",
+            "tag": "h2",
+            "label": "交锋"
+          },
+          {
+            "ref": "0.439",
+            "tag": "h2",
+            "label": "立场更新"
+          },
+          {
+            "ref": "0.443",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.462",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.478",
+            "tag": "h2",
+            "label": "交锋"
+          },
+          {
+            "ref": "0.510",
+            "tag": "h2",
+            "label": "立场更新"
+          },
+          {
+            "ref": "0.520",
+            "tag": "h2",
+            "label": "新观点"
+          },
+          {
+            "ref": "0.550",
+            "tag": "h2",
+            "label": "风险与盲点"
+          },
+          {
+            "ref": "0.571",
+            "tag": "h2",
+            "label": "抛给圆桌的问题"
+          },
+          {
+            "ref": "0.585",
+            "tag": "h1",
+            "label": "圆桌总结：自动更新 Spec 终审"
+          },
+          {
+            "ref": "0.586",
+            "tag": "h2",
+            "label": "结论（TL;DR）"
+          },
+          {
+            "ref": "0.597",
+            "tag": "h2",
+            "label": "共识"
+          },
+          {
+            "ref": "0.602",
+            "tag": "h2",
+            "label": "分歧与取舍"
+          },
+          {
+            "ref": "0.629",
+            "tag": "h2",
+            "label": "各席独特洞见"
+          },
+          {
+            "ref": "0.641",
+            "tag": "h2",
+            "label": "建议行动项"
+          },
+          {
+            "ref": "0.655",
+            "tag": "h2",
+            "label": "发言签署"
+          },
+          {
+            "ref": "0.663",
+            "tag": "button",
+            "label": "⇧ 顶部"
+          },
+          {
+            "ref": "0.664",
+            "tag": "button",
+            "label": "⇩ 底部"
+          }
+        ],
+        "text": "自动更新 Spec 终审（第二轮修复后） 实现探索 orchestrated 讨论轮 ×1 总结者 host 已总结 开局盲答 → 多轮交锋 → 总结 · 4 席 · 生成于 2026-10-08 11:34 P1 P1 ● opencode fledge-alpha-free ◆ high P2 P2 ● opencode ling-3.1-flash-free ◆ high P3 P3 ● opencode longcat-2.5-preview-free",
+        "title": "自动更新 Spec 终审（第二轮修复后） · 圆桌讨论",
+        "elementCount": 52
+      }
+    ],
+    "truncated": true,
+    "skipped": {
+      "nodes": 0,
+      "frames": 0,
+      "hidden": 6,
+      "textTruncated": 1
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:48:49.332624Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-reload.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-reload.html",
+        "depth": 0,
+        "reachable": true,
+        "installed": true,
+        "errors": [
+          {
+            "t": "2026-10-09T13:48:39.980Z",
+            "kind": "error",
+            "message": "Error: batch-1-error",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-reload.html",
+            "line": 11,
+            "col": 70,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-reload.html:11:41"
+          }
+        ],
+        "bufferId": "b8f0346nfgxy-1791553719777",
+        "collectedAt": "2026-10-09T13:48:39.777Z",
+        "overflow": 0,
+        "count": 1
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0,
+    "errorsDropped": 0
+  }
+}

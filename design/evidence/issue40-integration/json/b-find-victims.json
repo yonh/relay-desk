@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:51:37.183162Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-mutate.html",
+    "documentId": "oqow0trui19mv10xm8u",
+    "matchCount": 2,
+    "complete": true,
+    "scannedTotal": 9,
+    "scanTruncated": false,
+    "unreachableFrames": 0,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.6",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "VICTIM-BTN",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.7",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "VICTIM-BTN2",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:49:17.349300Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/hidden.html",
+    "documentId": "ar13kft4fymv10umci",
+    "title": "hidden-fixture",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/hidden.html",
+        "documentId": "ar13kft4fymv10umci:0",
+        "depth": 0,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "0.5",
+            "tag": "h1",
+            "label": "visible heading"
+          },
+          {
+            "ref": "0.6",
+            "tag": "button",
+            "label": "visible button"
+          },
+          {
+            "ref": "0.12",
+            "tag": "a",
+            "label": "visible link",
+            "href": "/a.html"
+          },
+          {
+            "ref": "0.13",
+            "tag": "input",
+            "label": "visible-input",
+            "inputType": "text"
+          }
+        ],
+        "text": "visible heading visible button visible link",
+        "title": "hidden-fixture",
+        "elementCount": 4
+      }
+    ],
+    "truncated": false,
+    "skipped": {
+      "nodes": 0,
+      "frames": 0,
+      "hidden": 11,
+      "textTruncated": 0
+    }
+  }
+}

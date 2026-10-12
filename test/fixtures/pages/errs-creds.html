@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><title>error redaction fixture</title>
+<body>
+<h2>error redaction fixture — synthetic credentials only</h2>
+<script>
+// All credential strings below are synthetic. Expected: recognized
+// key/value pairs redacted whole (any length), URLs stripped to
+// origin+pathname, Bearer/Basic values redacted.
+var longTok = '';
+for (var i = 0; i < 600; i++) longTok += 'a';
+setTimeout(function () {
+  Promise.reject(new Error('short quoted {"password":"123"}'));
+}, 100);
+setTimeout(function () {
+  Promise.reject(new Error('long quoted {"token":"' + longTok + '"}'));
+}, 200);
+setTimeout(function () {
+  Promise.reject(new Error('bare api_key=abc123XYZ tail'));
+}, 300);
+setTimeout(function () {
+  throw new Error('fetch https://user:pw@example.com/p?q=1&token=T0K3N-IN-QUERY failed');
+}, 400);
+setTimeout(function () {
+  Promise.reject(new Error('Authorization Bearer abcdef0123456789'));
+}, 500);
+setTimeout(function () {
+  Promise.reject({"secret":"object-secret-marker"});
+}, 600);
+</script>
+</body>

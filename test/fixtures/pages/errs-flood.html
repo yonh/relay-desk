@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>error flood fixture</title>
+<body>
+<h2>error flood fixture — 230 errors (ring cap is 200)</h2>
+<script>
+for (var i = 0; i < 230; i++) {
+  (function (n) {
+    setTimeout(function () { throw new Error('flood-' + n); }, 300 + n * 4);
+  })(i);
+}
+</script>
+</body>

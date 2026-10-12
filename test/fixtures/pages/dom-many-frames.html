@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>frame budget fixture</title>
+<body>
+<h1>frame budget fixture — 20 same-origin iframes (probe cap is 16)</h1>
+<script>
+for (var i = 0; i < 20; i++) {
+  var f = document.createElement('iframe');
+  f.src = './a.html';
+  f.width = 60; f.height = 40;
+  document.body.appendChild(f);
+}
+</script>
+</body>

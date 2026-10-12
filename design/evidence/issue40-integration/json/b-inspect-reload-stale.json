@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": {
+    "code": "stale_element",
+    "message": "Document changed since the ref was issued; re-probe"
+  }
+}

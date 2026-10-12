@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>error nav-batch fixture</title>
+<body>
+<h2>error nav-batch fixture — one same-URL reload, two batches</h2>
+<script>
+// Driven by ?batch=N: doc with no ?batch throws batch-0-error then
+// reloads to ?batch=1; the second document throws batch-1-error and
+// stops. Sampling before/after the reload must show a different
+// bufferId and no carry-over of batch-0.
+var q = new URLSearchParams(location.search);
+var batch = parseInt(q.get('batch') || '0', 10);
+setTimeout(function () { throw new Error('batch-' + batch + '-error'); }, 200);
+if (batch === 0) {
+  setTimeout(function () { location.search = '?batch=1'; }, 15000);
+}
+</script>
+</body>

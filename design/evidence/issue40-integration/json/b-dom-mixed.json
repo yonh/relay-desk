@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:50:30.873897Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frames-mixed.html",
+    "documentId": "y07086qvmrmv10w72w",
+    "title": "mixed frames fixture",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-frames-mixed.html",
+        "documentId": "y07086qvmrmv10w72w:0",
+        "depth": 0,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "0.5",
+            "tag": "h1",
+            "label": "mixed frames fixture — hidden iframes before visible ones"
+          }
+        ],
+        "text": "mixed frames fixture — hidden iframes before visible ones",
+        "title": "mixed frames fixture",
+        "elementCount": 1
+      },
+      {
+        "index": 1,
+        "label": "f1",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/b.html",
+        "documentId": "y07086qvmrmv10w72w:1",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-BETA identity B viewport evidence",
+        "title": "PAGE-BETA",
+        "elementCount": 0
+      },
+      {
+        "index": 2,
+        "label": "f3",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "y07086qvmrmv10w72w:2",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      }
+    ],
+    "truncated": false,
+    "skipped": {
+      "nodes": 0,
+      "frames": 0,
+      "hidden": 11,
+      "textTruncated": 0
+    }
+  }
+}

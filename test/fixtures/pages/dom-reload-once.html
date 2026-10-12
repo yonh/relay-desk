@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>dom reload fixture</title>
+<body>
+<h1>dom reload fixture</h1>
+<button id="stable">STABLE-BTN</button>
+<script>
+// One same-URL reload ~15s after first load. Refs/documentIds issued
+// before the reload must turn stale_element afterwards even though an
+// identical button exists in the new document.
+if (!sessionStorage.getItem('rd')) {
+  sessionStorage.setItem('rd', '1');
+  setTimeout(function () { location.reload(); }, 15000);
+}
+</script>
+</body>

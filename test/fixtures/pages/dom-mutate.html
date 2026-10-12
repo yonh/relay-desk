@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><title>dom mutation fixture</title>
+<body>
+<h1>dom mutation fixture</h1>
+<button id="victim">VICTIM-BTN</button>
+<button id="victim2">VICTIM-BTN2</button>
+<script>
+// After ~15s the page removes #victim: VICTIM-BTN2 slides into its
+// document position, so a ref issued for 0.6 resolves to a different
+// stamped element (stale_element), while positions beyond the former
+// tail hold unissued elements (not_found). A replacement button is
+// appended separately.
+setTimeout(function () {
+  var v = document.getElementById('victim');
+  if (v && v.parentNode) v.parentNode.removeChild(v);
+  var b = document.createElement('button');
+  b.id = 'victim';
+  b.textContent = 'VICTIM-REPLACED';
+  document.body.appendChild(b);
+}, 15000);
+</script>
+</body>

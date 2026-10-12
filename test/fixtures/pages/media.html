@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>media probe fixture</title>
+<body>
+<h2>media fixture</h2>
+<video id="v-play" src="v.mp4" autoplay muted playsinline width="160"></video>
+<video id="v-pause" src="v.mp4" preload="auto" width="160"></video>
+<video id="v-broken" src="missing.mp4" width="160"></video>
+<video id="v-nosrc" width="160"></video>
+<audio id="a-pause" src="a.wav" preload="auto"></audio>
+<iframe src="media-frame.html" width="200" height="120"></iframe>
+<iframe src="data:text/html,<p>SECRET-PAYLOAD-MARKER</p>" width="120" height="80"></iframe>
+<iframe src="https://example.com/" width="200" height="120"></iframe>
+</body>

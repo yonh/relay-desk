@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "alreadyOpen": true,
+    "openedAt": "2026-10-09T14:12:25.220506Z",
+    "panel": {
+      "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+      "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+      "identityName": "Http-A",
+      "state": "embedded",
+      "url": "http://127.0.0.1:8901/a.html",
+      "loading": false,
+      "selected": false,
+      "devicePresetId": "desktop-1920",
+      "isolationMode": "nativeProfile",
+      "layout": {
+        "x": 70.0,
+        "y": 70.0,
+        "width": 480.0,
+        "height": 360.0,
+        "zIndex": 0,
+        "minimized": false,
+        "detached": false
+      },
+      "nativeViewId": 10,
+      "windowId": 37,
+      "hasKeyboardFocus": false
+    },
+    "nativeViewId": 10,
+    "windowId": 37,
+    "selected": false,
+    "hasKeyboardFocus": false,
+    "viewReady": true,
+    "frameSettled": true
+  }
+}

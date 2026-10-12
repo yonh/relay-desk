@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:44:16.655873Z",
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "element": {
+      "ref": "0.17",
+      "frame": "main",
+      "frameIndex": 0,
+      "tag": "button",
+      "role": "button",
+      "name": "P1 P1 ● opencode fledge-alpha-free ◆ high",
+      "visible": true,
+      "disabled": false,
+      "checked": null,
+      "selected": null,
+      "focused": false,
+      "attrs": {
+        "class": "seat",
+        "title": "点击只看 P1 的发言；再点一次取消"
+      },
+      "rect": {
+        "x": 22,
+        "y": 135,
+        "width": 337.265625,
+        "height": 56,
+        "coordinateSpace": "frame",
+        "note": "Viewport-relative CSS pixels of the element own frame (main); scroll and iframe offsets are not composed."
+      },
+      "documentId": "tnyio2xmyemv10o6ac:0"
+    }
+  }
+}

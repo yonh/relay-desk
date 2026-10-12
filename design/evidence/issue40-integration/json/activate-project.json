@@ -1,0 +1,70 @@
+{
+  "ok": true,
+  "data": {
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "project": {
+      "id": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+      "name": "VerifyHTTP",
+      "targetUrl": "http://127.0.0.1:8901",
+      "allowPrivateNetwork": true,
+      "defaultLayoutMode": "focus"
+    },
+    "alreadyActive": false,
+    "activatedAt": "2026-10-09T13:43:17.087105Z",
+    "selectedProjectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "workspaceSelectedProjectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "selectedPanelId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "selectionConsistent": true,
+    "focusedIdentityId": null,
+    "frameSettled": true,
+    "settled": true,
+    "panels": [
+      {
+        "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+        "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+        "identityName": "Http-A",
+        "state": "openingEmbedded",
+        "url": "http://127.0.0.1:8901/a.html",
+        "loading": false,
+        "selected": true,
+        "devicePresetId": "desktop-1920",
+        "isolationMode": "nativeProfile",
+        "layout": {
+          "x": 40.0,
+          "y": 40.0,
+          "width": 480.0,
+          "height": 360.0,
+          "zIndex": 0,
+          "minimized": false,
+          "detached": false
+        },
+        "nativeViewId": null,
+        "windowId": null,
+        "hasKeyboardFocus": false
+      },
+      {
+        "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+        "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+        "identityName": "Http-B",
+        "state": "openingEmbedded",
+        "url": "http://127.0.0.1:8901/review.html",
+        "loading": false,
+        "selected": false,
+        "devicePresetId": "desktop-1920",
+        "isolationMode": "nativeProfile",
+        "layout": {
+          "x": 70.0,
+          "y": 70.0,
+          "width": 480.0,
+          "height": 360.0,
+          "zIndex": 0,
+          "minimized": false,
+          "detached": false
+        },
+        "nativeViewId": null,
+        "windowId": null,
+        "hasKeyboardFocus": false
+      }
+    ]
+  }
+}

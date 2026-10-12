@@ -1,0 +1,74 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:43:56.101246Z",
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "documentId": "vddpoqm7eafmv10nqgy",
+    "matchCount": 6,
+    "complete": true,
+    "scannedTotal": 666,
+    "scanTruncated": false,
+    "unreachableFrames": 0,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.17",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "P1 P1 ● opencode fledge-alpha-free ◆ high",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.26",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "P2 P2 ● opencode ling-3.1-flash-free ◆ high",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.35",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "P3 P3 ● opencode longcat-2.5-preview-free ◆ high",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.44",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "P4 P4 ● opencode opencode/mimo-v2.6-flash-free ◆ high",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.663",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "⇧ 顶部",
+        "visible": true,
+        "disabled": false
+      },
+      {
+        "ref": "0.664",
+        "frame": "main",
+        "tag": "button",
+        "role": "button",
+        "label": "⇩ 底部",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}

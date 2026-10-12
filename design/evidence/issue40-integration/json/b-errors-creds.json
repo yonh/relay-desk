@@ -1,0 +1,85 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:49:04.351899Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html",
+        "depth": 0,
+        "reachable": true,
+        "installed": true,
+        "errors": [
+          {
+            "t": "2026-10-09T13:48:54.381Z",
+            "kind": "unhandledrejection",
+            "message": "short quoted {\"password:\"<redacted>\"}",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html:11:27"
+          },
+          {
+            "t": "2026-10-09T13:48:54.482Z",
+            "kind": "unhandledrejection",
+            "message": "long quoted {\"token:\"<redacted>\"}",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html:14:27"
+          },
+          {
+            "t": "2026-10-09T13:48:54.579Z",
+            "kind": "unhandledrejection",
+            "message": "bare api_key=<redacted> tail",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html:17:27"
+          },
+          {
+            "t": "2026-10-09T13:48:54.679Z",
+            "kind": "error",
+            "message": "Error: fetch https://example.com/p failed",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html",
+            "line": 20,
+            "col": 89,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html:20:18"
+          },
+          {
+            "t": "2026-10-09T13:48:54.782Z",
+            "kind": "unhandledrejection",
+            "message": "Authorization Bearer <redacted>",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-creds.html:23:27"
+          },
+          {
+            "t": "2026-10-09T13:48:54.882Z",
+            "kind": "unhandledrejection",
+            "message": "[object Object]",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": null
+          }
+        ],
+        "bufferId": "bmpo6f6ypk7j-1791553734277",
+        "collectedAt": "2026-10-09T13:48:54.277Z",
+        "overflow": 0,
+        "count": 6
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0,
+    "errorsDropped": 0
+  }
+}

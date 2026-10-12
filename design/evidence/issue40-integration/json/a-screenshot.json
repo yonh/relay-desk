@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "capturedAt": "2026-10-09T13:44:23.606450Z",
+    "format": "png",
+    "width": 550,
+    "height": 394,
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "outputPath": "/Users/devin/Library/Caches/relay-desk/agent-evidence/issue-40/case-a-panel.png",
+    "byteLength": 59119
+  }
+}

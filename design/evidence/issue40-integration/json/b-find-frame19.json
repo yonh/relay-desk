@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": {
+    "code": "frame_out_of_scope",
+    "message": "Frame list truncated by budget; label may exist outside the scanned frames"
+  }
+}

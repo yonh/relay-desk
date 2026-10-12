@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "98205caa-ac31-46a0-b257-907a4c27702e",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 8,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:43:56.061480Z",
+    "url": "http://127.0.0.1:8901/.roundtables/auto-update-review/index.html",
+    "documentId": "3x6ar5z4307mv10nqfu",
+    "matchCount": 1,
+    "complete": true,
+    "scannedTotal": 666,
+    "scanTruncated": false,
+    "unreachableFrames": 0,
+    "truncated": false,
+    "matches": [
+      {
+        "ref": "0.89",
+        "frame": "main",
+        "tag": "h2",
+        "role": "heading",
+        "label": "焦点问题",
+        "visible": true,
+        "disabled": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:52:38.266232Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-many-frames.html",
+    "documentId": "mluinly3a2mv10yxdi",
+    "title": "frame budget fixture",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/dom-many-frames.html",
+        "documentId": "mluinly3a2mv10yxdi:0",
+        "depth": 0,
+        "reachable": true,
+        "elements": [
+          {
+            "ref": "0.5",
+            "tag": "h1",
+            "label": "frame budget fixture — 20 same-origin iframes (probe cap is 16)"
+          }
+        ],
+        "text": "frame budget fixture — 20 same-origin iframes (probe cap is 16)",
+        "title": "frame budget fixture",
+        "elementCount": 1
+      },
+      {
+        "index": 1,
+        "label": "f0",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:1",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 2,
+        "label": "f1",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:2",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 3,
+        "label": "f2",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:3",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 4,
+        "label": "f3",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:4",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 5,
+        "label": "f4",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:5",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 6,
+        "label": "f5",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:6",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 7,
+        "label": "f6",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:7",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 8,
+        "label": "f7",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:8",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 9,
+        "label": "f8",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:9",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 10,
+        "label": "f9",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:10",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 11,
+        "label": "f10",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:11",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 12,
+        "label": "f11",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:12",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 13,
+        "label": "f12",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:13",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 14,
+        "label": "f13",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:14",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      },
+      {
+        "index": 15,
+        "label": "f14",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/a.html",
+        "documentId": "mluinly3a2mv10yxdi:15",
+        "depth": 1,
+        "reachable": true,
+        "elements": [],
+        "text": "PAGE-ALPHA identity A viewport evidence",
+        "title": "PAGE-ALPHA",
+        "elementCount": 0
+      }
+    ],
+    "truncated": true,
+    "skipped": {
+      "nodes": 0,
+      "frames": 5,
+      "hidden": 35,
+      "textTruncated": 0
+    }
+  }
+}

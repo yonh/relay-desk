@@ -1,0 +1,81 @@
+{
+  "ok": true,
+  "data": {
+    "identityId": "7f78ffc9-a39f-491e-b886-c9d3491ee503",
+    "projectId": "bf0a306e-b7db-469d-95fb-7e0e039b4913",
+    "nativeViewId": 9,
+    "windowId": 37,
+    "sampledAt": "2026-10-09T13:46:06.873291Z",
+    "url": "http://127.0.0.1:8901/test/fixtures/pages/errs.html",
+    "frames": [
+      {
+        "index": 0,
+        "label": "main",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/errs.html",
+        "depth": 0,
+        "reachable": true,
+        "installed": true,
+        "errors": [
+          {
+            "t": "2026-10-09T13:45:54.263Z",
+            "kind": "error",
+            "message": "Error: main-boom",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs.html",
+            "line": 5,
+            "col": 54,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs.html:5:41"
+          },
+          {
+            "t": "2026-10-09T13:45:54.374Z",
+            "kind": "unhandledrejection",
+            "message": "rej-failure",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs.html:6:50"
+          },
+          {
+            "t": "2026-10-09T13:45:54.463Z",
+            "kind": "unhandledrejection",
+            "message": "[object Object]",
+            "source": "",
+            "line": null,
+            "col": null,
+            "stack": null
+          }
+        ],
+        "bufferId": "bq915w2e5zn9-1791553553959",
+        "collectedAt": "2026-10-09T13:45:53.959Z",
+        "overflow": 0,
+        "count": 3
+      },
+      {
+        "index": 1,
+        "label": "f0",
+        "url": "http://127.0.0.1:8901/test/fixtures/pages/errs-frame.html",
+        "depth": 1,
+        "reachable": true,
+        "installed": true,
+        "errors": [
+          {
+            "t": "2026-10-09T13:45:54.337Z",
+            "kind": "error",
+            "message": "Error: frame-boom",
+            "source": "http://127.0.0.1:8901/test/fixtures/pages/errs-frame.html",
+            "line": 2,
+            "col": 67,
+            "stack": "@http://127.0.0.1:8901/test/fixtures/pages/errs-frame.html:2:53"
+          }
+        ],
+        "bufferId": "b4zxj3k5993t-1791553553984",
+        "collectedAt": "2026-10-09T13:45:53.984Z",
+        "overflow": 0,
+        "count": 1
+      }
+    ],
+    "truncated": false,
+    "skippedFrames": 0,
+    "depthLimitSkipped": 0,
+    "errorsDropped": 0
+  }
+}
