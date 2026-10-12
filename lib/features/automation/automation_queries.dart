@@ -49,6 +49,7 @@ class AutomationQueries {
     required this.domFind,
     required this.domInspect,
     required this.domClick,
+    required this.domInput,
     required this.selectProject,
     required this.ensurePanel,
     required this.awaitFrame,
@@ -139,6 +140,17 @@ class AutomationQueries {
     String query,
   )
   domClick;
+
+  /// Framework-observable text write into an editable element of the view
+  /// bound to `viewId`. The third argument is a JSON string of
+  /// `{ref, documentId, text, mode}` — the text crosses as data and is
+  /// never echoed in the result. Injected so tests can observe the call.
+  final Future<Map<String, dynamic>> Function(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  )
+  domInput;
 
   /// Switches the UI's selected project — wired to the very provider call
   /// the sidebar makes (`selectedProjectIdProvider.notifier.select`), never
@@ -261,6 +273,8 @@ class AutomationQueries {
         return _reload(command);
       case 'click':
         return _click(command);
+      case 'input':
+        return _input(command);
     }
     throw const AutomationFailure(
       'unsupported_operation',
@@ -1780,6 +1794,207 @@ class AutomationQueries {
       subscription: subscription,
       started: () => started,
     );
+  }
+
+  /// Framework-observable text input into an editable element (issue
+  /// #25). `identityId`, `ref`, `documentId` and `text` are required;
+  /// `mode` is `replace` (default — also how a field is cleared) or
+  /// `append`. The fixed native script re-resolves the ref in the same
+  /// document, enforces the v1 editable set (text-family INPUT types +
+  /// TEXTAREA; readonly/disabled/hidden/non-editable → `not_interactable`)
+  /// and writes through the prototype value setter plus real `input` +
+  /// `change` events so Vue/uni-app controlled models update — the
+  /// mechanism is declared, never implied. The submitted text is never
+  /// echoed or logged; only `valueLength` leaves the page. No form
+  /// submit, no Enter key, no checkbox agreement — a business submit is
+  /// a separate explicit action.
+  Future<Map<String, Object?>> _input(Map<String, dynamic> command) async {
+    final id = _optionalString(command, 'identityId');
+    final ref = _optionalString(command, 'ref');
+    final documentId = _optionalString(command, 'documentId');
+    final text = command['text'];
+    if (id == null || ref == null || documentId == null || text is! String) {
+      throw const AutomationFailure(
+        'invalid_argument',
+        'input requires identityId, ref, documentId and text',
+      );
+    }
+    final mode = _optionalString(command, 'mode') ?? 'replace';
+    if (mode != 'replace' && mode != 'append') {
+      throw const AutomationFailure(
+        'invalid_argument',
+        "mode must be 'replace' or 'append'",
+      );
+    }
+    final identity = await identities.getById(id);
+    if (identity == null) throw _notFound('identity');
+    if (identity.projectId != readSelectedProjectId()) {
+      throw const AutomationFailure(
+        'project_not_active',
+        "Identity's project is not the active project",
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the input dispatch',
+        status: 409,
+      );
+    }
+    final panel = readWorkspace().panels[id];
+    if (panel == null ||
+        panel.state == WebviewState.closed ||
+        panel.state == WebviewState.closing ||
+        panel.state == WebviewState.failed) {
+      throw const AutomationFailure(
+        'panel_not_open',
+        'Panel is not open for this identity',
+        status: 409,
+      );
+    }
+    final native = await readNativeWindows();
+    final view = _viewFor(_nativeList(native, 'views'), id);
+    final viewId = view?['viewId'];
+    if (viewId is! int) {
+      throw const AutomationFailure(
+        'no_native_view',
+        'Panel has no registered native view',
+        status: 409,
+      );
+    }
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed before the input dispatch',
+        status: 409,
+      );
+    }
+    // An in-flight navigation's events would land inside the observe
+    // window and be misattributed to this input (same class as click).
+    if (isNavigating(id)) {
+      throw const AutomationFailure(
+        'navigation_in_flight',
+        'A navigation is already in flight for this panel',
+        status: 409,
+      );
+    }
+    final armed = _armClickNavigation(id);
+    final inputId =
+        'inp-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}';
+    final requestedAt = DateTime.now().toUtc();
+    final Map<String, dynamic> probed;
+    try {
+      probed = await domInput(
+        viewId,
+        id,
+        // _jsSafeJson: the payload is embedded into a script as a JSON
+        // literal — user text must not carry raw U+2028/2029 line
+        // separators into JS source (SEC: JSON-literal breakout).
+        jsonEncode({
+          'ref': ref,
+          'documentId': documentId,
+          'text': text,
+          'mode': mode,
+        }).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029'),
+      );
+    } on PlatformException catch (error) {
+      await armed.subscription.cancel();
+      const codes = {
+        'target_changed',
+        'dom_input_failed',
+        'dom_input_timeout',
+      };
+      if (codes.contains(error.code)) {
+        throw AutomationFailure(
+          error.code,
+          error.message ?? 'Input could not be dispatched',
+          status: error.code == 'target_changed' ? 409 : 500,
+        );
+      }
+      rethrow;
+    }
+    final dispatchedAt = DateTime.now().toUtc();
+    // The write already ran — a project switch that landed inside the
+    // await is reported, not swallowed (same binding rule as click).
+    if (readSelectedProjectId() != identity.projectId) {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the input was dispatching',
+        status: 409,
+      );
+    }
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(probed['json'] is String ? probed['json'] as String : '');
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      payload = decoded;
+    } on FormatException {
+      await armed.subscription.cancel();
+      throw const AutomationFailure(
+        'dom_input_failed',
+        'Native input returned malformed JSON',
+        status: 500,
+      );
+    }
+    final error = payload['error'];
+    if (error is String) {
+      await armed.subscription.cancel();
+      throw AutomationFailure(
+        error,
+        payload['message'] as String? ?? 'Input could not run',
+        status: error == 'invalid_argument'
+            ? 400
+            : (error == 'not_found'
+                ? 404
+                : (error == 'input_failed' ? 500 : 409)),
+      );
+    }
+    WebviewEvent? event;
+    try {
+      event = await armed.settled.future.timeout(clickNavObserveBudget);
+    } on TimeoutException {
+      event = null;
+    } finally {
+      await armed.subscription.cancel();
+    }
+    final settledAt = event == null ? null : DateTime.now().toUtc();
+    final outcome = _navigationOutcome(event);
+    final navigationStarted = armed.started() || event != null;
+    return {
+      'identityId': id,
+      'projectId': identity.projectId,
+      'nativeViewId': viewId,
+      'windowId': probed['windowId'] ?? view?['windowId'],
+      'ref': ref,
+      'frame': payload['frame'],
+      'tag': payload['tag'],
+      'type': ?payload['type'],
+      'documentId': payload['documentId'],
+      // Framework-observable write: prototype value setter + real
+      // input/change events — the mechanism is declared, never implied.
+      'mechanism': 'prototype_setter_and_events',
+      'mode': payload['mode'] ?? mode,
+      // The text never leaves the page — only its length.
+      'valueLength': payload['valueLength'],
+      'eventsFired': payload['eventsFired'],
+      'inputId': inputId,
+      'dispatched': true,
+      'requestedAt': requestedAt.toIso8601String(),
+      'dispatchedAt': dispatchedAt.toIso8601String(),
+      'settledAt': settledAt?.toIso8601String(),
+      'navigationStarted': navigationStarted,
+      if (navigationStarted)
+        'navigationId':
+            'nav-${DateTime.now().toUtc().millisecondsSinceEpoch}-${_navSequence++}',
+      if (navigationStarted) 'navStatus': outcome.status,
+      'finalUrl': ?outcome.finalUrl,
+      'canGoBack': ?outcome.canGoBack,
+      'canGoForward': ?outcome.canGoForward,
+      'navError': ?outcome.error,
+      'panelQueryable': true,
+    };
   }
 
   /// Armed navigation wait, shared by navigate/reload: the listener ignores

@@ -992,6 +992,41 @@ class MacosProfiledWebviewAdapter implements WebviewAdapter {
     return _jsonCompatible(raw) as Map<String, dynamic>;
   }
 
+  /// Text input into an editable element on the view bound to [viewId]
+  /// (issue #25). [query] is a JSON string of
+  /// `{ref, documentId, text, mode}` — embedded natively as a data literal
+  /// ahead of the fixed input script. The text is written by the page's
+  /// own value setter plus real `input`/`change` events; it is never
+  /// echoed back or logged (only its length leaves the page).
+  Future<Map<String, dynamic>> domInput(
+    int viewId,
+    String expectedIdentityId,
+    String query,
+  ) async {
+    final pending = _channel.invokeMethod<dynamic>('domInput', {
+      'viewId': viewId,
+      'expectedIdentityId': expectedIdentityId,
+      'query': query,
+    });
+    final raw = await pending.timeout(
+      // Six seconds keeps the input wait plus the 2 s navigation observe
+      // window below the transport's 10 s command bound (same bound as
+      // domClick — Devin Review #45).
+      const Duration(seconds: 6),
+      onTimeout: () {
+        pending.ignore();
+        throw PlatformException(
+          code: 'dom_input_timeout',
+          message: 'Native DOM input did not complete within the deadline',
+        );
+      },
+    );
+    if (raw is! Map) {
+      throw PlatformException(code: 'dom_input_failed');
+    }
+    return _jsonCompatible(raw) as Map<String, dynamic>;
+  }
+
   /// StandardMessageCodec decodes native dictionaries as
   /// `Map<Object?, Object?>` on some engine versions. Normalize recursively
   /// so the query layer and jsonEncode only see `Map<String, dynamic>` and
