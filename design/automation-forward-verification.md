@@ -35,3 +35,9 @@
 - 页面内自建路由栈（不经 `history`/backForwardList）仍如实 `timeout`。
 - 单元测试：automation_queries 套件 164 项全绿（含 forward 专项：
   committed 批次、静默同文档、navigation_in_flight 拦截、no_history）。
+
+## 评审整改（第二轮）—— 文档边界声明
+
+同 #48：静默同文档遍历的判定（超时后 pull `url`/`canGoBack`/`canGoForward` 差值）不具因果性——等待窗内页面自身并发修改 history 同样满足差值，会被误判为本 op 已遍历。WKWebView 无导航事务句柄可取更强证据，如实记录为已知限制。
+
+另：#48 落地 arm-reason 感知看门狗（goBack/goForward 武装超时只记日志不发伪 loadFailed）后，forward 的栈中部同 URL 遍历不再污染后续同 URL 命令——该修复在共享插件层，本 PR 随栈继承。
