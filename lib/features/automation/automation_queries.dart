@@ -2317,6 +2317,15 @@ class AutomationQueries {
       rethrow;
     }
     final dispatchedAt = DateTime.now().toUtc();
+    // The scroll already ran — a project switch that landed inside the
+    // await is reported, not swallowed (same binding rule as click/input).
+    if (readSelectedProjectId() != identity.projectId) {
+      throw const AutomationFailure(
+        'target_changed',
+        'Active project changed while the scroll was dispatching',
+        status: 409,
+      );
+    }
     final Map<String, dynamic> payload;
     try {
       final decoded =
