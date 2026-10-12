@@ -152,8 +152,17 @@ Session descriptor files carry a bearer token. Pass the file path and keep its c
 - `status` matches navigate: `committed` (main-document commit), `failed`, `cancelled` (superseded or panel closing), `timeout` (no commit inside the bounded wait — re-query `panels`/`state`). `navigationId` identifies the batch; `url` is the sanitized reloaded URL; page readiness is established by a subsequent `dom`/`screenshot`/`media` sample, not by this answer.
 - A navigation already in flight → `navigation_in_flight` (409); a concurrent call on the same identity → `panel_busy` (409).
 
+## Click (write op)
+
+`relayctl click --identity <uuid> --ref <frame>.<position> --document-id <id>` (issue #24) performs one **synthetic DOM click** on an element previously issued by `dom`/`dom_find`.
+
+- Mechanism, stated honestly: the fixed native script calls `HTMLElement.click()` — the event is **untrusted** (`isTrusted:false`, reported in the answer). It is not a mouse event and never falls back to coordinates; scenarios that need trusted input are unsupported.
+- `ref` + `documentId` are both required; before dispatching the script re-resolves the ref inside the same document nonce and re-checks interactivity — stale ref/document → `stale_element` (409), position never issued → `not_found` (404), hidden/disabled/no-geometry → `not_interactable` (409, `reason` distinguishes), cross-origin frame → `frame_unreachable` (409).
+- Exactly **one** dispatch per call, never replayed on timeout — repeat calls are the caller's choice. The answer reports dispatch facts (`dispatched`, `clickId`, `mechanism`, `isTrusted`), not business success.
+- A click-started navigation is observed for a short window and reported as `navigationStarted` + `navStatus` (`committed`/`failed`/`cancelled`/`timeout`) + `navigationId` + sanitized `finalUrl`; afterwards re-issue `dom`/`dom_find` — the old document's refs are stale. `navigationStarted:false` means none seen within the window (a later one can still occur; re-query `panels`/`state`).
+
 ## Scope
 
-The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate` and `reload`; they expose no script evaluation, synthetic input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
+The current stages expose a read-only panel screenshot plus metadata, media-state sampling, the page error buffer, a DOM summary and DOM find, plus the write operations `activate_project`, `open_panel`, `navigate`, `reload` and `click` (untrusted synthetic DOM click); they expose no script evaluation, trusted/native input, console, network or CDP; `capabilities.limitations` reports these as false. Ask for those signals from a native control tool (screen, click, keyboard) only when the task authorizes UI work and those tools exist — a `read only` request scope keeps the whole session read only, including native channels.
 
 Metadata alone never establishes that a business behavior passed. For evidence tiers, role mapping, and the playback/gift signals metadata cannot prove, read [references/acceptance.md](references/acceptance.md) when the task is grading acceptance rather than reading metadata.
